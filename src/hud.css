@@ -1,0 +1,197 @@
+:root {
+  --hud: #f2f4f7;
+  --hud-dim: rgba(242, 244, 247, 0.6);
+  --hit: #ffffff;
+  --kill: #ff4d4d;
+  --accent: #ff9a3c;
+}
+
+html,
+body {
+  margin: 0;
+  height: 100%;
+  overflow: hidden;
+  background: #0d0f12;
+  font-family: system-ui, -apple-system, 'Segoe UI', sans-serif;
+  user-select: none;
+}
+
+canvas {
+  display: block;
+  width: 100%;
+  height: 100%;
+}
+
+#hud {
+  position: fixed;
+  inset: 0;
+  pointer-events: none;
+  color: var(--hud);
+  text-shadow: 0 1px 2px rgba(0, 0, 0, 0.7);
+}
+
+/* Mira dinâmica: o espaçamento acompanha o espalhamento da arma */
+#crosshair {
+  --gap: 8px;
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  width: 0;
+  height: 0;
+}
+#crosshair i {
+  position: absolute;
+  background: var(--hud);
+  box-shadow: 0 0 2px rgba(0, 0, 0, 0.8);
+}
+#crosshair .t,
+#crosshair .b {
+  width: 2px;
+  height: 9px;
+  left: -1px;
+}
+#crosshair .l,
+#crosshair .r {
+  width: 9px;
+  height: 2px;
+  top: -1px;
+}
+#crosshair .t { bottom: var(--gap); }
+#crosshair .b { top: var(--gap); }
+#crosshair .l { right: var(--gap); }
+#crosshair .r { left: var(--gap); }
+
+#dot {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  width: 4px;
+  height: 4px;
+  margin: -2px 0 0 -2px;
+  border-radius: 50%;
+  background: var(--accent);
+  opacity: 0;
+}
+
+#hitmarker {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  width: 22px;
+  height: 22px;
+  margin: -11px 0 0 -11px;
+  opacity: 0;
+  transform: rotate(45deg);
+}
+#hitmarker::before,
+#hitmarker::after {
+  content: '';
+  position: absolute;
+  background: var(--hit);
+  inset: 10px 0;
+  /* traço horizontal com buraco no meio */
+  mask: linear-gradient(90deg, #000 35%, transparent 35% 65%, #000 65%);
+}
+#hitmarker::after {
+  inset: 0 10px;
+  mask: linear-gradient(180deg, #000 35%, transparent 35% 65%, #000 65%);
+}
+#hitmarker.kill::before,
+#hitmarker.kill::after {
+  background: var(--kill);
+}
+
+#speed {
+  position: absolute;
+  left: 50%;
+  bottom: 28px;
+  transform: translateX(-50%);
+  font-size: 15px;
+  font-variant-numeric: tabular-nums;
+  color: var(--hud-dim);
+}
+#state {
+  position: absolute;
+  left: 50%;
+  bottom: 50px;
+  transform: translateX(-50%);
+  font-size: 12px;
+  letter-spacing: 0.15em;
+  color: var(--accent);
+}
+
+#ammo {
+  position: absolute;
+  right: 32px;
+  bottom: 24px;
+  font-variant-numeric: tabular-nums;
+}
+#ammo-cur {
+  font-size: 40px;
+  font-weight: 700;
+}
+#ammo-cur.low {
+  color: var(--kill);
+}
+#ammo-max {
+  font-size: 18px;
+  margin-left: 6px;
+  color: var(--hud-dim);
+}
+#reload {
+  position: absolute;
+  left: 50%;
+  top: calc(50% + 48px);
+  transform: translateX(-50%);
+  font-size: 13px;
+  letter-spacing: 0.2em;
+  color: var(--accent);
+  display: none;
+}
+
+#overlay {
+  position: fixed;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  background: rgba(8, 10, 14, 0.62);
+  backdrop-filter: blur(3px);
+  color: var(--hud);
+  cursor: pointer;
+  padding: 16px;
+}
+#overlay.hidden {
+  display: none;
+}
+.card {
+  max-width: 460px;
+  width: 100%;
+}
+.card h1 {
+  margin: 0 0 4px;
+  font-size: 28px;
+}
+.cta {
+  margin: 0 0 18px;
+  color: var(--accent);
+  font-weight: 600;
+}
+.card table {
+  border-collapse: collapse;
+  font-size: 14px;
+  width: 100%;
+}
+.card td {
+  padding: 4px 0;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+  vertical-align: top;
+}
+.card td:first-child {
+  width: 140px;
+  color: var(--hud-dim);
+}
+#loading {
+  margin-top: 14px;
+  font-size: 13px;
+  color: var(--hud-dim);
+}
