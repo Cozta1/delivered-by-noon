@@ -10,7 +10,7 @@ import {
   Vec3,
   WasmModule,
 } from 'playcanvas';
-import { buildLevel, SPAWN } from './level';
+import { buildLevel, SPAWN, SPAWN_YAW } from './level';
 import { FpsController, PLAYER_RADIUS, STAND_HEIGHT } from './scripts/fps-controller';
 import { Weapon } from './scripts/weapon';
 import { Hud } from './hud';
@@ -43,13 +43,13 @@ async function main() {
   // antes do start ficavam sem forma de colisão (o jogador atravessava o chão).
   app.start();
 
-  app.scene.ambientLight = new Color(0.5, 0.52, 0.58);
+  app.scene.ambientLight = new Color(0.5, 0.47, 0.5);
 
   // Luz do sol
   const sun = new Entity('Sun');
   sun.addComponent('light', {
     type: 'directional',
-    color: new Color(1, 0.96, 0.9),
+    color: new Color(1, 0.82, 0.62),
     intensity: 1.8,
     castShadows: true,
     shadowDistance: 60,
@@ -57,7 +57,7 @@ async function main() {
     normalOffsetBias: 0.05,
     shadowBias: 0.2,
   });
-  sun.setEulerAngles(50, 35, 0);
+  sun.setEulerAngles(62, 120, 0); // sol baixo de fim de tarde
   app.root.addChild(sun);
 
   buildLevel(app);
@@ -65,7 +65,7 @@ async function main() {
   // Câmera (fica fora do jogador: o rigidbody controla a rotação dele)
   const camera = new Entity('Camera');
   camera.addComponent('camera', {
-    clearColor: new Color(0.55, 0.68, 0.85),
+    clearColor: new Color(0.86, 0.66, 0.52),
     fov: 90,
     nearClip: 0.03,
     farClip: 400,
@@ -88,6 +88,7 @@ async function main() {
   });
   player.addComponent('script');
   const controller = player.script!.create(FpsController, { properties: { camera } }) as FpsController;
+  controller.yaw = SPAWN_YAW;
 
   camera.addComponent('script');
   const weapon = camera.script!.create(Weapon, {}) as unknown as Weapon;
