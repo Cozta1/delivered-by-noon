@@ -6,7 +6,9 @@ import {
   Color,
   type ContainerResource,
   Entity,
+  type GraphNode,
   Mat4,
+  type MeshInstance,
   StandardMaterial,
 } from 'playcanvas';
 
@@ -72,46 +74,55 @@ function cloneDefaultHitbox(): [number, number, number][] {
   return DEFAULT_A29_HITBOX.map(([x, y, z]) => [x, y, z]);
 }
 
-function relativeLocalMatrix(entity: Entity, ancestor: Entity, out: Mat4): Mat4 {
-  const chain: Entity[] = [];
-  let cur: Entity | null = entity;
+function isDescendantOrSelf(node: GraphNode, ancestor: GraphNode): boolean {
+  let cur: GraphNode | null = node;
+  while (cur) {
+    if (cur === ancestor) return true;
+    cur = cur.parent;
+  }
+  return false;
+}
+
+function relativeLocalMatrix(node: GraphNode, ancestor: GraphNode, out: Mat4): Mat4 {
+  const chain: GraphNode[] = [];
+  let cur: GraphNode | null = node;
   while (cur && cur !== ancestor) {
     chain.push(cur);
-    cur = cur.parent as Entity | null;
+    cur = cur.parent;
   }
   out.setIdentity();
   const step = new Mat4();
   for (let i = chain.length - 1; i >= 0; i--) {
-    const node = chain[i];
-    step.setTRS(node.getLocalPosition(), node.getLocalRotation(), node.getLocalScale());
+    const n = chain[i];
+    step.setTRS(n.getLocalPosition(), n.getLocalRotation(), n.getLocalScale());
     out.mul(step);
   }
   return out;
 }
 
-function collectRenderEntities(rootNode: Entity, out: Entity[] = []): Entity[] {
-  if (rootNode.render) out.push(rootNode);
+function collectVisualEntities(rootNode: Entity, out: Entity[] = []): Entity[] {
+  if (rootNode.render || rootNode.model) out.push(rootNode);
   const children = rootNode.children;
   for (let i = 0; i < children.length; i++) {
-    collectRenderEntities(children[i] as Entity, out);
+    collectVisualEntities(children[i] as Entity, out);
   }
   return out;
 }
 
-function computeLocalAabb(glbRoot: Entity): BoundingBox | null {
-  const renderEntities = collectRenderEntities(glbRoot);
+function computeLocalAabb(rootNode: Entity): BoundingBox | null {
+  const visualEntities = collectVisualEntities(rootNode);
   const relMat = new Mat4();
   const tmpBox = new BoundingBox();
   let total: BoundingBox | null = null;
 
-  for (let i = 0; i < renderEntities.length; i++) {
-    const entity = renderEntities[i];
-    const meshInstances = entity.render?.meshInstances;
-    if (!meshInstances || meshInstances.length === 0) continue;
-    relativeLocalMatrix(entity, glbRoot, relMat);
+  const accumulate = (entity: Entity, meshInstances: ReadonlyArray<MeshInstance> | null | undefined) => {
+    if (!meshInstances || meshInstances.length === 0) return;
     for (let j = 0; j < meshInstances.length; j++) {
-      const meshAabb = meshInstances[j]?.mesh?.aabb;
+      const mi = meshInstances[j];
+      const meshAabb = mi?.mesh?.aabb;
       if (!meshAabb) continue;
+      const refNode: GraphNode = mi.node && isDescendantOrSelf(mi.node, rootNode) ? mi.node : entity;
+      relativeLocalMatrix(refNode, rootNode, relMat);
       tmpBox.setFromTransformedAabb(meshAabb, relMat);
       if (!total) {
         total = new BoundingBox(tmpBox.center.clone(), tmpBox.halfExtents.clone());
@@ -119,6 +130,12 @@ function computeLocalAabb(glbRoot: Entity): BoundingBox | null {
         total.add(tmpBox);
       }
     }
+  };
+
+  for (let i = 0; i < visualEntities.length; i++) {
+    const entity = visualEntities[i];
+    accumulate(entity, entity.render?.meshInstances);
+    accumulate(entity, entity.model?.meshInstances);
   }
   return total;
 }
@@ -392,7 +409,7 @@ export function buildAirplane(app: AppBase, parent: Entity = app.root): Airplane
     root.addChild(glbRoot);
 
     // Coleta todas as entidades renderizáveis do GLB e preserva visibilidade (ex.: modo cabine)
-    const glbExterior = collectRenderEntities(glbRoot);
+    const glbExterior = collectVisualEntities(glbRoot);
     for (let i = 0; i < glbExterior.length; i++) {
       const render = glbExterior[i].render;
       if (render) render.enabled = showExterior;
@@ -479,9 +496,9 @@ export function bindSceneAirplane(
 ): { model: AirplaneModel; cleanup(): void } {
   sceneRoot.enabled = true;
   const createdHelpers: Entity[] = [];
-  const exterior = collectRenderEntities(sceneRoot);
+  const exterior = collectVisualEntities(sceneRoot);
 
-  // Se a entidade da cena estiver vazia (sem malhas), anexa o modelo padrão como filho temporário
+  // Se a entidade da cena estiver vazia (sem malhas render nem model), anexa o modelo padrão como filho temporário
   if (exterior.length === 0) {
     const built = buildAirplane(app, sceneRoot);
     built.root.setLocalPosition(0, 0, 0);
@@ -502,9 +519,20 @@ export function bindSceneAirplane(
     };
   }
 
-  let prop =
+  let prop: Entity | null =
     (sceneRoot.findByName('Prop') as Entity | null) ??
     (sceneRoot.findByName('prop') as Entity | null);
+  // No componente legado `model`, o nó "Prop" pode estar no grafo interno do modelo
+  if (!prop) {
+    for (let i = 0; i < exterior.length; i++) {
+      const graph = exterior[i].model?.model?.graph;
+      const found = graph?.findByName('Prop') ?? graph?.findByName('prop') ?? null;
+      if (found) {
+        prop = found as unknown as Entity;
+        break;
+      }
+    }
+  }
   if (!prop) {
     prop = new Entity('Prop', app);
     prop.setLocalPosition(0, -0.04, -5.24);
@@ -553,6 +581,8 @@ export function bindSceneAirplane(
       for (let i = 0; i < exterior.length; i++) {
         const render = exterior[i].render;
         if (render) render.enabled = true;
+        const modelComp = exterior[i].model;
+        if (modelComp) modelComp.enabled = true;
       }
       for (let i = 0; i < createdHelpers.length; i++) {
         createdHelpers[i].destroy();

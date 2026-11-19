@@ -7,6 +7,10 @@
 // 3. Cole este arquivo inteiro no Console e pressione Enter.
 // 4. Confira as entidades criadas na Hierarchy e no Viewport; depois clique em Launch.
 //
+// Compatível com os dois modos de importação de GLB do Editor:
+// - Novo (useModelV2 = true): assets `template` / `render`
+// - Legado (useModelV2 = false): assets `model`
+//
 // Segurança: 100% local no navegador usando apenas a Editor API oficial (`editor`).
 // Não envia dados para fora e pode ser executado novamente sem duplicar entidades.
 // ============================================================================
@@ -29,7 +33,7 @@
   const root = entitiesApi.root;
   const allAssets = typeof assetsApi.list === 'function' ? assetsApi.list() : [];
 
-  // --- Helpers de consulta na Editor API ---
+  // --- Helpers da Editor API ---
   const getVal = (obj, path) => (obj && typeof obj.get === 'function' ? obj.get(path) : undefined);
 
   function listEntities() {
@@ -48,15 +52,6 @@
   function findChildren(parent) {
     const parentId = getVal(parent, 'resource_id');
     return listEntities().filter((e) => getVal(e, 'parent') === parentId);
-  }
-
-  async function removeEntity(entity) {
-    if (!entity) return;
-    if (typeof entity.delete === 'function') {
-      await entity.delete({ history: true });
-    } else if (typeof entitiesApi.delete === 'function') {
-      await entitiesApi.delete([entity], { history: true });
-    }
   }
 
   async function ensureEntity(name, opts) {
@@ -104,72 +99,118 @@
     return String(raw || '')
       .trim()
       .toLowerCase()
-      .replace(/\.glb$/i, '');
+      .replace(/\.(glb|json|fbx)$/i, '');
   }
 
-  // Encontra o template (preferencial) ou os render assets associados a um arquivo GLB
-  function resolveGlbGroup(matcherFn) {
+  function describeAsset(a) {
+    const id = getVal(a, 'id');
+    const name = getVal(a, 'name');
+    const type = getVal(a, 'type');
+    const isSrc = getVal(a, 'source') === true;
+    return `${name} [type=${type}, id=${id}${isSrc ? ', source' : ''}]`;
+  }
+
+  // Agrupa os assets derivados de cada GLB: template, render (novo) e model (legado)
+  function resolveGlbGroups(matcherFn) {
+    const groups = new Map();
+    const ensureGroup = (base, label) => {
+      if (!groups.has(base)) {
+        groups.set(base, { base, label, template: null, renders: [], models: [] });
+      }
+      return groups.get(base);
+    };
+
+    // 1) Procura pelos assets source (.glb) e coleta seus derivados via source_asset_id
     const matchedSources = allAssets.filter(
       (a) => getVal(a, 'source') === true && matcherFn(assetFileName(a), String(getVal(a, 'name') || '')),
     );
-
-    const groups = new Map();
-
     for (const src of matchedSources) {
       const srcId = String(getVal(src, 'id'));
-      const base = normalizeBaseName(assetFileName(src) || getVal(src, 'name'));
-      const derived = allAssets.filter((a) => String(getVal(a, 'source_asset_id') || '') === srcId);
-      const template = derived.find((a) => getVal(a, 'type') === 'template') || null;
-      const renders = derived.filter((a) => getVal(a, 'type') === 'render');
-      groups.set(base, { label: String(getVal(src, 'name') || base), template, renders });
+      const label = String(getVal(src, 'name') || assetFileName(src));
+      const base = normalizeBaseName(assetFileName(src) || label);
+      const g = ensureGroup(base, label);
+
+      for (const a of allAssets) {
+        if (String(getVal(a, 'source_asset_id') || '') !== srcId) continue;
+        const type = String(getVal(a, 'type') || '');
+        if (type === 'template' && !g.template) g.template = a;
+        else if (type === 'render' && !g.renders.includes(a)) g.renders.push(a);
+        else if (type === 'model' && !g.models.includes(a)) g.models.push(a);
+      }
     }
 
-    // Fallback: caso algum template/render tenha sido encontrado pelo nome mesmo sem source listado
+    // 2) Fallback: caso o asset derivado (template/render/model) tenha o nome direto sem source_asset_id casado
     for (const a of allAssets) {
-      const type = getVal(a, 'type');
-      if (type !== 'template' && type !== 'render') continue;
+      if (getVal(a, 'source') === true) continue;
+      const type = String(getVal(a, 'type') || '');
+      if (type !== 'template' && type !== 'render' && type !== 'model') continue;
       const name = String(getVal(a, 'name') || '');
-      if (!matcherFn(assetFileName(a), name)) continue;
-      const base = normalizeBaseName(name);
-      if (!groups.has(base)) {
-        groups.set(base, {
-          label: name,
-          template: type === 'template' ? a : null,
-          renders: type === 'render' ? [a] : [],
-        });
-      } else {
-        const g = groups.get(base);
-        if (type === 'template' && !g.template) g.template = a;
-        if (type === 'render' && !g.renders.includes(a)) g.renders.push(a);
-      }
+      const file = assetFileName(a);
+      if (!matcherFn(file, name)) continue;
+      const base = normalizeBaseName(name || file);
+      const g = ensureGroup(base, name || file);
+      if (type === 'template' && !g.template) g.template = a;
+      else if (type === 'render' && !g.renders.includes(a)) g.renders.push(a);
+      else if (type === 'model' && !g.models.includes(a)) g.models.push(a);
     }
 
     return [...groups.values()].sort((a, b) => a.label.localeCompare(b.label));
   }
 
-  async function instantiateGlbGroup(group, parentEntity) {
+  // Verifica se o parent já possui um filho montado para este grupo (idempotência sem duplicar)
+  function findExistingChildForGroup(parentEntity, group) {
+    const children = findChildren(parentEntity);
+    const tplId = group.template ? Number(getVal(group.template, 'id')) : null;
+    const renderIds = new Set(group.renders.map((a) => Number(getVal(a, 'id'))));
+    const modelIds = new Set(group.models.map((a) => Number(getVal(a, 'id'))));
+
+    for (const child of children) {
+      const childBase = normalizeBaseName(getVal(child, 'name'));
+      const childTpl = Number(getVal(child, 'template_id') || 0);
+      const childModel = Number(getVal(child, 'components.model.asset') || 0);
+      const childRender = Number(getVal(child, 'components.render.asset') || 0);
+
+      if (tplId && childTpl === tplId) return child;
+      if (childModel && modelIds.has(childModel)) return child;
+      if (childRender && renderIds.has(childRender)) return child;
+      if (childBase === group.base) return child;
+    }
+    return null;
+  }
+
+  async function mountGlbGroup(group, parentEntity) {
+    const existing = findExistingChildForGroup(parentEntity, group);
+    if (existing) {
+      existing.set('enabled', true);
+      return { status: 'mantido', detail: `"${group.label}" (já montado em ${getVal(existing, 'name')})` };
+    }
+
+    // 1) Formato novo: template gerado do GLB
     if (group.template) {
       if (typeof group.template.instantiateTemplate === 'function') {
         const inst = await group.template.instantiateTemplate(parentEntity, { history: true });
         if (inst) {
+          inst.set('name', group.label);
           inst.set('position', [0, 0, 0]);
           inst.set('rotation', [0, 0, 0]);
           inst.set('scale', [1, 1, 1]);
-          return `template "${group.label}"`;
+          return { status: 'montado', detail: `template "${group.label}" (id=${getVal(group.template, 'id')})` };
         }
       }
       if (typeof assetsApi.instantiateTemplates === 'function') {
         const list = await assetsApi.instantiateTemplates([group.template], parentEntity, { history: true });
         const inst = Array.isArray(list) ? list[0] : list;
         if (inst) {
+          inst.set('name', group.label);
           inst.set('position', [0, 0, 0]);
           inst.set('rotation', [0, 0, 0]);
           inst.set('scale', [1, 1, 1]);
-          return `template "${group.label}"`;
+          return { status: 'montado', detail: `template "${group.label}" (id=${getVal(group.template, 'id')})` };
         }
       }
     }
 
+    // 2) Formato novo sem template: render asset(s)
     if (group.renders.length > 0) {
       for (const renderAsset of group.renders) {
         const renderId = Number(getVal(renderAsset, 'id'));
@@ -184,6 +225,7 @@
             enabled: true,
             components: {
               render: {
+                enabled: true,
                 type: 'asset',
                 asset: renderId,
                 castShadows: false,
@@ -194,10 +236,48 @@
           { history: true },
         );
       }
-      return `${group.renders.length} render(s) de "${group.label}"`;
+      return { status: 'montado', detail: `${group.renders.length} render(s) de "${group.label}"` };
     }
 
-    return null;
+    // 3) Formato legado (useModelV2: false): asset do tipo "model"
+    if (group.models.length > 0) {
+      const modelAsset = group.models[0];
+      const modelId = Number(getVal(modelAsset, 'id'));
+      const childName = String(getVal(modelAsset, 'name') || group.label);
+      const child = await entitiesApi.create(
+        {
+          name: childName,
+          parent: parentEntity,
+          position: [0, 0, 0],
+          rotation: [0, 0, 0],
+          scale: [1, 1, 1],
+          enabled: true,
+          components: {
+            model: {
+              enabled: true,
+              type: 'asset',
+              asset: modelId,
+              castShadows: false,
+              receiveShadows: false,
+            },
+          },
+        },
+        { history: true },
+      );
+      // Garante atribuição do componente model caso o Editor ignore `components` no create
+      if (child && !getVal(child, 'components.model')) {
+        child.addComponent('model', {
+          enabled: true,
+          type: 'asset',
+          asset: modelId,
+          castShadows: false,
+          receiveShadows: false,
+        });
+      }
+      return { status: 'montado', detail: `model "${group.label}" (id=${modelId})` };
+    }
+
+    return { status: 'ausente', detail: `"${group.label}" (nenhum asset derivado template/render/model encontrado)` };
   }
 
   // --- 1. Desativar entidades padrão e antigas do projeto ---
@@ -215,7 +295,6 @@
       disabledNames.push(name);
     }
 
-    // Desativa scripts antigos caso estejam ligados em outra entidade (ex.: Root)
     const scriptsObj = getVal(entity, 'components.script.scripts');
     if (scriptsObj && typeof scriptsObj === 'object') {
       for (const oldScript of LEGACY_SCRIPTS) {
@@ -230,6 +309,7 @@
   // --- 2. Entidade "Jogo" com o script clássico "simuladorVoo" ---
   const jogo = await ensureEntity('Jogo', { position: [0, 0, 0], rotation: [0, 0, 0] });
   const scriptOrder = getVal(jogo, 'components.script.order') || [];
+  let scriptInfo = 'já anexado (mantido)';
   if (!scriptOrder.includes('simuladorVoo') && !scriptOrder.includes('flightSim')) {
     const hasClassic = allAssets.some((a) => {
       const scripts = getVal(a, 'data.scripts');
@@ -256,9 +336,7 @@
         scripts: { [scriptName]: { enabled: true, attributes: {} } },
       });
     }
-    console.log(`[Horizonte Dourado] Script "${scriptName}" anexado em Jogo.`);
-  } else {
-    console.log('[Horizonte Dourado] Script já anexado em Jogo (mantido sem duplicar).');
+    scriptInfo = `"${scriptName}" anexado`;
   }
 
   // --- 3. Entidade "Sol" (luz direcional de fim de tarde) ---
@@ -284,31 +362,33 @@
 
   // --- 5. Entidade "A29" (posição inicial SPAWN = [0, 180, 720]) ---
   const a29 = await ensureEntity('A29', { position: [0, 180, 720], rotation: [0, 0, 0], scale: [1, 1, 1] });
-  // Limpa filhos antigos de A29 antes de re-instanciar (evita duplicatas ao rodar de novo)
-  for (const child of findChildren(a29)) {
-    await removeEntity(child);
-  }
-  const a29Groups = resolveGlbGroup(
-    (file, name) => /^a29(\.glb)?$/i.test(file) || /^a29(\.glb)?$/i.test(name),
+  const a29Groups = resolveGlbGroups(
+    (file, name) => /^a29(\.(glb|json))?$/i.test(file) || /^a29(\.(glb|json))?$/i.test(name),
   );
-  let a29Info = 'nenhum asset a29.glb encontrado (usará fallback procedural no Launch)';
-  if (a29Groups.length > 0) {
-    const mounted = await instantiateGlbGroup(a29Groups[0], a29);
-    if (mounted) a29Info = mounted;
+  const mountedList = [];
+  const missingList = [];
+
+  if (a29Groups.length === 0) {
+    missingList.push('A29: nenhum asset "a29.glb" encontrado no projeto');
+  } else {
+    const res = await mountGlbGroup(a29Groups[0], a29);
+    if (res.status === 'ausente') missingList.push(`A29: ${res.detail}`);
+    else mountedList.push(`A29 (${res.status}): ${res.detail}`);
   }
 
-  // --- 6. Entidade "Mundo" (filhos renderizáveis de todos os mundo-*.glb) ---
+  // --- 6. Entidade "Mundo" (filhos visuais de todos os mundo-*.glb) ---
   const mundo = await ensureEntity('Mundo', { position: [0, 0, 0], rotation: [0, 0, 0], scale: [1, 1, 1] });
-  for (const child of findChildren(mundo)) {
-    await removeEntity(child);
-  }
-  const worldGroups = resolveGlbGroup(
+  const worldGroups = resolveGlbGroups(
     (file, name) => /^mundo-/i.test(file) || /^mundo-/i.test(name),
   );
-  const mountedWorldParts = [];
-  for (const g of worldGroups) {
-    const info = await instantiateGlbGroup(g, mundo);
-    if (info) mountedWorldParts.push(info);
+  if (worldGroups.length === 0) {
+    missingList.push('Mundo: nenhum asset "mundo-*.glb" encontrado no projeto');
+  } else {
+    for (const g of worldGroups) {
+      const res = await mountGlbGroup(g, mundo);
+      if (res.status === 'ausente') missingList.push(`Mundo: ${res.detail}`);
+      else mountedList.push(`Mundo (${res.status}): ${res.detail}`);
+    }
   }
 
   // --- 7. Iluminação ambiente, névoa da cena e Settings -> Input -> Keyboard ---
@@ -338,13 +418,23 @@
     keyboardConfigured = false;
   }
 
-  // --- Resumo final no Console ---
-  console.log('=== [Horizonte Dourado] Cena montada com sucesso ===');
-  console.log('Entidades ativas: Jogo, Mundo, A29, CameraJogo, Sol');
-  console.log(`A29: ${a29Info}`);
-  console.log(
-    `Mundo: ${mountedWorldParts.length > 0 ? mountedWorldParts.join(', ') : 'nenhum asset mundo-*.glb encontrado (o jogo criará o mundo procedural no Launch)'}`,
-  );
+  // --- Diagnóstico detalhado no Console ---
+  const relevantAssets = allAssets
+    .filter((a) => /^(a29|mundo-)/i.test(String(getVal(a, 'name') || '')) || /^(a29|mundo-)/i.test(assetFileName(a)))
+    .map(describeAsset);
+
+  console.log('=== [Horizonte Dourado] Resumo da montagem da cena ===');
+  console.log(`Entidades: Jogo (${scriptInfo}), Sol, CameraJogo, A29, Mundo`);
+  console.log(`Montados (${mountedList.length}):`);
+  for (const line of mountedList) console.log(`  + ${line}`);
+  if (missingList.length > 0) {
+    console.warn(`Não encontrados (${missingList.length}):`);
+    for (const line of missingList) console.warn(`  ! ${line}`);
+  } else {
+    console.log('Não encontrados: nenhum (todos os modelos encontrados foram montados).');
+  }
+  console.log(`Assets a29/mundo-* detectados no projeto (${relevantAssets.length}):`);
+  for (const desc of relevantAssets) console.log(`  · ${desc}`);
   console.log(`Desativados: ${disabledNames.length > 0 ? disabledNames.join(', ') : 'nenhum item antigo ativo'}`);
   console.log(
     keyboardConfigured

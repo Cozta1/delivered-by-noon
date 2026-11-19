@@ -61,10 +61,13 @@ Para que o mundo, o A-29, a câmera e o sol apareçam **montados na Hierarchy e 
 4. Copie todo o conteúdo de `scripts/montar-cena-editor.js`, **cole no Console** e pressione **Enter**.
    - O snippet usa apenas a Editor API oficial (`editor`), é 100% local e pode ser executado novamente sem duplicar entidades.
    - Ele cria/atualiza `Jogo` (com o script `simuladorVoo`), `Mundo` (filhos de `mundo-*.glb`), `A29` (a partir de `a29.glb`), `CameraJogo` e `Sol`, desativa `Camera`/`Light` padrão e entidades/scripts antigos (`Player`, `Ground`, `Plane`, `playerMovement`, `cameraFollow`, `gunController`) e tenta habilitar **Settings → Input → Keyboard**.
+   - Compatível tanto com o formato novo (`template`/`render`) quanto com o formato legado (`model`, quando `useModelV2` está desativado no projeto). Ao final, o Console imprime um resumo diagnóstico do que foi montado.
 5. Confira na **Hierarchy** as cinco entidades criadas (selecione `A29` e aperte **F** para focar o avião no Viewport).
 6. Clique em **Launch**: o simulador detecta automaticamente `Mundo`, `A29`, `CameraJogo` e `Sol` na cena e os utiliza sem criar duplicatas (mantendo a colisão lógica do terreno/cidade).
 
 > **Nota:** Sem a cena montada (ou se alguma dessas entidades faltar), o script continua funcionando normalmente criando o que faltar em tempo de execução.
+>
+> **Formato novo de GLB (opcional):** Se preferir trabalhar com hierarquia completa e templates no Editor (para ver o nó `Prop` separado na Hierarchy), ative em **Settings → Asset Tasks → Import Hierarchy** / **Create Templates** (`useModelV2`), reimporte `a29.glb` e os `mundo-*.glb` (botão direito → *Re-import*) e execute o snippet novamente.
 
 ### Como reverter a cena montada
 

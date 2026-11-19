@@ -73,10 +73,10 @@ function collectByNamePattern(root: Entity, pattern: RegExp, out: Entity[] = [])
   return out;
 }
 
-function hasAnyRender(node: Entity): boolean {
-  if (node.render) return true;
+function hasAnyVisual(node: Entity): boolean {
+  if (node.render || node.model) return true;
   for (let i = 0; i < node.children.length; i++) {
-    if (hasAnyRender(node.children[i] as Entity)) return true;
+    if (hasAnyVisual(node.children[i] as Entity)) return true;
   }
   return false;
 }
@@ -266,11 +266,11 @@ export function startFlightSim(app: AppBase, uiRoot: HTMLElement): { destroy(): 
     simRoot.addChild(sun);
   }
 
-  // 2) Mundo: se "Mundo" existir na cena com malhas visuais, usa ela + colisão lógica sem render
+  // 2) Mundo: se "Mundo" existir na cena com malhas visuais (render ou model), usa ela + colisão lógica sem render
   const sceneWorld = findSceneEntity(app.root, SCENE_ENTITY_NAMES.world, simRoot);
   let world: World;
   let cloudEntities: Entity[];
-  if (sceneWorld && hasAnyRender(sceneWorld)) {
+  if (sceneWorld && hasAnyVisual(sceneWorld)) {
     const prevWorldEnabled = sceneWorld.enabled;
     sceneWorld.enabled = true;
     const skyMats: StandardMaterial[] = [];
@@ -425,11 +425,17 @@ export function startFlightSim(app: AppBase, uiRoot: HTMLElement): { destroy(): 
     }
   }
 
-  function showPlaneExterior() {
+  function setPlaneExteriorVisible(visible: boolean) {
     for (let i = 0; i < plane.exterior.length; i++) {
       const render = plane.exterior[i].render;
-      if (render) render.enabled = true;
+      if (render) render.enabled = visible;
+      const modelComp = plane.exterior[i].model;
+      if (modelComp) modelComp.enabled = visible;
     }
+  }
+
+  function showPlaneExterior() {
+    setPlaneExteriorVisible(true);
   }
 
   function releasePointerLock() {
@@ -647,6 +653,12 @@ export function startFlightSim(app: AppBase, uiRoot: HTMLElement): { destroy(): 
     } else if (mode === 'playing') {
       flightModule.update(dt);
       cameraRig.update(dt);
+      // Sincroniza visibilidade de componentes `model` legados na troca de câmera (cabine)
+      const showExt = state.camera !== 'cockpit';
+      for (let i = 0; i < plane.exterior.length; i++) {
+        const modelComp = plane.exterior[i].model;
+        if (modelComp && modelComp.enabled !== showExt) modelComp.enabled = showExt;
+      }
       cockpitModule.update(dt);
       hudModule.update(dt);
       smokeModule.update(dt);
