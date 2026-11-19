@@ -19,7 +19,28 @@ Isso cria `dist-editor/flight-sim.mjs` (com o CSS embutido e `playcanvas` como d
 3. Na seção **Engine**, selecione a versão **2.x** mais recente disponível.
 4. Em **Settings → Input → Keyboard**, confirme que o teclado está habilitado (já vem ativado por padrão; se estiver desativado, o script exibirá um aviso na tela e não iniciará os controles).
 
-## 3. Enviar o script `flight-sim.mjs` e o modelo `a29.glb`
+## 3. Publicação automática (via REST API)
+
+Você pode enviar `dist-editor/flight-sim.mjs` e `public/models/a29.glb` automaticamente para o projeto no PlayCanvas Editor sem fazer upload manual:
+
+1. Gere um **API Access Token** na sua conta em [playcanvas.com/account](https://playcanvas.com/account).
+2. Crie (ou edite) o arquivo `.env` na raiz do projeto (ignorado pelo Git) com:
+   ```env
+   PLAYCANVAS_API_TOKEN=seu_token_aqui
+   PLAYCANVAS_PROJECT_ID=1606932
+   # Opcional: define um branch específico (padrão: branch principal do projeto)
+   # PLAYCANVAS_BRANCH_ID=
+   ```
+3. Teste a conexão sem alterar nada no projeto remoto (somente leitura):
+   ```bash
+   npm run publicar:editor:teste
+   ```
+4. Compile e publique (cria ou atualiza `flight-sim.mjs` e `a29.glb` com `preload` ligado):
+   ```bash
+   npm run publicar:editor
+   ```
+
+### Alternativa manual (upload pelo navegador)
 
 1. No painel **Assets** (parte inferior), clique em **+** → **Upload** (ou arraste os arquivos diretamente para a pasta raiz de Assets).
 2. Envie o script `dist-editor/flight-sim.mjs` e aguarde o processamento: o Editor reconhecerá automaticamente o script ESM **`flightSim`** (`FlightSim`).
@@ -28,9 +49,10 @@ Isso cria `dist-editor/flight-sim.mjs` (com o CSS embutido e `playcanvas` como d
 
 ## 4. Anexar o script à cena
 
-1. Na hierarquia da cena (**Hierarchy**, painel à esquerda), selecione a entidade **`Root`** (ou crie uma nova entidade vazia, por exemplo `FlightSim`).
-2. No **Inspector** (painel à direita), clique em **Add Component** → **Script**.
-3. No componente Script, clique em **Add Script** e escolha **`flightSim`**.
+1. Se o projeto no Editor já tiver uma cena anterior, **desative as entidades antigas** (`Player`, `Ground`, `Plane`) e quaisquer scripts antigos (`playerMovement`, `cameraFollow`, `gunController`) no **Inspector** (desmarcando *Enabled*) antes do **Launch**, para não conflitar com o simulador de voo.
+2. Na hierarquia da cena (**Hierarchy**, painel à esquerda), selecione a entidade **`Root`** (ou crie uma nova entidade vazia, por exemplo `FlightSim`).
+3. No **Inspector** (painel à direita), clique em **Add Component** → **Script**.
+4. No componente Script, clique em **Add Script** e escolha **`flightSim`**.
    > **Nota:** A cena padrão do Editor já traz uma `Camera` e uma `Light`. Não é necessário removê-las manualmente: o script desativa automaticamente câmeras e luzes pré-existentes ao iniciar e cria o mundo, o avião, o sol, a câmera e o HUD/cabine.
 
 ## 5. Executar (Launch)
@@ -43,7 +65,8 @@ Isso cria `dist-editor/flight-sim.mjs` (com o CSS embutido e `playcanvas` como d
 | Entrada | Ação |
 |---|---|
 | **Mouse** | Move a mira livremente (no modo mouse, o avião pilota até ela) |
-| **Clique esquerdo** | Trava o ponteiro para mirar (**Esc** solta) |
+| **Clique esquerdo** | Trava o ponteiro para mirar (**Esc** solta e pausa) |
+| **Esc** ou **P** | Pausa / abre ou fecha o menu de pausa (perder o pointer lock também pausa) |
 | **M** | Alterna entre modo **Mouse** e **Teclado** |
 | **W / S** ou **↑ / ↓** | Arfagem (baixar / subir o nariz; ajuste fino no modo mouse) |
 | **A / D** ou **← / →** | Rolagem (inclinar asas e curvar; ajuste fino no modo mouse) |

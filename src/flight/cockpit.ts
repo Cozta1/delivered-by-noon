@@ -1,5 +1,6 @@
 import { isSmokeActive } from './smoke';
 import type { FlightContext, FlightModule } from './types';
+import { getRuntime } from './ui/settings';
 
 const DEG_TO_RAD = Math.PI / 180;
 
@@ -682,7 +683,7 @@ export function createCockpit({ state }: FlightContext, uiRoot?: HTMLElement | n
   }
 
   function sync() {
-    const visible = state.camera === 'cockpit';
+    const visible = getRuntime(state).mode !== 'title' && state.camera === 'cockpit';
     if (visible !== lastVisible) {
       lastVisible = visible;
       root.hidden = !visible;

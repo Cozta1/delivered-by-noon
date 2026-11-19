@@ -22,10 +22,16 @@ const TAIL_LOCAL = new Vec3(0, 0.05, 5.42);
 const TAIL_BACK = new Vec3(0, 0, 1);
 
 const smokeStateByFlight = new WeakMap<FlightState, boolean>();
+const clearHandlerByFlight = new WeakMap<FlightState, () => void>();
 
 /** Lê se a fumaça acrobática está ligada para o estado de voo informado. */
 export function isSmokeActive(state: FlightState): boolean {
   return smokeStateByFlight.get(state) ?? false;
+}
+
+/** Limpa imediatamente todas as partículas ativas de fumaça (ex.: reinício de voo). */
+export function clearSmoke(state: FlightState): void {
+  clearHandlerByFlight.get(state)?.();
 }
 
 export function createSmoke({ app, plane, state }: FlightContext): FlightModule {
@@ -102,6 +108,14 @@ export function createSmoke({ app, plane, state }: FlightContext): FlightModule 
   let destroyed = false;
 
   smokeStateByFlight.set(state, enabled);
+  clearHandlerByFlight.set(state, () => {
+    for (let i = 0; i < POOL_SIZE; i++) {
+      ages[i] = -1;
+      entities[i].enabled = false;
+    }
+    hasLastEmitter = false;
+    emitTimer = 0;
+  });
 
   function spawnAt(x: number, y: number, z: number, bx: number, by: number, bz: number) {
     const idx = cursor;
@@ -138,6 +152,14 @@ export function createSmoke({ app, plane, state }: FlightContext): FlightModule 
       if (app.keyboard?.wasPressed(KEY_F)) {
         enabled = !enabled;
         smokeStateByFlight.set(state, enabled);
+  clearHandlerByFlight.set(state, () => {
+    for (let i = 0; i < POOL_SIZE; i++) {
+      ages[i] = -1;
+      entities[i].enabled = false;
+    }
+    hasLastEmitter = false;
+    emitTimer = 0;
+  });
         emitTimer = EMIT_INTERVAL;
       }
 
@@ -222,6 +244,7 @@ export function createSmoke({ app, plane, state }: FlightContext): FlightModule 
       if (destroyed) return;
       destroyed = true;
       smokeStateByFlight.delete(state);
+      clearHandlerByFlight.delete(state);
       smokeRoot.destroy();
       sharedMesh?.destroy();
       material.destroy();

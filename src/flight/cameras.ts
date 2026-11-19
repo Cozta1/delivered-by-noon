@@ -1,5 +1,6 @@
 import { KEY_C, KEY_M, KEY_V, Quat, Vec3 } from 'playcanvas';
 import { CAMERA_ORDER, type CameraMode, type FlightContext, type FlightModule, type FlightState } from './types';
+import { consumeCameraSnap, getRuntime } from './ui/settings';
 
 const FOV: Record<CameraMode, number> = {
   chase: 65,
@@ -83,7 +84,7 @@ export function createCameraRig({ app, world, plane, camera, state }: FlightCont
   }
 
   function validatePointerLock() {
-    if (destroyed || state.controlMode !== 'mouse') {
+    if (destroyed || state.controlMode !== 'mouse' || getRuntime(state).mode !== 'playing') {
       releasePointerLock();
     }
   }
@@ -100,7 +101,16 @@ export function createCameraRig({ app, world, plane, camera, state }: FlightCont
   }
 
   function onCanvasMouseDown(e: MouseEvent) {
-    if (destroyed || e.button !== 0 || state.controlMode !== 'mouse' || !canvas || isPointerLocked()) return;
+    if (
+      destroyed ||
+      e.button !== 0 ||
+      getRuntime(state).mode !== 'playing' ||
+      state.controlMode !== 'mouse' ||
+      !canvas ||
+      isPointerLocked()
+    ) {
+      return;
+    }
     const requestLock = (canvas as { requestPointerLock?: () => Promise<void> | void }).requestPointerLock;
     if (typeof requestLock !== 'function') return;
     try {
@@ -128,9 +138,20 @@ export function createCameraRig({ app, world, plane, camera, state }: FlightCont
   }
 
   function onDocumentMouseMove(e: MouseEvent) {
-    if (destroyed || !isPointerLocked() || state.controlMode !== 'mouse' || state.crashed) return;
-    aimYaw = ((aimYaw + e.movementX * MOUSE_SENSITIVITY) % 360 + 360) % 360;
-    aimPitch = clamp(aimPitch - e.movementY * MOUSE_SENSITIVITY, -85, 85);
+    if (
+      destroyed ||
+      getRuntime(state).mode !== 'playing' ||
+      !isPointerLocked() ||
+      state.controlMode !== 'mouse' ||
+      state.crashed
+    ) {
+      return;
+    }
+    const { mouseSensitivity, invertY } = getRuntime(state).settings;
+    const sens = Number.isFinite(mouseSensitivity) ? mouseSensitivity : MOUSE_SENSITIVITY;
+    const ySign = invertY ? 1 : -1;
+    aimYaw = ((aimYaw + e.movementX * sens) % 360 + 360) % 360;
+    aimPitch = clamp(aimPitch + e.movementY * sens * ySign, -85, 85);
   }
 
   if (canvas) canvas.addEventListener('mousedown', onCanvasMouseDown);
@@ -325,6 +346,17 @@ export function createCameraRig({ app, world, plane, camera, state }: FlightCont
         modeSwitched = true;
       } else if (state.camera !== activeMode) {
         applyMode(state.camera);
+        snapNext = true;
+        modeSwitched = true;
+      }
+
+      if (consumeCameraSnap(state)) {
+        applyMode(state.camera);
+        planePos.set(state.x, state.y, state.z);
+        planeRot.copy(plane.root.getRotation());
+        syncAimToPlaneForward();
+        headYaw = 0;
+        headPitch = 0;
         snapNext = true;
         modeSwitched = true;
       }

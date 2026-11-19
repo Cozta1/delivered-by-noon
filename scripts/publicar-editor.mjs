@@ -1,0 +1,251 @@
+import { existsSync, readFileSync, statSync } from 'node:fs';
+import { dirname, resolve } from 'node:path';
+import { fileURLToPath } from 'node:url';
+
+const ROOT_DIR = resolve(dirname(fileURLToPath(import.meta.url)), '..');
+const API_BASE = 'https://playcanvas.com/api';
+const DEFAULT_PROJECT_ID = '1606932';
+
+const TARGET_ASSETS = [
+  {
+    name: 'flight-sim.mjs',
+    relPath: 'dist-editor/flight-sim.mjs',
+    mime: 'application/javascript',
+    preferredTypes: ['script'],
+  },
+  {
+    name: 'a29.glb',
+    relPath: 'public/models/a29.glb',
+    mime: 'model/gltf-binary',
+    preferredTypes: ['container', 'scene', 'model'],
+  },
+];
+
+function loadDotEnv(filePath) {
+  const vars = {};
+  if (!existsSync(filePath)) return vars;
+  const content = readFileSync(filePath, 'utf8');
+  for (const rawLine of content.split(/\r?\n/)) {
+    const line = rawLine.trim();
+    if (!line || line.startsWith('#')) continue;
+    const eq = line.indexOf('=');
+    if (eq <= 0) continue;
+    const key = line.slice(0, eq).trim();
+    let val = line.slice(eq + 1).trim();
+    if (
+      (val.startsWith('"') && val.endsWith('"') && val.length >= 2) ||
+      (val.startsWith("'") && val.endsWith("'") && val.length >= 2)
+    ) {
+      val = val.slice(1, -1);
+    }
+    vars[key] = val;
+  }
+  return vars;
+}
+
+function readConfig() {
+  const envFile = loadDotEnv(resolve(ROOT_DIR, '.env'));
+  const get = (key, fallback = '') => (process.env[key] ?? envFile[key] ?? fallback).trim();
+
+  const token = get('PLAYCANVAS_API_TOKEN');
+  const projectId = get('PLAYCANVAS_PROJECT_ID', DEFAULT_PROJECT_ID);
+  const branchId = get('PLAYCANVAS_BRANCH_ID', '');
+
+  if (!token) {
+    throw new Error('PLAYCANVAS_API_TOKEN não encontrado no ambiente nem em .env.');
+  }
+  if (!/^\d+$/.test(projectId)) {
+    throw new Error(`PLAYCANVAS_PROJECT_ID inválido: "${projectId}".`);
+  }
+
+  return { token, projectId, branchId };
+}
+
+function redact(text, secret) {
+  if (!secret || !text) return text;
+  return text.replaceAll(secret, '[REDACTED]');
+}
+
+async function apiRequest(method, path, token, body) {
+  const url = `${API_BASE}${path}`;
+  const response = await fetch(url, {
+    method,
+    headers: {
+      Authorization: `Bearer ${token}`,
+    },
+    body,
+  });
+
+  const rawText = await response.text();
+  let parsed = null;
+  if (rawText) {
+    try {
+      parsed = JSON.parse(rawText);
+    } catch {
+      parsed = null;
+    }
+  }
+
+  if (!response.ok) {
+    const serverMsg =
+      (parsed && typeof parsed === 'object' && (parsed.error || parsed.message || JSON.stringify(parsed))) ||
+      rawText.trim() ||
+      response.statusText ||
+      'sem detalhes';
+    const safeMsg = redact(String(serverMsg), token);
+    throw new Error(`HTTP ${response.status} (${method} ${path}): ${safeMsg}`);
+  }
+
+  return parsed;
+}
+
+async function listBranches(projectId, token) {
+  const branches = [];
+  let skip = '';
+  for (let page = 0; page < 20; page++) {
+    const query = skip ? `?skip=${encodeURIComponent(skip)}` : '';
+    const data = await apiRequest('GET', `/projects/${projectId}/branches${query}`, token);
+    const items = Array.isArray(data?.result) ? data.result : Array.isArray(data) ? data : [];
+    branches.push(...items);
+    if (!data?.pagination?.hasMore || items.length === 0) break;
+    const lastId = items[items.length - 1]?.id;
+    if (!lastId || lastId === skip) break;
+    skip = lastId;
+  }
+  return branches;
+}
+
+async function resolveBranch(projectId, preferredBranchId, token) {
+  const branches = await listBranches(projectId, token);
+  if (preferredBranchId) {
+    const found = branches.find((b) => b.id === preferredBranchId);
+    return {
+      id: preferredBranchId,
+      name: found?.name ?? '(definido via PLAYCANVAS_BRANCH_ID)',
+    };
+  }
+
+  const openBranches = branches.filter((b) => !b.closed);
+  const pool = openBranches.length > 0 ? openBranches : branches;
+  const mainBranch =
+    pool.find((b) => /^(main|master)$/i.test(String(b.name ?? ''))) ??
+    pool[0];
+
+  if (!mainBranch?.id) {
+    throw new Error(`Nenhum branch encontrado no projeto ${projectId}.`);
+  }
+  return { id: mainBranch.id, name: mainBranch.name ?? mainBranch.id };
+}
+
+async function listAssets(projectId, branchId, token) {
+  const assets = [];
+  const limit = 1000;
+  let skip = 0;
+
+  for (let page = 0; page < 50; page++) {
+    const query = `?branchId=${encodeURIComponent(branchId)}&skip=${skip}&limit=${limit}`;
+    const data = await apiRequest('GET', `/projects/${projectId}/assets${query}`, token);
+    const items = Array.isArray(data?.result) ? data.result : Array.isArray(data) ? data : [];
+    assets.push(...items);
+
+    const total = typeof data?.pagination?.total === 'number' ? data.pagination.total : null;
+    if (items.length < limit || (total !== null && assets.length >= total)) break;
+    skip += items.length;
+  }
+
+  return assets;
+}
+
+function findMatchingAsset(assets, target) {
+  const lowerName = target.name.toLowerCase();
+  const candidates = assets.filter((a) => {
+    const aName = String(a?.name ?? '').toLowerCase();
+    const fName = String(a?.file?.filename ?? '').toLowerCase();
+    return aName === lowerName || fName === lowerName;
+  });
+  if (candidates.length === 0) return null;
+
+  for (const preferredType of target.preferredTypes) {
+    const match = candidates.find((a) => String(a?.type ?? '').toLowerCase() === preferredType);
+    if (match) return match;
+  }
+  return candidates[0];
+}
+
+async function uploadAsset({ projectId, branchId, token, target, existing }) {
+  const fullPath = resolve(ROOT_DIR, target.relPath);
+  if (!existsSync(fullPath)) {
+    throw new Error(`Arquivo local ausente: ${target.relPath}`);
+  }
+
+  const bytes = readFileSync(fullPath);
+  const form = new FormData();
+  form.append('name', target.name);
+  form.append('branchId', branchId);
+  form.append('preload', 'true');
+  form.append('file', new Blob([bytes], { type: target.mime }), target.name);
+
+  if (existing) {
+    return apiRequest('PUT', `/assets/${existing.id}`, token, form);
+  }
+
+  form.append('projectId', projectId);
+  return apiRequest('POST', '/assets', token, form);
+}
+
+async function main() {
+  const dryRun = process.argv.includes('--dry-run');
+  const { token, projectId, branchId: envBranchId } = readConfig();
+
+  const branch = await resolveBranch(projectId, envBranchId, token);
+  const assets = await listAssets(projectId, branch.id, token);
+
+  console.log(`Projeto: ${projectId}`);
+  console.log(`Branch: ${branch.name} (${branch.id})`);
+  console.log(`Assets listados no branch: ${assets.length}`);
+
+  const plan = TARGET_ASSETS.map((target) => {
+    const existing = findMatchingAsset(assets, target);
+    const fullPath = resolve(ROOT_DIR, target.relPath);
+    const fileExists = existsSync(fullPath);
+    const sizeKb = fileExists ? (statSync(fullPath).size / 1024).toFixed(1) : null;
+    return { target, existing, fileExists, sizeKb };
+  });
+
+  if (dryRun) {
+    console.log('Modo: --dry-run (somente leitura, nada enviado)');
+    for (const item of plan) {
+      const action = item.existing
+        ? `ATUALIZADO (id=${item.existing.id}, tipo=${item.existing.type ?? 'desconhecido'})`
+        : 'CRIADO';
+      const localInfo = item.fileExists
+        ? `${item.target.relPath} (${item.sizeKb} kB)`
+        : `${item.target.relPath} [AUSENTE]`;
+      console.log(`- ${item.target.name}: será ${action} | local: ${localInfo}`);
+    }
+    return;
+  }
+
+  console.log('Publicando assets no PlayCanvas Editor...');
+  for (const item of plan) {
+    const result = await uploadAsset({
+      projectId,
+      branchId: branch.id,
+      token,
+      target: item.target,
+      existing: item.existing,
+    });
+    const verb = item.existing ? 'ATUALIZADO' : 'CRIADO';
+    const resultId = result?.id ?? item.existing?.id ?? '?';
+    const resultType = result?.type ?? item.existing?.type ?? 'desconhecido';
+    console.log(`- ${item.target.name}: ${verb} (id=${resultId}, tipo=${resultType}, preload=true)`);
+  }
+
+  console.log(`Editor: https://playcanvas.com/editor/project/${projectId}`);
+}
+
+main().catch((err) => {
+  const msg = err instanceof Error ? err.message : String(err);
+  console.error(`Falha na publicação: ${msg}`);
+  process.exit(1);
+});

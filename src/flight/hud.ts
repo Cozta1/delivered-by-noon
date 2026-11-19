@@ -1,6 +1,7 @@
 import { Quat, Vec3 } from 'playcanvas';
 import { isSmokeActive } from './smoke';
 import { CAMERA_LABEL, type CameraMode, type FlightContext, type FlightModule, type FlightState } from './types';
+import { getRuntime } from './ui/settings';
 
 type AlertState = 'none' | 'stall' | 'crashed';
 
@@ -11,7 +12,7 @@ interface MarkerCache {
 }
 
 const FOOTER_TEXT =
-  'Mouse mira · Clique trava · M mouse/teclado · W/S arfagem · A/D rolagem · Q/E leme · Shift/Ctrl acel · F fumaça · C câmera · R reiniciar';
+  'Mouse mira · Clique trava · M mouse/teclado · W/S arfagem · A/D rolagem · Q/E leme · Shift/Ctrl acel · F fumaça · C câmera · R reiniciar · Esc/P pausa';
 const PROJECTION_DIST = 500;
 
 function el<K extends keyof HTMLElementTagNameMap>(
@@ -105,6 +106,7 @@ export function createHud({ app, plane, camera, state }: FlightContext, uiRoot?:
   let lastLocked: boolean | null = null;
   let lastSmoke: boolean | null = null;
   let lastCockpit: boolean | null = null;
+  let lastHudVisible: boolean | null = null;
   let lastAlert: AlertState = 'none';
 
   function updateMarker(
@@ -154,6 +156,14 @@ export function createHud({ app, plane, camera, state }: FlightContext, uiRoot?:
   }
 
   function sync() {
+    const rt = getRuntime(state);
+    const hudVisible = rt.mode !== 'title' && rt.settings.showHud;
+    if (hudVisible !== lastHudVisible) {
+      lastHudVisible = hudVisible;
+      root.hidden = !hudVisible;
+    }
+    if (!hudVisible) return;
+
     const isCockpit = state.camera === 'cockpit';
     if (isCockpit !== lastCockpit) {
       lastCockpit = isCockpit;
@@ -206,7 +216,7 @@ export function createHud({ app, plane, camera, state }: FlightContext, uiRoot?:
       }
     }
 
-    const showReticles = state.controlMode === 'mouse' && !state.crashed;
+    const showReticles = rt.mode === 'playing' && state.controlMode === 'mouse' && !state.crashed;
     const cw = canvas?.clientWidth || root.clientWidth || (typeof window !== 'undefined' ? window.innerWidth : 0);
     const ch = canvas?.clientHeight || root.clientHeight || (typeof window !== 'undefined' ? window.innerHeight : 0);
     if (showReticles) {

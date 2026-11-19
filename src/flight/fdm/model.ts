@@ -6,6 +6,21 @@ import { standardAtmosphere } from './atmosphere';
 import { lookup1, lookup2 } from './table';
 
 export const FIXED_STEP = 1 / 120;
+export const ARCADE = 1;
+export const ARCADE_TUNING = {
+  rollRate: 240 * Math.PI / 180,
+  pitchRate: 90 * Math.PI / 180,
+  yawRate: 140 * Math.PI / 180,
+  controlTime: 0.02,
+  rateTime: 0.02,
+  pathTime: 0.025,
+  acceleration: 20,
+  maximumSpeed: 160,
+  stallSpeed: 25,
+  recoverySpeed: 35,
+  recoveryAcceleration: 30,
+  recoveryPitchRate: 25 * Math.PI / 180,
+};
 export const ASSISTS = {
   mass: 0.9,
   power: 1.3,
@@ -15,10 +30,6 @@ export const ASSISTS = {
   rollAuthority: 3,
   pitchAuthority: 0.7,
   yawAuthority: 1.8,
-  rateGain: 12,
-  rollRate: Math.PI,
-  pitchRate: 50 * Math.PI / 180,
-  yawRate: 35 * Math.PI / 180,
   controlTime: 0.07,
   stallRecovery: 0.35,
   ceilingStart: 2300,
@@ -48,6 +59,7 @@ const clamp = (v: number, min: number, max: number) => Math.max(min, Math.min(ma
 
 /** Body axes follow JSBSim: X forward, Y right, Z down. World: PlayCanvas Y up, north -Z. */
 export class FlightDynamics {
+  readonly arcade: number;
   readonly position = new Vec3();
   readonly rotation = new Quat();
   readonly velocity = new Vec3();
@@ -65,6 +77,11 @@ export class FlightDynamics {
   private readonly vector = new Vec3();
   private readonly gravity = new Vec3();
   private trimElevator = 0;
+
+  constructor(arcade = ARCADE) {
+    if (!Number.isFinite(arcade) || arcade < 0 || arcade > 1) throw new RangeError('ARCADE must be in [0, 1]');
+    this.arcade = arcade;
+  }
 
   get speed(): number { return this.velocity.length(); }
 
@@ -92,7 +109,7 @@ export class FlightDynamics {
     this.alpha = alpha;
     this.beta = 0;
     this.dynamicPressure = 0.5 * this.air.density * speed * speed;
-    this.stalled = speed < aircraft.stallSpeed;
+    this.stalled = speed < aircraft.stallSpeed * (1 - this.arcade) + ARCADE_TUNING.stallSpeed * this.arcade;
     this.pitchTrim = 0;
     this.updateWorldVelocity();
   }
@@ -109,7 +126,8 @@ export class FlightDynamics {
       throw new RangeError('Non-finite flight controls');
     }
     const dt = FIXED_STEP;
-    const blend = 1 - Math.exp(-dt / ASSISTS.controlTime);
+    const controlTime = ASSISTS.controlTime * (1 - this.arcade) + ARCADE_TUNING.controlTime * this.arcade;
+    const blend = 1 - Math.exp(-dt / controlTime);
     this.controls.pitch += (clamp(input.pitch, -1, 1) - this.controls.pitch) * blend;
     this.controls.roll += (clamp(input.roll, -1, 1) - this.controls.roll) * blend;
     this.controls.yaw += (clamp(input.yaw, -1, 1) - this.controls.yaw) * blend;
@@ -121,7 +139,6 @@ export class FlightDynamics {
     this.beta = Math.asin(clamp(v / speed, -1, 1));
     standardAtmosphere(this.position.y, this.air);
     const qbar = this.dynamicPressure = 0.5 * this.air.density * speed * speed;
-    const authority = Math.min(1, qbar / (0.5 * 1.225 * aircraft.trimSpeed ** 2));
     const qs = qbar * AREA;
     const mach = speed / this.air.soundSpeed;
     const reynolds = this.air.density * speed * CHORD / (1.458e-6 * this.air.temperature ** 1.5 / (this.air.temperature + 110.4));
@@ -168,11 +185,11 @@ export class FlightDynamics {
     this.inverse.copy(this.rotation).invert();
     this.vector.set(0, -G, 0);
     this.inverse.transformVector(this.vector, this.gravity);
-    const pitchAuthority = qs * CHORD * -cmElevator * aircraft.controlLimit * ASSISTS.pitchAuthority
-      + IY * ASSISTS.rateGain * authority * ASSISTS.pitchRate;
+    const pitchAuthority = qs * CHORD * -cmElevator * aircraft.controlLimit * ASSISTS.pitchAuthority;
     // Feedforward for the mouse instructor balances the existing moment, without demanding +1G.
     this.pitchTrim = Math.abs(this.alpha) < 0.35 && speed > aircraft.stallSpeed && this.gravity.y < -0.1 * G
-      ? clamp(-qs * CHORD * (C.Pitch_alpha * this.alpha + cmElevator * trimElevator) / Math.max(1, pitchAuthority), -0.5, 0.5) : 0;
+      ? (1 - this.arcade) * clamp(-qs * CHORD * (C.Pitch_alpha * this.alpha + cmElevator * trimElevator)
+        / Math.max(1, pitchAuthority), -0.5, 0.5) : 0;
     const du = fx / MASS - (q * w - r * v) - this.gravity.z;
     const dv = fy / MASS - (r * u - p * w) + this.gravity.x;
     const dw = fz / MASS - (p * v - q * u) - this.gravity.y;
@@ -180,16 +197,43 @@ export class FlightDynamics {
     const ceiling = clamp((this.position.y - ASSISTS.ceilingStart) / (ASSISTS.ceilingEnd - ASSISTS.ceilingStart), 0, 1)
       * clamp(this.worldVelocity.y / 20, 0, 1);
     const downPitch = Math.abs(this.gravity.y) > 0.1 * G ? this.gravity.y / G : -1;
-    const l = qs * SPAN * roll + IX * ASSISTS.rateGain * (authority * this.controls.roll * ASSISTS.rollRate - p);
-    const m = qs * CHORD * pitch + IY * (ASSISTS.rateGain * (authority * this.controls.pitch * ASSISTS.pitchRate - q)
-      + ceiling * ASSISTS.ceilingMoment * downPitch);
-    const n = qs * SPAN * yaw + IZ * (ASSISTS.rateGain * (authority * this.controls.yaw * ASSISTS.yawRate - r)
-      + ceiling * ASSISTS.ceilingMoment * this.gravity.x / G);
+    const l = qs * SPAN * roll;
+    const m = qs * CHORD * pitch + IY * ceiling * ASSISTS.ceilingMoment * downPitch;
+    const n = qs * SPAN * yaw + IZ * ceiling * ASSISTS.ceilingMoment * this.gravity.x / G;
     this.rates.set(
       clamp(p + (l - (IZ - IY) * q * r) / IX * dt, -6, 6),
       clamp(q + (m - (IX - IZ) * r * p) / IY * dt, -6, 6),
       clamp(r + (n - (IY - IX) * p * q) / IZ * dt, -6, 6),
     );
+    if (this.arcade > 0) {
+      // The arcade endpoint follows commanded rates, independent of aerodynamic inertia.
+      const response = 1 - Math.exp(-dt / ARCADE_TUNING.rateTime);
+      const recovery = clamp((ARCADE_TUNING.recoverySpeed - speed) / ARCADE_TUNING.recoverySpeed, 0, 1);
+      const arcadeRoll = p + (this.controls.roll * ARCADE_TUNING.rollRate - p) * response;
+      const arcadePitch = q + (this.controls.pitch * ARCADE_TUNING.pitchRate
+        - recovery * ARCADE_TUNING.recoveryPitchRate + ceiling * downPitch * ASSISTS.ceilingMoment - q)
+        * response;
+      const arcadeYaw = r + (this.controls.yaw * ARCADE_TUNING.yawRate
+        + ceiling * ASSISTS.ceilingMoment * this.gravity.x / G - r) * response;
+      this.rates.x += (arcadeRoll - this.rates.x) * this.arcade;
+      this.rates.y += (arcadePitch - this.rates.y) * this.arcade;
+      this.rates.z += (arcadeYaw - this.rates.z) * this.arcade;
+      // Fast attitude changes need path alignment too; speed retains the FDM's force/gravity work.
+      const energyAcceleration = (fx * u + fy * v + fz * w) / (MASS * speed)
+        + (-this.gravity.z * u + this.gravity.x * v - this.gravity.y * w) / speed;
+      const boost = ARCADE_TUNING.acceleration * clamp((this.controls.throttle - 0.6) / 0.4, 0, 1)
+        * clamp((ARCADE_TUNING.maximumSpeed - speed) / 20, 0, 1)
+        + recovery * ARCADE_TUNING.recoveryAcceleration;
+      const arcadeSpeed = clamp(speed + (energyAcceleration + boost) * dt, 0, ARCADE_TUNING.maximumSpeed);
+      const nextSpeed = this.velocity.length() * (1 - this.arcade) + arcadeSpeed * this.arcade;
+      const upFraction = -this.gravity.y / G;
+      const alpha = clamp((MASS * G * upFraction / Math.max(qs, 1) - lookup1(T.Lift_alpha, 0))
+        / (4.96 - C.Lift_elevator * C.Pitch_alpha / cmElevator), -0.2, 0.2);
+      this.vector.set(nextSpeed * Math.cos(alpha), 0, nextSpeed * Math.sin(alpha));
+      this.velocity.lerp(this.velocity, this.vector,
+        this.arcade * (1 - Math.exp(-dt / ARCADE_TUNING.pathTime)) * clamp(speed / ARCADE_TUNING.recoverySpeed, 0, 1));
+      if (this.velocity.length() > 1e-8) this.velocity.mulScalar(nextSpeed / this.velocity.length());
+    }
     this.vector.set(this.rates.y, -this.rates.z, -this.rates.x);
     const rate = this.vector.length();
     if (rate > 1e-10) {
@@ -200,6 +244,7 @@ export class FlightDynamics {
     this.position.x += this.worldVelocity.x * dt;
     this.position.y += this.worldVelocity.y * dt;
     this.position.z += this.worldVelocity.z * dt;
-    this.stalled = speed < aircraft.stallSpeed || Math.abs(this.alpha) > 0.35;
+    const stallSpeed = aircraft.stallSpeed * (1 - this.arcade) + ARCADE_TUNING.stallSpeed * this.arcade;
+    this.stalled = speed < stallSpeed || Math.abs(this.alpha) > 0.35 + this.arcade * 0.2;
   }
 }

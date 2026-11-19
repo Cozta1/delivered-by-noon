@@ -8,8 +8,8 @@ import { FIXED_STEP, FlightDynamics, type FlightControls } from './model';
 import { lookup1, lookup2 } from './table';
 
 const neutral: FlightControls = { pitch: 0, roll: 0, yaw: 0, throttle: 0.6 };
-function flying(): FlightDynamics {
-  const fdm = new FlightDynamics();
+function flying(arcade = 1): FlightDynamics {
+  const fdm = new FlightDynamics(arcade);
   fdm.reset(0, 500, 0, 0, 70, 0.6);
   return fdm;
 }
@@ -135,7 +135,7 @@ describe('six degree of freedom flight', () => {
   });
 
   it('loses control authority without airflow and does not trim a stalled aircraft nose-up', () => {
-    const slow = flying(), fast = flying();
+    const slow = flying(0), fast = flying(0);
     slow.velocity.set(0, 0, 0);
     const command = { ...neutral, pitch: 1, roll: 1, yaw: 1, throttle: 0 };
     slow.step(command);

@@ -17,8 +17,10 @@ export class FlightSim extends Script {
     this.styleEl = style;
 
     const ui = document.createElement('div');
+    ui.id = 'flight-sim-ui';
     ui.style.position = 'fixed';
     ui.style.inset = '0';
+    ui.style.zIndex = '100';
     ui.style.pointerEvents = 'none';
     document.body.appendChild(ui);
     this.uiEl = ui;

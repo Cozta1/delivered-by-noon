@@ -53,8 +53,8 @@ it('keeps a horizon aim level at full power while approaching A-29 maximum speed
     instructor.steer(fdm, 0, 0, -1, controls);
     fdm.step(controls);
   }
-  expect(fdm.speed).toBeGreaterThan(160);
-  expect(fdm.speed).toBeLessThan(170);
+  expect(fdm.speed).toBeGreaterThan(155);
+  expect(fdm.speed).toBeLessThanOrEqual(160.01);
   expect(Math.abs(fdm.position.y - 500)).toBeLessThan(15);
   expect(Math.abs(fdm.worldVelocity.y)).toBeLessThan(0.5);
 });
@@ -62,7 +62,7 @@ it('keeps a horizon aim level at full power while approaching A-29 maximum speed
 it('turns right into a 90 degree aim in four seconds and settles without repeated overshoot', () => {
   const { fdm, instructor, controls } = pilot();
   const aim = new Vec3(1, 0, 0);
-  let previous = 90, crossings = 0;
+  let previousSide = 1, crossings = 0;
   for (let i = 0; i < 12 / FIXED_STEP; i++) {
     instructor.steer(fdm, aim.x, aim.y, aim.z, controls);
     fdm.step(controls);
@@ -71,8 +71,9 @@ it('turns right into a 90 degree aim in four seconds and settles without repeate
     expect(heading).toBeGreaterThan(-1);
     expect(heading).toBeLessThan(94);
     const signed = 90 - heading;
-    if (signed * previous < 0) crossings++;
-    previous = signed;
+    const side = signed > 0.5 ? 1 : signed < -0.5 ? -1 : 0;
+    if (side && side !== previousSide) crossings++;
+    if (side) previousSide = side;
     if (i === 4 / FIXED_STEP - 1) expect(Math.abs(90 - heading)).toBeLessThan(4);
     if (i > 5 / FIXED_STEP) expect(error(fdm, aim)).toBeLessThan(3);
   }
