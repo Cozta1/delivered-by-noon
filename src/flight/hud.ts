@@ -16,8 +16,8 @@ function el<K extends keyof HTMLElementTagNameMap>(
   return node;
 }
 
-export function createHud({ state }: FlightContext): FlightModule {
-  const ui = document.getElementById('ui');
+export function createHud({ state }: FlightContext, uiRoot?: HTMLElement | null): FlightModule {
+  const ui = uiRoot ?? document.getElementById('ui');
   if (!ui) return { update() {} };
 
   const root = el('div', 'hud-root');

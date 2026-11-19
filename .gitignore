@@ -8,3 +8,4 @@ dados-locais/
 .maestri/
 .claude/skills/monitor-uso/sentinela-alvo.txt
 .claude/skills/monitor-uso/.cache-*.json
+dist-editor/

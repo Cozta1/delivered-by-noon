@@ -528,8 +528,8 @@ function drawThrottle(ctx: CanvasRenderingContext2D, cx: number, cy: number, r: 
   drawReadoutBox(ctx, cx, y + h - r * 0.21, w * 0.72, r * 0.25, `${Math.round(t * 100)}%`);
 }
 
-export function createCockpit({ state }: FlightContext): FlightModule {
-  const ui = document.getElementById('ui');
+export function createCockpit({ state }: FlightContext, uiRoot?: HTMLElement | null): FlightModule {
+  const ui = uiRoot ?? document.getElementById('ui');
   if (!ui) return { update() {} };
 
   const root = document.createElement('div');

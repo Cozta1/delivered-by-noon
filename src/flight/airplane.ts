@@ -20,20 +20,22 @@ export type AirplaneModel = {
   prop: Entity;
   /** Pontas das asas, para os rastros. */
   wingTips: [Entity, Entity];
+  materials: StandardMaterial[];
 };
 
 /**
  * Monomotor de asa baixa, montado com caixas. Frente = -Z local.
  * Envergadura ~10 m, comprimento ~8 m.
  */
-export function buildAirplane(app: AppBase): AirplaneModel {
+export function buildAirplane(app: AppBase, parent: Entity = app.root): AirplaneModel {
   const white = mat(0.92, 0.92, 0.9, 0.6);
   const accent = mat(0.9, 0.36, 0.14, 0.6);
   const dark = mat(0.14, 0.15, 0.18, 0.4);
   const glass = mat(0.35, 0.55, 0.7, 0.9, 0.55);
+  const materials = [white, accent, dark, glass];
 
   const root = new Entity('Airplane');
-  app.root.addChild(root);
+  parent.addChild(root);
   const exterior: Entity[] = [];
 
   const part = (
@@ -93,5 +95,5 @@ export function buildAirplane(app: AppBase): AirplaneModel {
   root.addChild(tipL);
   root.addChild(tipR);
 
-  return { root, exterior, prop, wingTips: [tipL, tipR] };
+  return { root, exterior, prop, wingTips: [tipL, tipR], materials };
 }

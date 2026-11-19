@@ -11,6 +11,19 @@ export function createFlightController({ app, world, plane, state }: FlightConte
   const forward = new Vec3();
   const right = new Vec3();
   const up = new Vec3();
+  const angularVelocity = new Vec3();
+  const collisionPoint = new Vec3();
+  // Extremos do modelo em airplane.ts, incluindo as duas faces para voo invertido.
+  const collisionPoints = [
+    [-5, -0.54, -1.41], [-5, -0.54, 0.21], [5, -0.54, -1.41], [5, -0.54, 0.21],
+    [-5, -0.36, -1.41], [-5, -0.36, 0.21], [5, -0.36, -1.41], [5, -0.36, 0.21],
+    [0, -1.15, -3.325], [0, 1.05, -3.325], [-1.1, -0.05, -3.325], [1.1, -0.05, -3.325],
+    [-1.8, 0.14, 4.35], [1.8, 0.14, 4.35], [-1.8, 0.26, 4.35], [1.8, 0.26, 4.35],
+    [-0.06, 1.7, 3.45], [0.06, 1.7, 3.45], [-0.06, 1.7, 4.45], [0.06, 1.7, 4.45],
+    [0, -0.325, 4.3], [-1.2, -1.65, -0.7], [1.2, -1.65, -0.7], [0, -1.55, -2.5],
+    [-0.575, -0.625, -2.5], [0.575, -0.625, -2.5],
+    [-0.475, 1.025, -1.45], [0.475, 1.025, -1.45],
+  ].map(([x, y, z]) => new Vec3(x, y, z));
   const degrees = 180 / Math.PI;
   let crashTime = 0;
   let propAngle = 0;
@@ -21,15 +34,19 @@ export function createFlightController({ app, world, plane, state }: FlightConte
     rotation.transformVector(Vec3.RIGHT, right);
     rotation.transformVector(Vec3.UP, up);
     state.pitch = Math.asin(Math.max(-1, Math.min(1, forward.y))) * degrees;
-    state.roll = Math.atan2(-right.y, up.y) * degrees;
-    state.heading = (Math.atan2(forward.x, -forward.z) * degrees + 360) % 360;
+    if (Math.hypot(right.y, up.y) > 0.001) {
+      state.roll = Math.atan2(-right.y, up.y) * degrees;
+    }
+    if (Math.hypot(forward.x, forward.z) > 0.001) {
+      state.heading = (Math.atan2(forward.x, -forward.z) * degrees + 360) % 360;
+    }
   }
 
   function publish() {
     attitude();
     state.altitude = state.y;
     state.heightAboveGround = state.y - world.groundAt(state.x, state.z);
-    state.stall = !state.crashed && state.speed < 35;
+    state.stall = !state.crashed && state.speed < 25;
     plane.root.setPosition(state.x, state.y, state.z);
     plane.root.setRotation(rotation);
   }
@@ -49,19 +66,6 @@ export function createFlightController({ app, world, plane, state }: FlightConte
     rotation.setFromAxisAngle(Vec3.UP, -SPAWN.heading);
     plane.root.enabled = true;
     publish();
-  }
-
-  function localTurn(axis: Vec3, angle: number) {
-    turn.setFromAxisAngle(axis, angle);
-    rotation.mul(turn).normalize();
-    rotation.transformVector(Vec3.FORWARD, forward);
-    const pitch = Math.asin(Math.max(-1, Math.min(1, forward.y))) * degrees;
-    if (Math.abs(pitch) > 80) {
-      // Limita a orientação real, inclusive entrada e torque de estol com asas inclinadas.
-      right.set(-forward.z, 0, forward.x).normalize();
-      turn.setFromAxisAngle(right, Math.max(-80, Math.min(80, pitch)) - pitch);
-      rotation.mul2(turn, rotation).normalize();
-    }
   }
 
   function yaw(angle: number) {
@@ -100,13 +104,21 @@ export function createFlightController({ app, world, plane, state }: FlightConte
       const oldY = state.y;
       for (let i = 0; i < steps; i++) {
         attitude();
-        const stallAmount = Math.max(0, (35 - state.speed) / 5);
+        const stallAmount = Math.max(0, Math.min(1, (25 - state.speed) / 5));
         const ceiling = Math.max(0, Math.min(1, (state.y - 2400) / 100));
-        localTurn(Vec3.RIGHT, (pitchInput * 42 * (1 - stallAmount) - stallAmount * 28
-          - (state.pitch > 0 ? ceiling * 65 : 0)) * step);
-        localTurn(Vec3.FORWARD, (rollInput ? rollInput * 65 : -state.roll * 0.45) * step);
-        localTurn(Vec3.UP, -rudderInput * 12 * step);
-        yaw(Math.sin(state.roll / degrees) * 9.81 / state.speed * degrees * step);
+        // Sustentação no up local e gravidade projetada nos eixos do avião curvam a trajetória.
+        const lift = 9.81 * (1 - stallAmount) / state.speed * degrees;
+        const gravity = 9.81 / state.speed * degrees + (state.pitch > 0 ? ceiling * 65 : 0);
+        angularVelocity.set(
+          pitchInput * 80 * (1 - stallAmount) - stallAmount * 28 + lift - gravity * up.y,
+          -rudderInput * 35 + gravity * right.y,
+          -rollInput * 180,
+        );
+        const angularSpeed = angularVelocity.length();
+        if (angularSpeed > 0) {
+          turn.setFromAxisAngle(angularVelocity.mulScalar(1 / angularSpeed), angularSpeed * step);
+          rotation.mul(turn).normalize();
+        }
 
         if (Math.abs(state.x) > 2500 || Math.abs(state.z) > 2500) {
           attitude();
@@ -121,20 +133,27 @@ export function createFlightController({ app, world, plane, state }: FlightConte
         }
 
         attitude();
-        const acceleration = state.throttle * 16 - 0.00196 * state.speed * state.speed - 9.81 * forward.y;
-        state.speed = Math.max(30, Math.min(120, state.speed + acceleration * step));
+        const acceleration = state.throttle * 24 - 0.0012 * state.speed * state.speed - 3 * forward.y;
+        state.speed = Math.max(20, Math.min(140, state.speed + acceleration * step));
         state.x = Math.max(-2980, Math.min(2980, state.x + forward.x * state.speed * step));
         const climb = forward.y * state.speed;
         state.y = Math.min(2500, state.y + (climb - stallAmount * (12 + Math.max(0, climb))) * step);
         state.z = Math.max(-2980, Math.min(2980, state.z + forward.z * state.speed * step));
-        if (state.y - world.groundAt(state.x, state.z) < 1.7) {
-          state.crashed = true;
-          state.speed = 0;
-          state.verticalSpeed = 0;
-          crashTime = duration - (i + 1) * step;
-          plane.root.enabled = false;
-          break;
+        for (const point of collisionPoints) {
+          rotation.transformVector(point, collisionPoint);
+          collisionPoint.x += state.x;
+          collisionPoint.y += state.y;
+          collisionPoint.z += state.z;
+          if (collisionPoint.y <= world.groundAt(collisionPoint.x, collisionPoint.z)) {
+            state.crashed = true;
+            state.speed = 0;
+            state.verticalSpeed = 0;
+            crashTime = duration - (i + 1) * step;
+            plane.root.enabled = false;
+            break;
+          }
         }
+        if (state.crashed) break;
       }
       if (!state.crashed) state.verticalSpeed = (state.y - oldY) / duration;
       propAngle = (propAngle + state.throttle * 2400 * duration) % 360;

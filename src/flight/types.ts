@@ -66,7 +66,7 @@ export function createFlightState(): FlightState {
 }
 
 /** Ponto de nascimento: sobre o mar, ao sul da cidade, voando para o norte. */
-export const SPAWN = { x: 0, y: 260, z: 1400, heading: 0, speed: 70 };
+export const SPAWN = { x: 0, y: 180, z: 720, heading: 0, speed: 70 };
 
 /** Contexto entregue a cada módulo na inicialização. */
 export interface FlightContext {
