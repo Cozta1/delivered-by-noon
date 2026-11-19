@@ -3,111 +3,77 @@ import {
   Color,
   Entity,
   FILLMODE_FILL_WINDOW,
+  FOG_LINEAR,
   Keyboard,
   Mouse,
   RESOLUTION_AUTO,
   TONEMAP_ACES,
-  Vec3,
-  WasmModule,
 } from 'playcanvas';
-import { buildLevel, SPAWN, SPAWN_YAW } from './level';
-import { FpsController, PLAYER_RADIUS, STAND_HEIGHT } from './scripts/fps-controller';
-import { Weapon } from './scripts/weapon';
-import { Hud } from './hud';
+import './flight.css';
+import { buildAirplane } from './flight/airplane';
+import { createCameraRig } from './flight/cameras';
+import { createCockpit } from './flight/cockpit';
+import { createFlightController } from './flight/flight';
+import { createHud } from './flight/hud';
+import { createFlightState, type FlightContext, type FlightModule } from './flight/types';
+import { SKY_HORIZON, buildWorld } from './flight/world';
 
-const base = import.meta.env.BASE_URL;
+const canvas = document.getElementById('app') as HTMLCanvasElement;
+const app = new Application(canvas, {
+  keyboard: new Keyboard(window),
+  mouse: new Mouse(canvas),
+});
+app.setCanvasFillMode(FILLMODE_FILL_WINDOW);
+app.setCanvasResolution(RESOLUTION_AUTO);
+window.addEventListener('resize', () => app.resizeCanvas());
+app.start();
 
-/** Carrega a física (ammo.js, versão WebAssembly com fallback em JS). */
-function loadAmmo() {
-  WasmModule.setConfig('Ammo', {
-    glueUrl: `${base}ammo/ammo.wasm.js`,
-    wasmUrl: `${base}ammo/ammo.wasm.wasm`,
-    fallbackUrl: `${base}ammo/ammo.js`,
-  });
-  return new Promise<void>((resolve) => WasmModule.getInstance('Ammo', () => resolve()));
-}
+// Luz de fim de tarde + névoa na cor do horizonte (esconde a borda do mundo)
+app.scene.ambientLight = new Color(0.55, 0.48, 0.55);
+app.scene.fog.type = FOG_LINEAR;
+app.scene.fog.color = SKY_HORIZON.clone();
+app.scene.fog.start = 900;
+app.scene.fog.end = 4200;
 
-async function main() {
-  await loadAmmo();
+const sun = new Entity('Sun');
+sun.addComponent('light', {
+  type: 'directional',
+  color: new Color(1, 0.8, 0.6),
+  intensity: 1.7,
+  castShadows: false,
+});
+sun.setEulerAngles(58, 125, 0);
+app.root.addChild(sun);
 
-  const canvas = document.getElementById('app') as HTMLCanvasElement;
-  const app = new Application(canvas, {
-    keyboard: new Keyboard(window),
-    mouse: new Mouse(canvas),
-  });
-  app.setCanvasFillMode(FILLMODE_FILL_WINDOW);
-  app.setCanvasResolution(RESOLUTION_AUTO);
-  window.addEventListener('resize', () => app.resizeCanvas());
+const world = buildWorld(app);
+const plane = buildAirplane(app);
 
-  // Inicia antes de montar a cena: corpos estáticos/cinemáticos criados
-  // antes do start ficavam sem forma de colisão (o jogador atravessava o chão).
-  app.start();
+const camera = new Entity('Camera');
+camera.addComponent('camera', {
+  clearColor: SKY_HORIZON.clone(),
+  fov: 65,
+  nearClip: 0.3,
+  farClip: 12000,
+  toneMapping: TONEMAP_ACES,
+});
+app.root.addChild(camera);
 
-  app.scene.ambientLight = new Color(0.5, 0.47, 0.5);
+const ctx: FlightContext = { app, world, plane, camera, state: createFlightState() };
 
-  // Luz do sol
-  const sun = new Entity('Sun');
-  sun.addComponent('light', {
-    type: 'directional',
-    color: new Color(1, 0.82, 0.62),
-    intensity: 1.8,
-    castShadows: true,
-    shadowDistance: 60,
-    shadowResolution: 2048,
-    normalOffsetBias: 0.05,
-    shadowBias: 0.2,
-  });
-  sun.setEulerAngles(62, 120, 0); // sol baixo de fim de tarde
-  app.root.addChild(sun);
+// Ordem fixa (contrato em types.ts): voo → câmeras → cabine → HUD
+const modules: FlightModule[] = [
+  createFlightController(ctx),
+  createCameraRig(ctx),
+  createCockpit(ctx),
+  createHud(ctx),
+];
 
-  buildLevel(app);
+app.on('update', (dt: number) => {
+  dt = Math.min(dt, 0.05);
+  for (const m of modules) m.update(dt);
+  // O céu acompanha a câmera (parece infinito)
+  world.sky.setPosition(camera.getPosition());
+});
 
-  // Câmera (fica fora do jogador: o rigidbody controla a rotação dele)
-  const camera = new Entity('Camera');
-  camera.addComponent('camera', {
-    clearColor: new Color(0.86, 0.66, 0.52),
-    fov: 90,
-    nearClip: 0.03,
-    farClip: 400,
-    toneMapping: TONEMAP_ACES,
-  });
-  app.root.addChild(camera);
-
-  // Jogador: cápsula com física, sem render (primeira pessoa)
-  const player = new Entity('Player');
-  app.root.addChild(player);
-  player.setPosition(SPAWN[0], SPAWN[1] + STAND_HEIGHT / 2 + 0.05, SPAWN[2]);
-  player.addComponent('collision', { type: 'capsule', radius: PLAYER_RADIUS, height: STAND_HEIGHT, axis: 1 });
-  player.addComponent('rigidbody', {
-    type: 'dynamic',
-    mass: 80,
-    friction: 0,
-    restitution: 0,
-    linearDamping: 0,
-    angularFactor: new Vec3(0, 0, 0),
-  });
-  player.addComponent('script');
-  const controller = player.script!.create(FpsController, { properties: { camera } }) as FpsController;
-  controller.yaw = SPAWN_YAW;
-
-  camera.addComponent('script');
-  const weapon = camera.script!.create(Weapon, {}) as unknown as Weapon;
-  weapon.controller = controller;
-
-  const hud = new Hud(app, controller, weapon);
-
-  // Tela de início / pausa: clique trava o mouse
-  const overlay = document.getElementById('overlay')!;
-  document.getElementById('loading')!.remove();
-  overlay.addEventListener('click', () => app.mouse!.enablePointerLock());
-  document.addEventListener('pointerlockchange', () => {
-    overlay.classList.toggle('hidden', Mouse.isPointerLocked());
-  });
-
-  app.on('update', (dt: number) => hud.update(dt));
-
-  // Útil para depurar pelo console do navegador
-  Object.assign(window, { app, controller, weapon });
-}
-
-main();
+// Depuração pelo console do navegador
+Object.assign(window, { app, flight: ctx.state });

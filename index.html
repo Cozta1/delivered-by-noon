@@ -3,41 +3,12 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>FPS</title>
-    <link rel="stylesheet" href="/src/hud.css" />
+    <title>Simulador de Voo</title>
   </head>
   <body>
     <canvas id="app"></canvas>
-
-    <div id="hud">
-      <div id="crosshair"><i class="t"></i><i class="b"></i><i class="l"></i><i class="r"></i></div>
-      <div id="dot"></div>
-      <div id="hitmarker"></div>
-      <div id="speed">0.0 m/s</div>
-      <div id="state"></div>
-      <div id="ammo"><span id="ammo-cur">30</span><span id="ammo-max">/ 30</span></div>
-      <div id="reload">RECARREGANDO</div>
-    </div>
-
-    <div id="overlay">
-      <div class="card">
-        <h1>Arena de Movimento</h1>
-        <p class="cta">Clique para jogar</p>
-        <table>
-          <tr><td>WASD</td><td>mover</td></tr>
-          <tr><td>Mouse</td><td>olhar</td></tr>
-          <tr><td>Shift</td><td>correr</td></tr>
-          <tr><td>C</td><td>agachar · deslizar (correndo)</td></tr>
-          <tr><td>Espaço</td><td>pular (pule no meio do slide para manter o embalo)</td></tr>
-          <tr><td>Botão esquerdo</td><td>atirar</td></tr>
-          <tr><td>Botão direito</td><td>mirar</td></tr>
-          <tr><td>R</td><td>recarregar</td></tr>
-          <tr><td>Esc</td><td>pausar</td></tr>
-        </table>
-        <p id="loading">Carregando física…</p>
-      </div>
-    </div>
-
+    <!-- HUD e cabine são montados por src/flight/hud.ts e src/flight/cockpit.ts dentro deste contêiner -->
+    <div id="ui"></div>
     <script type="module" src="/src/main.ts"></script>
   </body>
 </html>

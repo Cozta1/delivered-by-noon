@@ -1,0 +1,19 @@
+/* Base do layout; estilos do HUD e da cabine ficam com o dono de hud.ts/cockpit.ts (Gemini). */
+html,
+body {
+  margin: 0;
+  height: 100%;
+  overflow: hidden;
+  background: #1a1420;
+  font-family: system-ui, -apple-system, 'Segoe UI', sans-serif;
+}
+canvas {
+  display: block;
+  width: 100%;
+  height: 100%;
+}
+#ui {
+  position: fixed;
+  inset: 0;
+  pointer-events: none;
+}
