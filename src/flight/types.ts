@@ -8,8 +8,22 @@ import type { AppBase, Entity } from 'playcanvas';
 import type { AirplaneModel } from './airplane';
 import type { World } from './world';
 
-/** Veículo em uso: escolhido no menu (escrito pelo game/menu antes do voo; o voo reaparece ao trocar). */
-export type AircraftId = 'a29' | 'heli';
+/**
+ * O que o jogador controla agora: a pé ou um veículo (Etapa 4, mundo aberto de veículos).
+ * Escrito SÓ pelo gerenciador de veículos (vehicles.ts); câmeras, HUD, áudio e cabine leem.
+ */
+export type VehicleKind = 'foot' | 'car' | 'a29' | 'heli';
+
+/** Veículo existente no mundo (estacionado ou em uso). `variant` escolhe o modelo do carro. */
+export interface VehicleSpawn {
+  id: string;
+  kind: Exclude<VehicleKind, 'foot'>;
+  x: number;
+  y: number;
+  z: number;
+  heading: number;
+  variant?: number;
+}
 
 export type CameraMode = 'chase' | 'top' | 'cockpit';
 export const CAMERA_ORDER: CameraMode[] = ['chase', 'top', 'cockpit'];
@@ -53,8 +67,11 @@ export interface FlightState {
   aimX: number;
   aimY: number;
   aimZ: number;
-  /** Veículo atual (ver AircraftId). */
-  aircraft: AircraftId;
+  /** O que o jogador controla agora (o FlightState descreve esse corpo: pessoa ou veículo). */
+  vehicle: VehicleKind;
+  /** Veículo parado ao alcance para entrar com E (null se nenhum); o HUD mostra o aviso. */
+  nearbyVehicleId: string | null;
+  nearbyVehicleKind: Exclude<VehicleKind, 'foot'> | null;
 }
 
 export function createFlightState(): FlightState {
@@ -77,7 +94,9 @@ export function createFlightState(): FlightState {
     aimX: 0,
     aimY: 0,
     aimZ: -1,
-    aircraft: 'a29',
+    vehicle: 'car',
+    nearbyVehicleId: null,
+    nearbyVehicleKind: null,
   };
 }
 
