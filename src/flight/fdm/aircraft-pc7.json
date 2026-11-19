@@ -2,7 +2,7 @@
   "_origin": "Derived from JSBSim aircraft/pc7/pc7.xml, Engines/PT6A.xml and Systems/Conventional Controls.xml; LGPL-2.1, JSBSim-Team",
   "sourceCommit": "3f153c18a2518f8472e37c89e70444b1c671b700",
   "name": "Pilatus PC-7 (Aeromatic educational model)",
-  "notes": "SI units; derivatives per radian. ALPHA educational source, not manufacturer validated. Gear up, flaps zero; ground effect, propwash and alpha-rate derivatives omitted. Rated-power simplified propeller. Geometry scaled at runtime to 10 m span; assistance factors are separate from source data.",
+  "notes": "SI units; derivatives per radian. ALPHA educational source, not manufacturer validated. Gear up, flaps zero; ground effect, propwash and alpha-rate derivatives omitted. Rated-power simplified propeller. Geometry scaled at runtime to 10 m span; assistance factors are separate from source data. Runtime trimSpeed 70 m/s and maximumSpeed 140 m/s are simulation settings, not certified PC-7 performance. stallSpeed converts the source header 75.05 knots.",
   "area": 16.599915187200004,
   "span": 10.399776,
   "chord": 1.6002,
@@ -313,5 +313,8 @@
     "Yaw_damp": -0.1585,
     "Yaw_rudder": -0.0794,
     "Yaw_aileron": -0.003
-  }
+  },
+  "maximumSpeed": 140,
+  "stallSpeed": 38.60905555555556,
+  "trimSpeed": 70
 }

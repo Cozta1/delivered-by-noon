@@ -4,6 +4,7 @@ import { createCameraRig } from './cameras';
 import { createCockpit } from './cockpit';
 import { createFlightController } from './flight';
 import { createHud } from './hud';
+import { createSmoke } from './smoke';
 import { createFlightState, type FlightContext, type FlightModule } from './types';
 import { SKY_HORIZON, buildWorld } from './world';
 
@@ -68,12 +69,13 @@ export function startFlightSim(app: AppBase, uiRoot: HTMLElement): { destroy(): 
 
   const ctx: FlightContext = { app, world, plane, camera, state: createFlightState() };
 
-  // Ordem fixa (contrato em types.ts): voo → câmeras → cabine → HUD
+  // Ordem fixa (contrato em types.ts): voo → câmeras → cabine → HUD → fumaça
   const modules: FlightModule[] = [
     createFlightController(ctx),
     createCameraRig(ctx),
     createCockpit(ctx, uiRoot),
     createHud(ctx, uiRoot),
+    createSmoke(ctx),
   ];
 
   world.sky.setPosition(camera.getPosition());

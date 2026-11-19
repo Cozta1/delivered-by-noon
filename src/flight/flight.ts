@@ -21,7 +21,8 @@ export function createFlightController({ app, world, plane, state }: FlightConte
   const velocity = new Vec3();
   const input: FlightControls = { pitch: 0, roll: 0, yaw: 0, throttle: 0.6 };
   // Extremos do modelo em airplane.ts, incluindo as duas faces para voo invertido.
-  const collisionPoints = [
+  const modelHitbox = plane.hitbox;
+  const collisionPoints = (modelHitbox?.length ? modelHitbox : [
     [-5, -0.54, -1.41], [-5, -0.54, 0.21], [5, -0.54, -1.41], [5, -0.54, 0.21],
     [-5, -0.36, -1.41], [-5, -0.36, 0.21], [5, -0.36, -1.41], [5, -0.36, 0.21],
     [0, -1.15, -3.325], [0, 1.05, -3.325], [-1.1, -0.05, -3.325], [1.1, -0.05, -3.325],
@@ -30,7 +31,7 @@ export function createFlightController({ app, world, plane, state }: FlightConte
     [0, -0.325, 4.3], [-1.2, -1.65, -0.7], [1.2, -1.65, -0.7], [0, -1.55, -2.5],
     [-0.575, -0.625, -2.5], [0.575, -0.625, -2.5],
     [-0.475, 1.025, -1.45], [0.475, 1.025, -1.45],
-  ].map(([x, y, z]) => new Vec3(x, y, z));
+  ]).map(([x, y, z]) => new Vec3(x, y, z));
   const degrees = 180 / Math.PI;
   let crashTime = 0;
   let propAngle = 0;
@@ -119,12 +120,14 @@ export function createFlightController({ app, world, plane, state }: FlightConte
       const rollInput = Number(!!(keyboard?.isPressed(KEY_D) || keyboard?.isPressed(KEY_RIGHT)))
         - Number(!!(keyboard?.isPressed(KEY_A) || keyboard?.isPressed(KEY_LEFT)));
       const yawInput = Number(!!keyboard?.isPressed(KEY_E)) - Number(!!keyboard?.isPressed(KEY_Q));
+      const canvas = app.graphicsDevice?.canvas;
+      const pointerLocked = !!canvas && typeof document !== 'undefined' && document.pointerLockElement === canvas;
       const throttleInput = Number(!!keyboard?.isPressed(KEY_SHIFT)) - Number(!!keyboard?.isPressed(KEY_CONTROL));
       input.throttle = Math.max(0, Math.min(1, input.throttle + throttleInput * 0.5 * duration));
       accumulator += duration;
       while (accumulator >= FIXED_STEP) {
         accumulator -= FIXED_STEP;
-        if (state.controlMode === 'mouse') {
+        if (state.controlMode === 'mouse' && pointerLocked) {
           instructor.steer(fdm, state.aimX, state.aimY, state.aimZ, input);
           input.pitch = Math.max(-1, Math.min(1, input.pitch + pitchInput * INSTRUCTOR.manualTrim));
           input.roll = Math.max(-1, Math.min(1, input.roll + rollInput * INSTRUCTOR.manualTrim));

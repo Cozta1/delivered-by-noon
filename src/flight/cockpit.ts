@@ -1,3 +1,4 @@
+import { isSmokeActive } from './smoke';
 import type { FlightContext, FlightModule } from './types';
 
 const DEG_TO_RAD = Math.PI / 180;
@@ -126,19 +127,19 @@ function drawReadoutBox(
 
 function drawAirspeed(ctx: CanvasRenderingContext2D, cx: number, cy: number, r: number, speedMs: number) {
   drawDialFrame(ctx, cx, cy, r, 'VEL', 'm/s');
-  const maxSpeed = 160;
+  const maxSpeed = 180;
   const speed = clamp(speedMs, 0, maxSpeed);
   const start = 0.75 * Math.PI;
   const sweep = 1.5 * Math.PI;
   const toAngle = (v: number) => start + (v / maxSpeed) * sweep;
 
-  // Faixas coloridas: estol (< 25 m/s), cruzeiro (25..140 m/s), acima da máxima (> 140 m/s)
+  // Faixas coloridas A-29: estol (< 40 m/s), cruzeiro (40..164 m/s), acima da máxima (> 164 m/s)
   const arcR = r * 0.82;
   ctx.lineWidth = Math.max(2.5, r * 0.055);
   const arcs: Array<[number, number, string]> = [
-    [0, 25, C_CORAL],
-    [25, 140, C_TEAL],
-    [140, maxSpeed, C_AMBER],
+    [0, 40, C_CORAL],
+    [40, 164, C_TEAL],
+    [164, maxSpeed, C_AMBER],
   ];
   for (const [a, b, col] of arcs) {
     ctx.beginPath();
@@ -166,15 +167,15 @@ function drawAirspeed(ctx: CanvasRenderingContext2D, cx: number, cy: number, r: 
 
     if (major) {
       const lr = r * 0.54;
-      ctx.fillStyle = v === 140 ? C_AMBER : C_TEXT;
+      ctx.fillStyle = v === 160 ? C_AMBER : C_TEXT;
       ctx.fillText(String(v), cx + cos * lr, cy + sin * lr);
     }
   }
 
-  // Marcas explícitas de estol (25 m/s) e velocidade máxima (140 m/s)
+  // Marcas explícitas de estol (40 m/s) e velocidade máxima do A-29 (164 m/s)
   for (const [markVal, markCol] of [
-    [25, C_CORAL],
-    [140, C_CORAL],
+    [40, C_CORAL],
+    [164, C_CORAL],
   ] as const) {
     const a = toAngle(markVal);
     const cos = Math.cos(a);
@@ -651,6 +652,33 @@ export function createCockpit({ state }: FlightContext, uiRoot?: HTMLElement | n
     x += r + gap + r * 0.56;
 
     drawThrottle(ctx2d, x, cy, r, state.throttle);
+
+    // Indicador luminoso discreto da fumaça acrobática no canto superior direito do painel
+    const smokeOn = isSmokeActive(state);
+    const pillW = 66;
+    const pillH = 18;
+    const pillX = w - pillW - 18;
+    const pillY = 14;
+    if (pillX > x + r * 0.65) {
+      ctx2d.fillStyle = smokeOn ? 'rgba(236, 246, 255, 0.16)' : '#071316';
+      ctx2d.strokeStyle = smokeOn ? '#e8f5ff' : '#244b52';
+      ctx2d.lineWidth = 1;
+      ctx2d.beginPath();
+      ctx2d.roundRect(pillX, pillY, pillW, pillH, 4);
+      ctx2d.fill();
+      ctx2d.stroke();
+
+      ctx2d.beginPath();
+      ctx2d.arc(pillX + 11, pillY + pillH / 2, 3.2, 0, Math.PI * 2);
+      ctx2d.fillStyle = smokeOn ? '#ffffff' : '#2f4e54';
+      ctx2d.fill();
+
+      ctx2d.fillStyle = smokeOn ? '#f4fbff' : C_MUTED;
+      ctx2d.textAlign = 'left';
+      ctx2d.textBaseline = 'middle';
+      ctx2d.font = '700 10px system-ui, sans-serif';
+      ctx2d.fillText('FUM [F]', pillX + 19, pillY + pillH / 2 + 0.5);
+    }
   }
 
   function sync() {

@@ -1,4 +1,5 @@
 import { Quat, Vec3 } from 'playcanvas';
+import { isSmokeActive } from './smoke';
 import { CAMERA_LABEL, type CameraMode, type FlightContext, type FlightModule, type FlightState } from './types';
 
 type AlertState = 'none' | 'stall' | 'crashed';
@@ -10,7 +11,7 @@ interface MarkerCache {
 }
 
 const FOOTER_TEXT =
-  'Mouse mira · Clique trava · M mouse/teclado · W/S arfagem · A/D rolagem · Q/E leme · Shift/Ctrl acel · C câmera · R reiniciar';
+  'Mouse mira · Clique trava · M mouse/teclado · W/S arfagem · A/D rolagem · Q/E leme · Shift/Ctrl acel · F fumaça · C câmera · R reiniciar';
 const PROJECTION_DIST = 500;
 
 function el<K extends keyof HTMLElementTagNameMap>(
@@ -38,12 +39,13 @@ export function createHud({ app, plane, camera, state }: FlightContext, uiRoot?:
   noseCross.hidden = true;
   reticlesLayer.append(aimRing, noseCross);
 
-  // Canto superior esquerdo: telemetria, câmera e modo de controle
+  // Canto superior esquerdo: telemetria, câmera, controle e fumaça
   const panel = el('div', 'hud-telemetry');
   const badgesRow = el('div', 'hud-badges');
   const cameraBadge = el('div', 'hud-camera');
   const controlBadge = el('div', 'hud-control');
-  badgesRow.append(cameraBadge, controlBadge);
+  const smokeBadge = el('div', 'hud-smoke');
+  badgesRow.append(cameraBadge, controlBadge, smokeBadge);
 
   const lockHint = el('div', 'hud-lock-hint', 'Clique no canvas para mirar');
 
@@ -101,6 +103,7 @@ export function createHud({ app, plane, camera, state }: FlightContext, uiRoot?:
   let lastCamera: CameraMode | null = null;
   let lastControl: FlightState['controlMode'] | null = null;
   let lastLocked: boolean | null = null;
+  let lastSmoke: boolean | null = null;
   let lastCockpit: boolean | null = null;
   let lastAlert: AlertState = 'none';
 
@@ -173,6 +176,13 @@ export function createHud({ app, plane, camera, state }: FlightContext, uiRoot?:
       controlBadge.className = `hud-control ${isMouse ? 'hud-control--mouse' : 'hud-control--keyboard'}`;
       lockHint.hidden = !isMouse || locked;
       aimRing.classList.toggle('hud-aim-ring--unlocked', isMouse && !locked);
+    }
+
+    const smokeOn = isSmokeActive(state);
+    if (smokeOn !== lastSmoke) {
+      lastSmoke = smokeOn;
+      smokeBadge.textContent = smokeOn ? 'FUMAÇA ON' : 'FUMAÇA OFF';
+      smokeBadge.className = `hud-smoke ${smokeOn ? 'hud-smoke--on' : 'hud-smoke--off'}`;
     }
 
     if (!isCockpit) {

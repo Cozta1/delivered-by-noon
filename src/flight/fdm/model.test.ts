@@ -2,6 +2,7 @@
 import { describe, expect, it } from 'vitest';
 import { Vec3 } from 'playcanvas';
 import aircraft from './aircraft-pc7.json';
+import a29 from './aircraft-a29.json';
 import { standardAtmosphere } from './atmosphere';
 import { FIXED_STEP, FlightDynamics, type FlightControls } from './model';
 import { lookup1, lookup2 } from './table';
@@ -39,6 +40,18 @@ describe('JSBSim table port', () => {
       }
     }
   });
+
+  it('keeps PC-7 data and scales A-29 mass, geometry, power and estimated inertias', () => {
+    expect(a29.emptyMass).toBe(3200);
+    expect(a29.maximumMass).toBe(5400);
+    expect(a29.area).toBe(19.4);
+    expect(a29.span).toBe(11.1);
+    expect(a29.chord * a29.span).toBeCloseTo(a29.area);
+    expect(a29.engine.powerWatts / 745.6998715822702).toBeCloseTo(1600);
+    expect(a29.maximumSpeed * 3.6).toBeCloseTo(590);
+    expect(a29.tables).toEqual(aircraft.tables);
+    for (let i = 0; i < 3; i++) expect(a29.inertia[i]).toBeGreaterThan(aircraft.inertia[i]);
+  });
 });
 
 describe('standard atmosphere', () => {
@@ -75,7 +88,7 @@ describe('six degree of freedom flight', () => {
     fdm.rotation.transformVector(Vec3.FORWARD, forward);
     let last = Math.atan2(forward.y, -forward.z);
     let angle = 0, inverted = false;
-    for (let i = 0; i < 12 / FIXED_STEP && angle < 2 * Math.PI; i++) {
+    for (let i = 0; i < 15 / FIXED_STEP && angle < 2 * Math.PI; i++) {
       fdm.step(input);
       fdm.rotation.transformVector(Vec3.FORWARD, forward);
       const next = Math.atan2(forward.y, -forward.z);
@@ -119,5 +132,31 @@ describe('six degree of freedom flight', () => {
     expect(fdm.worldVelocity.x).toBeCloseTo(70);
     expect(fdm.worldVelocity.y).toBeCloseTo(0);
     expect(() => fdm.step({ ...neutral, yaw: NaN })).toThrow(RangeError);
+  });
+
+  it('loses control authority without airflow and does not trim a stalled aircraft nose-up', () => {
+    const slow = flying(), fast = flying();
+    slow.velocity.set(0, 0, 0);
+    const command = { ...neutral, pitch: 1, roll: 1, yaw: 1, throttle: 0 };
+    slow.step(command);
+    fast.step(command);
+    expect(slow.rates.length()).toBeLessThan(fast.rates.length() * 0.001);
+    slow.reset(0, 500, 0, 0, 70, 0.6);
+    slow.velocity.set(30, 0, 0);
+    slow.step(neutral);
+    expect(slow.stalled).toBe(true);
+    expect(Math.abs(slow.rates.y)).toBeLessThan(0.002);
+    expect(slow.pitchTrim).toBe(0);
+  });
+
+  it('starts pitching down near the ceiling before the safety clamp is needed', () => {
+    const fdm = flying();
+    fdm.position.y = 2450;
+    fdm.rotation.setFromAxisAngle(Vec3.RIGHT, 90);
+    fdm.velocity.set(70, 0, 0);
+    fdm.worldVelocity.set(0, 70, 0);
+    fdm.step(neutral);
+    expect(fdm.position.y).toBeLessThan(2500);
+    expect(fdm.rates.y).toBeLessThan(-0.01);
   });
 });

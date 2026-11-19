@@ -19,11 +19,12 @@ Isso cria `dist-editor/flight-sim.mjs` (com o CSS embutido e `playcanvas` como d
 3. Na seção **Engine**, selecione a versão **2.x** mais recente disponível.
 4. Em **Settings → Input → Keyboard**, confirme que o teclado está habilitado (já vem ativado por padrão; se estiver desativado, o script exibirá um aviso na tela e não iniciará os controles).
 
-## 3. Enviar o script `flight-sim.mjs`
+## 3. Enviar o script `flight-sim.mjs` e o modelo `a29.glb`
 
-1. No painel **Assets** (parte inferior), clique em **+** → **Upload** (ou arraste o arquivo diretamente para a pasta raiz de Assets).
-2. Selecione o arquivo `dist-editor/flight-sim.mjs`.
-3. Aguarde o processamento: o Editor reconhecerá automaticamente o script ESM **`flightSim`** (`FlightSim`).
+1. No painel **Assets** (parte inferior), clique em **+** → **Upload** (ou arraste os arquivos diretamente para a pasta raiz de Assets).
+2. Envie o script `dist-editor/flight-sim.mjs` e aguarde o processamento: o Editor reconhecerá automaticamente o script ESM **`flightSim`** (`FlightSim`).
+3. Envie também o modelo 3D `public/models/a29.glb` para a pasta **Assets** (o Editor criará automaticamente um asset container chamado **`a29.glb`**).
+   > **Nota:** Se `a29.glb` não for enviado, o simulador usa automaticamente o modelo procedural de fallback do A-29.
 
 ## 4. Anexar o script à cena
 
@@ -48,6 +49,7 @@ Isso cria `dist-editor/flight-sim.mjs` (com o CSS embutido e `playcanvas` como d
 | **A / D** ou **← / →** | Rolagem (inclinar asas e curvar; ajuste fino no modo mouse) |
 | **Q / E** | Leme (guinada esquerda / direita) |
 | **Shift / Ctrl** | Acelerador (+ / −) |
+| **F** | Liga / desliga a fumaça branca na cauda |
 | **C** ou **V** | Alternar câmera (**ATRÁS**, **DE CIMA**, **CABINE**) |
 | **R** | Reiniciar voo no ponto inicial |
 

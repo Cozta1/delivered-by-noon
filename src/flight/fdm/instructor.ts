@@ -12,6 +12,7 @@ export const INSTRUCTOR = {
   yawP: 8,
   yawD: 0.25,
   slipP: 0.1,
+  coordination: 1,
   manualTrim: 0.35,
 };
 
@@ -25,10 +26,12 @@ export class MouseInstructor {
   private readonly right = new Vec3();
   private readonly up = new Vec3();
   private heading = 0;
+  private bank = 0;
   private turnDirection = 1;
 
   reset(heading: number): void {
     this.heading = heading * Math.PI / 180;
+    this.bank = 0;
     this.turnDirection = 1;
   }
 
@@ -50,16 +53,23 @@ export class MouseInstructor {
     // Keep the chosen side through the ambiguous +/-180 degree seam.
     if (Math.abs(headingError) > 2.7) headingError = Math.abs(headingError) * this.turnDirection;
     else if (Math.abs(headingError) > 0.05) this.turnDirection = Math.sign(headingError);
-    const bank = Math.atan2(-this.right.y, this.up.y);
+    if (Math.hypot(this.right.y, this.up.y) > 0.001) {
+      this.bank = Math.atan2(-this.right.y, this.up.y);
+    }
+    const bank = this.bank;
     const targetBank = clamp(headingError * INSTRUCTOR.bankToHeading, -INSTRUCTOR.maxBank, INSTRUCTOR.maxBank);
     const bankError = Math.atan2(Math.sin(targetBank - bank), Math.cos(targetBank - bank));
-    let pitchError = Math.atan2(this.local.y, Math.max(0.1, -this.local.z));
+    // Aim describes the flight path; pointing the nose at it ignores angle of attack and causes drift.
+    let pitchError = Math.atan2(this.local.y, Math.max(0.1, -this.local.z)) + clamp(fdm.alpha, -0.25, 0.25);
     if (this.local.z > 0) {
-      pitchError = Math.max(0.6, pitchError) * clamp(Math.abs(bank) / INSTRUCTOR.maxBank, 0, 1);
+      pitchError = this.up.y > 0
+        ? Math.max(0.6, pitchError) * clamp(Math.abs(bank) / INSTRUCTOR.maxBank, 0, 1) : 0;
     }
     out.roll = clamp(bankError * INSTRUCTOR.rollP - fdm.rates.x * INSTRUCTOR.rollD, -1, 1);
-    out.pitch = clamp(pitchError * INSTRUCTOR.pitchP - fdm.rates.y * INSTRUCTOR.pitchD, -1, 1);
-    out.yaw = clamp(this.local.x * INSTRUCTOR.yawP - fdm.rates.z * INSTRUCTOR.yawD
-      + fdm.beta * INSTRUCTOR.slipP, -0.7, 0.7);
+    out.pitch = clamp(pitchError * INSTRUCTOR.pitchP - fdm.rates.y * INSTRUCTOR.pitchD + fdm.pitchTrim, -1, 1);
+    const yawAuthority = Math.max(0, Math.cos(bank)) ** 2;
+    const coordinatedYaw = fdm.rates.y * Math.sin(bank) * Math.cos(bank) / (0.2 + Math.sin(bank) ** 2);
+    out.yaw = clamp(this.local.x * INSTRUCTOR.yawP * yawAuthority - fdm.rates.z * INSTRUCTOR.yawD
+      + fdm.beta * INSTRUCTOR.slipP + coordinatedYaw * INSTRUCTOR.coordination, -0.7, 0.7);
   }
 }

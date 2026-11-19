@@ -7,8 +7,11 @@ const FOV: Record<CameraMode, number> = {
   cockpit: 75,
 };
 
-const CHASE_OFFSET = new Vec3(0, 6, 22);
-const COCKPIT_OFFSET = new Vec3(0, 0.9, -0.3);
+const CHASE_DISTANCE = 26;
+const CHASE_HEIGHT = 7.2;
+const CHASE_OFFSET = new Vec3(0, CHASE_HEIGHT, CHASE_DISTANCE);
+// Posição dos olhos do piloto no assento dianteiro do A-29 (tandem)
+const COCKPIT_OFFSET = new Vec3(0, 1.08, -1.05);
 const TOP_HEIGHT = 180;
 const CHASE_SMOOTH = 10;
 const TOP_SMOOTH = 8;
@@ -41,11 +44,16 @@ export function createCameraRig({ app, world, plane, camera, state }: FlightCont
   const pitchRot = new Quat();
   const dir = new Vec3();
   const fallbackUp = new Vec3();
+  const blendedUp = new Vec3();
+  const crossTmp = new Vec3();
 
   let activeMode: CameraMode = state.camera;
   let activeControl: FlightState['controlMode'] = state.controlMode;
   let wasCrashed = state.crashed;
   let snapNext = true;
+  let destroyed = false;
+  let pendingLockRequests = 0;
+  let awaitingLegacyLock = false;
 
   let aimYaw = state.heading;
   let aimPitch = state.pitch;
@@ -64,24 +72,73 @@ export function createCameraRig({ app, world, plane, camera, state }: FlightCont
     }
   }
 
+  function detachTransitionListenersIfDone() {
+    if (!destroyed) return;
+    if (pendingLockRequests === 0 && !awaitingLegacyLock && !isPointerLocked()) {
+      if (typeof document !== 'undefined') {
+        document.removeEventListener('pointerlockchange', onPointerLockChange);
+        document.removeEventListener('pointerlockerror', onPointerLockError);
+      }
+    }
+  }
+
+  function validatePointerLock() {
+    if (destroyed || state.controlMode !== 'mouse') {
+      releasePointerLock();
+    }
+  }
+
+  function onPointerLockChange() {
+    awaitingLegacyLock = false;
+    validatePointerLock();
+    detachTransitionListenersIfDone();
+  }
+
+  function onPointerLockError() {
+    awaitingLegacyLock = false;
+    detachTransitionListenersIfDone();
+  }
+
   function onCanvasMouseDown(e: MouseEvent) {
-    if (e.button !== 0 || state.controlMode !== 'mouse' || !canvas || isPointerLocked()) return;
+    if (destroyed || e.button !== 0 || state.controlMode !== 'mouse' || !canvas || isPointerLocked()) return;
+    const requestLock = (canvas as { requestPointerLock?: () => Promise<void> | void }).requestPointerLock;
+    if (typeof requestLock !== 'function') return;
     try {
-      const result = canvas.requestPointerLock?.() as Promise<void> | undefined;
-      result?.catch?.(() => {});
+      const result = requestLock.call(canvas);
+      if (result && typeof result.then === 'function') {
+        pendingLockRequests++;
+        result.then(
+          () => {
+            pendingLockRequests = Math.max(0, pendingLockRequests - 1);
+            validatePointerLock();
+            detachTransitionListenersIfDone();
+          },
+          () => {
+            pendingLockRequests = Math.max(0, pendingLockRequests - 1);
+            detachTransitionListenersIfDone();
+          },
+        );
+      } else {
+        awaitingLegacyLock = true;
+        validatePointerLock();
+      }
     } catch {
       // Ignora rejeição em ambientes sem suporte a pointer lock
     }
   }
 
   function onDocumentMouseMove(e: MouseEvent) {
-    if (!isPointerLocked() || state.controlMode !== 'mouse' || state.crashed) return;
+    if (destroyed || !isPointerLocked() || state.controlMode !== 'mouse' || state.crashed) return;
     aimYaw = ((aimYaw + e.movementX * MOUSE_SENSITIVITY) % 360 + 360) % 360;
     aimPitch = clamp(aimPitch - e.movementY * MOUSE_SENSITIVITY, -85, 85);
   }
 
   if (canvas) canvas.addEventListener('mousedown', onCanvasMouseDown);
-  if (typeof document !== 'undefined') document.addEventListener('mousemove', onDocumentMouseMove);
+  if (typeof document !== 'undefined') {
+    document.addEventListener('mousemove', onDocumentMouseMove);
+    document.addEventListener('pointerlockchange', onPointerLockChange);
+    document.addEventListener('pointerlockerror', onPointerLockError);
+  }
 
   function syncAimToPlaneForward() {
     planeRot.transformVector(Vec3.FORWARD, planeForward);
@@ -131,18 +188,37 @@ export function createCameraRig({ app, world, plane, camera, state }: FlightCont
     dir.sub2(target, camera.getPosition());
     const len = dir.length();
     if (len < 0.01) return;
-    if (Math.abs(dir.y) > len * 0.985) {
-      camera.lookAt(target, computeHeadingUp(headingDeg, fallbackUp));
-    } else {
+    dir.mulScalar(1 / len);
+
+    const absY = Math.abs(dir.y);
+    if (absY <= 0.94) {
       camera.lookAt(target, Vec3.UP);
+      return;
     }
+
+    // Preserva continuidade do vetor superior perto da vertical:
+    // ao olhar para cima (dir.y > 0), a projeção contínua de Vec3.UP aponta para -rumo;
+    // ao olhar para baixo (dir.y < 0), aponta para +rumo.
+    const t = clamp((absY - 0.94) / 0.05, 0, 1);
+    computeHeadingUp(headingDeg, fallbackUp);
+    if (dir.y > 0) fallbackUp.mulScalar(-1);
+
+    blendedUp.set(fallbackUp.x * t, 1 - t, fallbackUp.z * t);
+    crossTmp.cross(dir, blendedUp);
+    if (crossTmp.lengthSq() < 1e-6) {
+      const rad = headingDeg * DEG_TO_RAD;
+      blendedUp.set(Math.cos(rad), 0, Math.sin(rad));
+    } else {
+      blendedUp.normalize();
+    }
+    camera.lookAt(target, blendedUp);
   }
 
   function updateChase(dt: number, snap: boolean) {
     const useMouseAim = state.controlMode === 'mouse';
     if (useMouseAim) {
-      desiredPos.copy(aimDir).mulScalar(-22).add(planePos);
-      desiredPos.y += 6;
+      desiredPos.copy(aimDir).mulScalar(-CHASE_DISTANCE).add(planePos);
+      desiredPos.y += CHASE_HEIGHT;
       lookTarget.copy(aimDir).mulScalar(AIM_LOOK_AHEAD).add(planePos);
     } else {
       planeRot.transformVector(CHASE_OFFSET, desiredPos).add(planePos);
@@ -191,7 +267,8 @@ export function createCameraRig({ app, world, plane, camera, state }: FlightCont
     if (state.controlMode === 'mouse' && isPointerLocked()) {
       invPlaneRot.copy(planeRot).invert();
       invPlaneRot.transformVector(aimDir, localAim);
-      const relYaw = Math.atan2(localAim.x, -localAim.z) * RAD_TO_DEG;
+      // Usa asin(localAim.x) para evitar o salto ±180° do atan2 quando a mira cruza atrás da cauda
+      const relYaw = Math.asin(clamp(localAim.x, -1, 1)) * RAD_TO_DEG;
       const relPitch = Math.asin(clamp(localAim.y, -1, 1)) * RAD_TO_DEG;
       targetHeadYaw = clamp(relYaw * 0.45, -26, 26);
       targetHeadPitch = clamp(relPitch * 0.45, -18, 18);
@@ -237,6 +314,8 @@ export function createCameraRig({ app, world, plane, camera, state }: FlightCont
 
   return {
     update(dt: number) {
+      if (destroyed) return;
+
       let modeSwitched = false;
       const keyboard = app.keyboard;
       if (keyboard?.wasPressed(KEY_C) || keyboard?.wasPressed(KEY_V)) {
@@ -261,6 +340,8 @@ export function createCameraRig({ app, world, plane, camera, state }: FlightCont
           planeRot.copy(plane.root.getRotation());
           syncAimToPlaneForward();
         }
+      } else if (state.controlMode === 'keyboard' && isPointerLocked()) {
+        releasePointerLock();
       }
 
       planePos.set(state.x, state.y, state.z);
@@ -294,9 +375,14 @@ export function createCameraRig({ app, world, plane, camera, state }: FlightCont
       snapNext = false;
     },
     destroy() {
+      if (destroyed) return;
+      destroyed = true;
       if (canvas) canvas.removeEventListener('mousedown', onCanvasMouseDown);
-      if (typeof document !== 'undefined') document.removeEventListener('mousemove', onDocumentMouseMove);
+      if (typeof document !== 'undefined') {
+        document.removeEventListener('mousemove', onDocumentMouseMove);
+      }
       releasePointerLock();
+      detachTransitionListenersIfDone();
     },
   };
 }
