@@ -10,7 +10,7 @@ import {
   StandardMaterial,
   Texture,
 } from 'playcanvas';
-import { CITY, CITY_Y, WORLD_SIZE, terrainHeight, terrainData, cityData, cloudData, windowImages, skyImage, type Box, type MeshData, type ImageData } from './world-data';
+import { CITY, CITY_Y, WORLD_SIZE, terrainHeight, airportData, createWorldPhysics, terrainData, cityData, cloudData, windowImages, skyImage, type Box, type MeshData, type ImageData } from './world-data';
 export { WORLD_SIZE, terrainHeight, type Box } from './world-data';
 
 // ---------------------------------------------------------------------------
@@ -213,7 +213,7 @@ function buildClouds(parent: Entity, materials: StandardMaterial[]) {
 
 // ---------------------------------------------------------------------------
 
-export type World = {
+export type World = Partial<ReturnType<typeof createWorldPhysics>> & {
   sky: Entity;
   /** Altura do obstáculo mais alto em (x, z): terreno, mar (0) ou prédio. */
   groundAt: (x: number, z: number) => number;
@@ -231,33 +231,13 @@ export function buildWorld(app: AppBase, parent: Entity = app.root): World {
   buildClouds(parent, materials);
   const sky = buildSky(app, parent, materials, textures);
 
-  // Grade espacial de 100 m para achar prédios próximos rápido
-  const CELL = 100;
-  const grid = new Map<string, Box[]>();
-  for (const b of boxes) {
-    for (let gx = Math.floor(b.x0 / CELL); gx <= Math.floor(b.x1 / CELL); gx++) {
-      for (let gz = Math.floor(b.z0 / CELL); gz <= Math.floor(b.z1 / CELL); gz++) {
-        const k = `${gx},${gz}`;
-        let list = grid.get(k);
-        if (!list) grid.set(k, (list = []));
-        list.push(b);
-      }
-    }
-  }
-
-  const groundAt = (x: number, z: number) => {
-    let h = Math.max(terrainHeight(x, z), 0);
-    if (x >= CITY.x0 - 20 && x <= CITY.x1 + 20 && z >= CITY.z0 - 20 && z <= CITY.z1 + 20 && CITY_Y > h) {
-      h = CITY_Y;
-    }
-    const list = grid.get(`${Math.floor(x / CELL)},${Math.floor(z / CELL)}`);
-    if (list) {
-      for (const b of list) {
-        if (x >= b.x0 && x <= b.x1 && z >= b.z0 && z <= b.z1 && b.top > h) h = b.top;
-      }
-    }
-    return h;
-  };
-
-  return { sky, groundAt, materials, textures };
+  const airport = airportData();
+  boxes.push(...airport.boxes);
+  const airportMaterial = new StandardMaterial();
+  airportMaterial.diffuseVertexColor = true;
+  airportMaterial.update();
+  materials.push(airportMaterial);
+  for (const part of airport.parts) meshEntity(parent, part.name, buildMesh(app, part.mesh), airportMaterial);
+  const physics = createWorldPhysics(boxes);
+  return { sky, ...physics, materials, textures };
 }

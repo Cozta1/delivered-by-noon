@@ -26,17 +26,18 @@ export interface GameMenus {
 }
 
 const CONTROLS_LIST: ReadonlyArray<[string, string]> = [
-  ['Mouse', 'Move a mira livremente (no modo mouse, o A-29 pilota até ela)'],
-  ['Clique esquerdo', 'Trava o ponteiro para mirar'],
-  ['Esc / P', 'Pausa o voo e abre o menu (soltar o mouse também pausa)'],
-  ['M', 'Alterna entre controle por Mouse e Teclado'],
-  ['W / S ou ↑ / ↓', 'Arfagem (nariz para baixo / cima; ajuste fino no modo mouse)'],
-  ['A / D ou ← / →', 'Rolagem (inclina asas e curva; ajuste fino no modo mouse)'],
-  ['Q / E', 'Leme (guinada esquerda / direita)'],
-  ['Shift / Ctrl', 'Acelerador (+ / −)'],
-  ['F', 'Liga / desliga a fumaça branca na cauda'],
-  ['C / V', 'Alterna câmera (ATRÁS, DE CIMA, CABINE)'],
-  ['R', 'Reinicia o voo no ponto inicial'],
+  ['E', 'Entrar ou sair do veículo próximo (carro, helicóptero ou A-29)'],
+  ['W / A / S / D', 'Andar (a pé), dirigir (carro) ou pilotar (aeronaves)'],
+  ['Espaço', 'Freio de mão (carro) ou pular (a pé)'],
+  ['Mouse', 'Gira a câmera (a pé/carro) ou move a mira (aeronaves)'],
+  ['Clique esquerdo', 'Trava o ponteiro para girar a câmera / mirar'],
+  ['Shift / Ctrl', 'Acelerador / coletivo (+ / − em aeronaves)'],
+  ['Q / E', 'Leme / pedais em aeronaves'],
+  ['M', 'Alterna entre controle por Mouse e Teclado (aeronaves)'],
+  ['F', 'Liga / desliga a fumaça branca na cauda do A-29'],
+  ['C / V', 'Alterna câmeras disponíveis para o veículo atual'],
+  ['R', 'Reinicia o veículo atual'],
+  ['Esc / P', 'Pausa o jogo e abre o menu (soltar o mouse também pausa)'],
 ];
 
 function node<K extends keyof HTMLElementTagNameMap>(
@@ -67,15 +68,15 @@ export function createGameMenus(
   // --- Tela Principal (Título ou Pausa) ---
   const mainView = node('div', 'menu-view');
   const header = node('div', 'menu-header');
-  const eyebrow = node('div', 'menu-eyebrow', 'SIMULADOR DE VOO · A-29');
+  const eyebrow = node('div', 'menu-eyebrow', 'MUNDO ABERTO DE VEÍCULOS');
   const titleEl = node('h1', 'menu-title', 'HORIZONTE DOURADO');
-  const subtitleEl = node('p', 'menu-subtitle', 'Voo acrobático ao entardecer sobre o litoral e a serra');
+  const subtitleEl = node('p', 'menu-subtitle', 'Explore a cidade de carro, a pé, de helicóptero e no A-29');
   header.append(eyebrow, titleEl, subtitleEl);
 
   const actions = node('div', 'menu-actions');
-  const btnPrimary = node('button', 'menu-btn menu-btn--primary', 'Voar');
+  const btnPrimary = node('button', 'menu-btn menu-btn--primary', 'Jogar');
   btnPrimary.type = 'button';
-  const btnRestart = node('button', 'menu-btn', 'Reiniciar voo');
+  const btnRestart = node('button', 'menu-btn', 'Reiniciar');
   btnRestart.type = 'button';
   const btnOptions = node('button', 'menu-btn', 'Opções');
   btnOptions.type = 'button';
@@ -252,10 +253,10 @@ export function createGameMenus(
   const credBody = node('div', 'menu-credits-body');
   const creditEntries: ReadonlyArray<[string, string]> = [
     ['Equipe', 'João Costa'],
-    ['Simulação de voo', 'Física baseada no JSBSim (LGPL-2.1, JSBSim-Team)'],
-    ['Aeronave 3D', 'Modelo do A-29 feito no Blender'],
+    ['Física de voo', 'Física baseada no JSBSim (LGPL-2.1, JSBSim-Team)'],
+    ['Modelos 3D', 'A-29, helicóptero, carros e personagem originais feitos no Blender'],
     ['Motor gráfico', 'PlayCanvas'],
-    ['Áudio e interface', 'Trilha e efeitos procedurais em Web Audio API'],
+    ['Áudio e interface', 'Trilha, motores, passos e interface procedurais em Web Audio API'],
   ];
   for (const [role, value] of creditEntries) {
     const item = node('div', 'menu-credit-item');
@@ -293,18 +294,18 @@ export function createGameMenus(
     creditsView.hidden = screen !== 'credits';
 
     if (mode === 'title') {
-      eyebrow.textContent = 'SIMULADOR DE VOO · A-29';
+      eyebrow.textContent = 'MUNDO ABERTO DE VEÍCULOS';
       titleEl.textContent = 'HORIZONTE DOURADO';
-      subtitleEl.textContent = 'Voo acrobático ao entardecer sobre o litoral e a serra';
+      subtitleEl.textContent = 'Explore a cidade de carro, a pé, de helicóptero e no A-29';
       subtitleEl.hidden = false;
-      btnPrimary.textContent = 'Voar';
+      btnPrimary.textContent = 'Jogar';
       btnRestart.hidden = true;
       btnCredits.hidden = false;
       btnReturnTitle.hidden = true;
     } else {
       eyebrow.textContent = 'HORIZONTE DOURADO';
       titleEl.textContent = 'PAUSADO';
-      subtitleEl.textContent = 'Pressione Esc ou P para voltar ao voo';
+      subtitleEl.textContent = 'Pressione Esc ou P para continuar';
       subtitleEl.hidden = false;
       btnPrimary.textContent = 'Continuar';
       btnRestart.hidden = false;

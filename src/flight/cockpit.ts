@@ -654,13 +654,13 @@ export function createCockpit({ state }: FlightContext, uiRoot?: HTMLElement | n
 
     drawThrottle(ctx2d, x, cy, r, state.throttle);
 
-    // Indicador luminoso discreto da fumaça acrobática no canto superior direito do painel
-    const smokeOn = isSmokeActive(state);
+    // Indicador luminoso discreto da fumaça acrobática (somente no A-29)
+    const smokeOn = state.vehicle === 'a29' && isSmokeActive(state);
     const pillW = 66;
     const pillH = 18;
     const pillX = w - pillW - 18;
     const pillY = 14;
-    if (pillX > x + r * 0.65) {
+    if (state.vehicle === 'a29' && pillX > x + r * 0.65) {
       ctx2d.fillStyle = smokeOn ? 'rgba(236, 246, 255, 0.16)' : '#071316';
       ctx2d.strokeStyle = smokeOn ? '#e8f5ff' : '#244b52';
       ctx2d.lineWidth = 1;
@@ -683,7 +683,8 @@ export function createCockpit({ state }: FlightContext, uiRoot?: HTMLElement | n
   }
 
   function sync() {
-    const visible = getRuntime(state).mode !== 'title' && state.camera === 'cockpit';
+    const isAircraft = state.vehicle === 'a29' || state.vehicle === 'heli';
+    const visible = getRuntime(state).mode !== 'title' && isAircraft && state.camera === 'cockpit';
     if (visible !== lastVisible) {
       lastVisible = visible;
       root.hidden = !visible;

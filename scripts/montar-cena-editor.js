@@ -283,7 +283,18 @@
   // --- 1. Desativar entidades padrão e antigas do projeto ---
   const LEGACY_NAMES = new Set(['Camera', 'Light', 'Player', 'Ground', 'Plane']);
   const LEGACY_SCRIPTS = ['playerMovement', 'cameraFollow', 'gunController'];
-  const OUR_NAMES = new Set(['Jogo', 'Mundo', 'A29', 'CameraJogo', 'Sol']);
+  const VEHICLE_SLOTS = [
+    { name: 'A29', slug: 'a29', position: [1400, 5.4, 410], rotation: [0, 0, 0] },
+    { name: 'Heli', slug: 'helicoptero', position: [-5, 189.4, -63], rotation: [0, 0, 0] },
+    { name: 'Carro_Inicial', slug: 'carro-compacto', position: [38, 3, -622], rotation: [0, -90, 0] },
+    { name: 'Carro_1', slug: 'carro-compacto', position: [-650, 3, -450], rotation: [0, 0, 0] },
+    { name: 'Carro_2', slug: 'carro-picape', position: [-392, 3, -360], rotation: [0, 0, 0] },
+    { name: 'Carro_3', slug: 'carro-esportivo', position: [-134, 3, -270], rotation: [0, 0, 0] },
+    { name: 'Carro_4', slug: 'carro-compacto', position: [124, 3, -180], rotation: [0, 0, 0] },
+    { name: 'Carro_5', slug: 'carro-picape', position: [382, 3, -90], rotation: [0, 0, 0] },
+    { name: 'Personagem', slug: 'personagem', position: [38, 3, -618.8], rotation: [0, 0, 0] },
+  ];
+  const OUR_NAMES = new Set(['Jogo', 'Mundo', 'CameraJogo', 'Sol', ...VEHICLE_SLOTS.map((v) => v.name)]);
   const disabledNames = [];
 
   for (const entity of listEntities()) {
@@ -349,8 +360,8 @@
     castShadows: false,
   });
 
-  // --- 4. Entidade "CameraJogo" (enquadramento inicial atrás do A-29) ---
-  const cam = await ensureEntity('CameraJogo', { position: [0, 187.2, 746], rotation: [-15.5, 0, 0] });
+  // --- 4. Entidade "CameraJogo" (enquadramento inicial atrás do carro na cidade) ---
+  const cam = await ensureEntity('CameraJogo', { position: [29.6, 5.85, -622], rotation: [-14, -90, 0] });
   ensureComponent(cam, 'camera', {
     enabled: true,
     clearColor: [0.98, 0.72, 0.55, 1],
@@ -360,23 +371,28 @@
     toneMapping: 3, // TONEMAP_ACES
   });
 
-  // --- 5. Entidade "A29" (posição inicial SPAWN = [0, 180, 720]) ---
-  const a29 = await ensureEntity('A29', { position: [0, 180, 720], rotation: [0, 0, 0], scale: [1, 1, 1] });
-  const a29Groups = resolveGlbGroups(
-    (file, name) => /^a29(\.(glb|json))?$/i.test(file) || /^a29(\.(glb|json))?$/i.test(name),
-  );
+  // --- 5. Veículos estacionados e personagem (posições oficiais do mundo aberto) ---
   const mountedList = [];
   const missingList = [];
 
-  if (a29Groups.length === 0) {
-    missingList.push('A29: nenhum asset "a29.glb" encontrado no projeto');
-  } else {
-    const res = await mountGlbGroup(a29Groups[0], a29);
-    if (res.status === 'ausente') missingList.push(`A29: ${res.detail}`);
-    else mountedList.push(`A29 (${res.status}): ${res.detail}`);
+  for (const slot of VEHICLE_SLOTS) {
+    const ent = await ensureEntity(slot.name, {
+      position: slot.position,
+      rotation: slot.rotation,
+      scale: [1, 1, 1],
+    });
+    const re = new RegExp(`^${slot.slug}(\\.(glb|json))?$`, 'i');
+    const groups = resolveGlbGroups((file, name) => re.test(file) || re.test(name));
+    if (groups.length === 0) {
+      missingList.push(`${slot.name}: nenhum asset "${slot.slug}.glb" encontrado no projeto`);
+    } else {
+      const res = await mountGlbGroup(groups[0], ent);
+      if (res.status === 'ausente') missingList.push(`${slot.name}: ${res.detail}`);
+      else mountedList.push(`${slot.name} (${res.status}): ${res.detail}`);
+    }
   }
 
-  // --- 6. Entidade "Mundo" (filhos visuais de todos os mundo-*.glb) ---
+  // --- 6. Entidade "Mundo" (filhos visuais de todos os mundo-*.glb, incluindo mundo-aeroporto.glb) ---
   const mundo = await ensureEntity('Mundo', { position: [0, 0, 0], rotation: [0, 0, 0], scale: [1, 1, 1] });
   const worldGroups = resolveGlbGroups(
     (file, name) => /^mundo-/i.test(file) || /^mundo-/i.test(name),
@@ -420,11 +436,15 @@
 
   // --- Diagnóstico detalhado no Console ---
   const relevantAssets = allAssets
-    .filter((a) => /^(a29|mundo-)/i.test(String(getVal(a, 'name') || '')) || /^(a29|mundo-)/i.test(assetFileName(a)))
+    .filter((a) => {
+      const n = String(getVal(a, 'name') || '');
+      const f = assetFileName(a);
+      return /^(a29|helicoptero|carro-|personagem|mundo-)/i.test(n) || /^(a29|helicoptero|carro-|personagem|mundo-)/i.test(f);
+    })
     .map(describeAsset);
 
   console.log('=== [Horizonte Dourado] Resumo da montagem da cena ===');
-  console.log(`Entidades: Jogo (${scriptInfo}), Sol, CameraJogo, A29, Mundo`);
+  console.log(`Entidades: Jogo (${scriptInfo}), Sol, CameraJogo, Mundo, ${VEHICLE_SLOTS.map((v) => v.name).join(', ')}`);
   console.log(`Montados (${mountedList.length}):`);
   for (const line of mountedList) console.log(`  + ${line}`);
   if (missingList.length > 0) {

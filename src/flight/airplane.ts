@@ -37,6 +37,10 @@ export type AirplaneModel = {
   materials: StandardMaterial[];
   /** Pontos extremos do contorno em coordenadas locais (frente = -Z), para colisão. */
   hitbox: [number, number, number][];
+  /** Rodas giratórias (nós "Roda_*") para veículos terrestres. */
+  wheels?: Entity[];
+  /** Rotor de cauda (nó "TailRotor") para helicópteros. */
+  tailRotor?: Entity;
 };
 
 const DEFAULT_A29_HITBOX: ReadonlyArray<[number, number, number]> = [

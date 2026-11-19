@@ -60,7 +60,7 @@ Para que o mundo, o A-29, a câmera e o sol apareçam **montados na Hierarchy e 
 3. Pressione **F12** para abrir o DevTools e clique na aba **Console**.
 4. Copie todo o conteúdo de `scripts/montar-cena-editor.js`, **cole no Console** e pressione **Enter**.
    - O snippet usa apenas a Editor API oficial (`editor`), é 100% local e pode ser executado novamente sem duplicar entidades.
-   - Ele cria/atualiza `Jogo` (com o script `simuladorVoo`), `Mundo` (filhos de `mundo-*.glb`), `A29` (a partir de `a29.glb`), `CameraJogo` e `Sol`, desativa `Camera`/`Light` padrão e entidades/scripts antigos (`Player`, `Ground`, `Plane`, `playerMovement`, `cameraFollow`, `gunController`) e tenta habilitar **Settings → Input → Keyboard**.
+   - Ele cria/atualiza `Jogo` (com o script `simuladorVoo`), `Mundo` (filhos de `mundo-*.glb`, incluindo `mundo-aeroporto.glb`), os veículos estacionados (`A29` na pista, `Heli` no heliponto, `Carro_Inicial`, `Carro_1..5` e `Personagem`), `CameraJogo` e `Sol`, desativa `Camera`/`Light` padrão e entidades/scripts antigos (`Player`, `Ground`, `Plane`, `playerMovement`, `cameraFollow`, `gunController`) e tenta habilitar **Settings → Input → Keyboard**.
    - Compatível tanto com o formato novo (`template`/`render`) quanto com o formato legado (`model`, quando `useModelV2` está desativado no projeto). Ao final, o Console imprime um resumo diagnóstico do que foi montado.
 5. Confira na **Hierarchy** as cinco entidades criadas (selecione `A29` e aperte **F** para focar o avião no Viewport).
 6. Clique em **Launch**: o simulador detecta automaticamente `Mundo`, `A29`, `CameraJogo` e `Sol` na cena e os utiliza sem criar duplicatas (mantendo a colisão lógica do terreno/cidade).
@@ -88,17 +88,18 @@ Para que o mundo, o A-29, a câmera e o sol apareçam **montados na Hierarchy e 
 
 | Entrada | Ação |
 |---|---|
-| **Mouse** | Move a mira livremente (no modo mouse, o avião pilota até ela) |
-| **Clique esquerdo** | Trava o ponteiro para mirar (**Esc** solta e pausa) |
+| **E** | Entrar / sair de um veículo próximo (carro, helicóptero ou A-29) |
+| **W / A / S / D** | Andar (a pé), dirigir (carro) ou pilotar (aeronaves) |
+| **Espaço** | Freio de mão (carro) ou pular (a pé) |
+| **Mouse** | Gira a câmera (a pé/carro) ou move a mira (aeronaves) |
+| **Clique esquerdo** | Trava o ponteiro para girar a câmera / mirar (**Esc** solta e pausa) |
 | **Esc** ou **P** | Pausa / abre ou fecha o menu de pausa (perder o pointer lock também pausa) |
-| **M** | Alterna entre modo **Mouse** e **Teclado** |
-| **W / S** ou **↑ / ↓** | Arfagem (baixar / subir o nariz; ajuste fino no modo mouse) |
-| **A / D** ou **← / →** | Rolagem (inclinar asas e curvar; ajuste fino no modo mouse) |
-| **Q / E** | Leme (guinada esquerda / direita) |
-| **Shift / Ctrl** | Acelerador (+ / −) |
-| **F** | Liga / desliga a fumaça branca na cauda |
-| **C** ou **V** | Alternar câmera (**ATRÁS**, **DE CIMA**, **CABINE**) |
-| **R** | Reiniciar voo no ponto inicial |
+| **M** | Alterna entre modo **Mouse** e **Teclado** (aeronaves) |
+| **Q / E** | Leme / pedais em aeronaves |
+| **Shift / Ctrl** | Acelerador / coletivo (+ / − em aeronaves) |
+| **F** | Liga / desliga a fumaça branca na cauda do A-29 |
+| **C** ou **V** | Alternar câmeras disponíveis para o veículo atual |
+| **R** | Reiniciar veículo atual |
 
 ## 7. Como atualizar o script depois
 

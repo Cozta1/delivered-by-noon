@@ -1,14 +1,22 @@
 // Integration of JSBSim-derived fdm/model.ts (FGPropagate/FGAccelerations); LGPL-2.1, JSBSim-Team.
 import {
   KEY_A, KEY_CONTROL, KEY_D, KEY_DOWN, KEY_E, KEY_LEFT, KEY_Q, KEY_R,
-  KEY_RIGHT, KEY_S, KEY_SHIFT, KEY_UP, KEY_W, Quat, Vec3,
+  KEY_RIGHT, KEY_S, KEY_SHIFT, KEY_UP, KEY_W, Quat, Vec3, type Entity,
 } from 'playcanvas';
-import type { FlightContext, FlightModule } from './types';
+import type { FlightContext, FlightModule, VehicleSpawn } from './types';
 import { SPAWN } from './types';
 import { FIXED_STEP, FlightDynamics, type FlightControls } from './fdm/model';
 import { INSTRUCTOR, MouseInstructor } from './fdm/instructor';
+import { AircraftGround } from './fdm/ground';
+import { HeliDynamics, type HeliControls } from './fdm/heli';
 
-export function createFlightController({ app, world, plane, state }: FlightContext): FlightModule {
+export function createFlightController(ctx: FlightContext, spawn?: VehicleSpawn, resetSpawn = spawn): FlightModule {
+  const start = spawn ? { ...spawn } : undefined;
+  const home = resetSpawn ? { ...resetSpawn } : undefined;
+  return (start?.kind ?? ctx.state.vehicle) === 'heli' ? createHeliController(ctx, start, home) : createA29Controller(ctx, start, home);
+}
+
+function createA29Controller({ app, world, plane, state }: FlightContext, spawn?: VehicleSpawn, home = spawn): FlightModule {
   const fdm = new FlightDynamics();
   const instructor = new MouseInstructor();
   const rotation = fdm.rotation;
@@ -32,11 +40,15 @@ export function createFlightController({ app, world, plane, state }: FlightConte
     [-0.575, -0.625, -2.5], [0.575, -0.625, -2.5],
     [-0.475, 1.025, -1.45], [0.475, 1.025, -1.45],
   ]).map(([x, y, z]) => new Vec3(x, y, z));
+  const clearance = Math.max(.1, ...collisionPoints.map(p => -p.y));
+  const support = (x:number,z:number) => world.surfaceAt?.(x,z,fdm.position.y+.35) ?? world.groundAt(x,z);
+  const ground = new AircraftGround(support, clearance, world.isRunway);
   const degrees = 180 / Math.PI;
   let crashTime = 0;
   let propAngle = 0;
   let returnDirection = 0;
   let accumulator = 0;
+  let resetPoint = spawn;
 
   function attitude() {
     rotation.transformVector(Vec3.FORWARD, forward);
@@ -57,7 +69,7 @@ export function createFlightController({ app, world, plane, state }: FlightConte
     state.speed = state.crashed ? 0 : fdm.speed;
     state.verticalSpeed = state.crashed ? 0 : fdm.worldVelocity.y;
     state.altitude = state.y;
-    state.heightAboveGround = state.y - world.groundAt(state.x, state.z);
+    state.heightAboveGround = Math.max(0,state.y - support(state.x, state.z));
     state.throttle = fdm.controls.throttle;
     state.stall = !state.crashed && fdm.stalled;
     plane.root.setPosition(fdm.position);
@@ -65,10 +77,14 @@ export function createFlightController({ app, world, plane, state }: FlightConte
   }
 
   function reset() {
-    fdm.reset(SPAWN.x, SPAWN.y, SPAWN.z, SPAWN.heading, SPAWN.speed, 0.6);
-    instructor.reset(SPAWN.heading);
+    const start = resetPoint ?? SPAWN;
+    resetPoint = home;
+    fdm.reset(start.x, start.y, start.z, start.heading, spawn ? .1 : SPAWN.speed, spawn ? 0 : .6);
+    ground.crashed = false; ground.grounded = false; ground.takeoffAssist = 0;
+    if (spawn) ground.park(fdm, start.heading);
+    instructor.reset(start.heading);
     input.pitch = input.roll = input.yaw = 0;
-    input.throttle = 0.6;
+    input.throttle = spawn ? 0 : 0.6;
     state.crashed = false;
     crashTime = propAngle = returnDirection = accumulator = 0;
     plane.prop.setLocalEulerAngles(0, 0, 0);
@@ -107,6 +123,12 @@ export function createFlightController({ app, world, plane, state }: FlightConte
     update(dt) {
       if (app.keyboard?.wasPressed(KEY_R)) { reset(); return; }
       if (!Number.isFinite(dt) || dt <= 0) return;
+      if (plane.hitbox?.length) {
+        collisionPoints.length = plane.hitbox.length;
+        plane.hitbox.forEach(([x,y,z],i) => (collisionPoints[i] ??= new Vec3()).set(x,y,z));
+        ground.clearance = Math.max(.1,...collisionPoints.map(p => -p.y));
+        if (ground.grounded) fdm.position.y = support(fdm.position.x,fdm.position.z) + ground.clearance;
+      }
       const duration = Math.min(dt, 0.25);
       if (state.crashed) {
         crashTime += duration;
@@ -122,7 +144,9 @@ export function createFlightController({ app, world, plane, state }: FlightConte
       const yawInput = Number(!!keyboard?.isPressed(KEY_E)) - Number(!!keyboard?.isPressed(KEY_Q));
       const canvas = app.graphicsDevice?.canvas;
       const pointerLocked = !!canvas && typeof document !== 'undefined' && document.pointerLockElement === canvas;
-      const throttleInput = Number(!!keyboard?.isPressed(KEY_SHIFT)) - Number(!!keyboard?.isPressed(KEY_CONTROL));
+      const throttleInput = ground.grounded
+        ? Number(!!keyboard?.isPressed(KEY_W)) - Number(!!keyboard?.isPressed(KEY_S))
+        : Number(!!keyboard?.isPressed(KEY_SHIFT)) - Number(!!keyboard?.isPressed(KEY_CONTROL));
       input.throttle = Math.max(0, Math.min(1, input.throttle + throttleInput * 0.5 * duration));
       accumulator += duration;
       while (accumulator >= FIXED_STEP) {
@@ -137,16 +161,28 @@ export function createFlightController({ app, world, plane, state }: FlightConte
           input.roll = rollInput;
           input.yaw = yawInput;
         }
-        fdm.step(input);
+        const onWheels = ground.step(fdm, input, !!keyboard?.isPressed(KEY_S));
+        if (!onWheels) {
+          if (ground.takeoffAssist > 0) input.pitch = .05;
+          fdm.step(input);
+        }
         containWorld();
+        if (ground.crashed) { state.crashed = true; plane.root.enabled = false; accumulator = 0; break; }
+        let contactHeight: number | undefined;
         for (const point of collisionPoints) {
           rotation.transformVector(point, collisionPoint).add(fdm.position);
-          if (collisionPoint.y <= world.groundAt(collisionPoint.x, collisionPoint.z)) {
+          const obstacle = world.obstacleAt?.(collisionPoint.x,collisionPoint.z,collisionPoint.y,0,.01);
+          const height = obstacle?.top ?? world.surfaceAt?.(collisionPoint.x,collisionPoint.z,collisionPoint.y+.02) ?? world.groundAt(collisionPoint.x, collisionPoint.z);
+          if (collisionPoint.y <= height) contactHeight = Math.max(contactHeight ?? -Infinity, height);
+        }
+        if (contactHeight !== undefined) {
+          attitude();
+          ground.contact(fdm, state.roll, state.pitch, contactHeight);
+          if (ground.crashed) {
             state.crashed = true;
             crashTime = accumulator;
             accumulator = 0;
             plane.root.enabled = false;
-            break;
           }
         }
         if (state.crashed) break;
@@ -156,4 +192,70 @@ export function createFlightController({ app, world, plane, state }: FlightConte
       publish();
     },
   };
+}
+
+
+function createHeliController({app,world,plane,state}:FlightContext,spawn?:VehicleSpawn,home=spawn):FlightModule {
+  const body=new HeliDynamics(), point=new Vec3();
+  let hitbox=plane.hitbox?.length?plane.hitbox:[[0,-1.2,0]];
+  let clearance=Math.max(.1,...hitbox.map(p=>-p[1]));
+  const rotor=plane as typeof plane & {propAxis?:'x'|'y'|'z';tailProp?:Entity};
+  let accumulator=0, crashTime=0, angle=0, collective=0;
+  const support=(x:number,z:number)=>world.surfaceAt?.(x,z,body.position.y+.35)??world.groundAt(x,z);
+  let resetPoint=spawn;
+  function publish() {
+    Object.assign(state,{x:body.position.x,y:body.position.y,z:body.position.z,pitch:body.pitch,roll:body.roll,heading:body.heading,
+      speed:state.crashed?0:body.velocity.length(),verticalSpeed:state.crashed?0:body.velocity.y,altitude:body.position.y,
+      heightAboveGround:Math.max(0,body.position.y-support(body.position.x,body.position.z)),throttle:(collective+1)/2,stall:false});
+    plane.root.setPosition(body.position);plane.root.setRotation(body.rotation);
+  }
+  function reset() {
+    const start=resetPoint??SPAWN;resetPoint=home;
+    body.reset(start.x,spawn?world.groundAt(start.x,start.z)+clearance:start.y,start.z,start.heading);
+    body.grounded=!!spawn;
+    accumulator=crashTime=collective=0;state.crashed=false;plane.root.enabled=true;publish();
+  }
+  reset();
+  return {update(dt) {
+    if(app.keyboard?.wasPressed(KEY_R)){reset();return;}
+    if(!Number.isFinite(dt)||dt<=0)return;
+    dt=Math.min(dt,.25);
+    hitbox=plane.hitbox?.length?plane.hitbox:hitbox;
+    clearance=Math.max(.1,...hitbox.map(p=>-p[1]));
+    if(body.grounded)body.position.y=support(body.position.x,body.position.z)+clearance;
+    if(state.crashed){crashTime+=dt;if(crashTime>=2)reset();else publish();return;}
+    const k=app.keyboard;
+    const input:HeliControls={forward:Number(!!k?.isPressed(KEY_W))-Number(!!k?.isPressed(KEY_S)),
+      right:Number(!!k?.isPressed(KEY_D))-Number(!!k?.isPressed(KEY_A)),
+      yaw:Number(!!k?.isPressed(KEY_E))-Number(!!k?.isPressed(KEY_Q)),
+      collective:Number(!!k?.isPressed(KEY_SHIFT))-Number(!!k?.isPressed(KEY_CONTROL))};
+    const canvas=app.graphicsDevice?.canvas;
+    if(state.controlMode==='mouse'&&typeof document!=='undefined'&&document.pointerLockElement===canvas) {
+      const target=Math.atan2(state.aimX,-state.aimZ)*180/Math.PI;
+      const error=((target-body.heading+540)%360)-180;
+      input.yaw=Math.max(-1,Math.min(1,error/45+input.yaw));
+      input.forward=Math.max(-1,Math.min(1,Math.max(0,1-Math.abs(error)/90)*Math.max(0,-state.aimY*3+.25)+input.forward));
+      input.collective=Math.max(-1,Math.min(1,input.collective+Math.max(0,state.aimY)*2));
+    }
+    collective=input.collective;
+    accumulator+=dt;
+    while(accumulator>=FIXED_STEP) {
+      accumulator-=FIXED_STEP;body.step(input,support,clearance);
+      for(const p of hitbox) {
+        body.rotation.transformVector(point.set(p[0],p[1],p[2]),point).add(body.position);
+        const obstacle=world.obstacleAt?.(point.x,point.z,point.y,0,.01);
+        const floor=obstacle?.top??world.surfaceAt?.(point.x,point.z,point.y+.02)??world.groundAt(point.x,point.z);
+        if(point.y<floor-.01) {
+          const centerFloor=support(body.position.x,body.position.z);
+          if(floor-centerFloor>.3||floor-point.y>.3||Math.abs(body.velocity.y)>=3||Math.abs(body.pitch)>18||Math.abs(body.roll)>18||Math.hypot(body.velocity.x,body.velocity.z)>20) body.crashed=true;
+          else {body.position.y+=floor-point.y;body.velocity.set(0,0,0);body.grounded=true;}
+        }
+      }
+      if(body.crashed){state.crashed=true;plane.root.enabled=false;accumulator=0;break;}
+    }
+    angle=(angle+1800*dt)%360;
+    const axis=rotor.propAxis??'y';
+    plane.prop.setLocalEulerAngles(axis==='x'?angle:0,axis==='y'?angle:0,axis==='z'?angle:0);
+    (rotor.tailProp??plane.tailRotor)?.setLocalEulerAngles(angle*2,0,0);publish();
+  }};
 }

@@ -1,5 +1,11 @@
 import { KEY_C, KEY_M, KEY_V, Quat, Vec3 } from 'playcanvas';
-import { CAMERA_ORDER, type CameraMode, type FlightContext, type FlightModule, type FlightState } from './types';
+import {
+  type CameraMode,
+  type FlightContext,
+  type FlightModule,
+  type FlightState,
+  type VehicleKind,
+} from './types';
 import { consumeCameraSnap, getRuntime } from './ui/settings';
 
 const FOV: Record<CameraMode, number> = {
@@ -8,13 +14,36 @@ const FOV: Record<CameraMode, number> = {
   cockpit: 75,
 };
 
-const CHASE_DISTANCE = 26;
-const CHASE_HEIGHT = 7.2;
-const CHASE_OFFSET = new Vec3(0, CHASE_HEIGHT, CHASE_DISTANCE);
-// Posição dos olhos do piloto no assento dianteiro do A-29 (tandem)
-const COCKPIT_OFFSET = new Vec3(0, 1.08, -1.05);
+const VEHICLE_CAMERAS: Record<VehicleKind, readonly CameraMode[]> = {
+  foot: ['chase', 'top'],
+  car: ['chase', 'top'],
+  a29: ['chase', 'top', 'cockpit'],
+  heli: ['chase', 'top', 'cockpit'],
+};
+
+const A29_CHASE_DISTANCE = 26;
+const A29_CHASE_HEIGHT = 7.2;
+const A29_CHASE_OFFSET = new Vec3(0, A29_CHASE_HEIGHT, A29_CHASE_DISTANCE);
+const A29_COCKPIT_OFFSET = new Vec3(0, 1.08, -1.05);
+
+const HELI_CHASE_DISTANCE = 18;
+const HELI_CHASE_HEIGHT = 5.6;
+const HELI_CHASE_OFFSET = new Vec3(0, HELI_CHASE_HEIGHT, HELI_CHASE_DISTANCE);
+const HELI_COCKPIT_OFFSET = new Vec3(0, 1.68, -1.65);
+
+const CAR_CHASE_DISTANCE = 8.4;
+const CAR_CHASE_HEIGHT = 2.85;
+const CAR_TOP_HEIGHT = 85;
+
+const FOOT_CHASE_DISTANCE = 3.9;
+const FOOT_SHOULDER_HEIGHT = 1.56;
+const FOOT_SHOULDER_RIGHT = 0.62;
+const FOOT_TOP_HEIGHT = 55;
+
 const TOP_HEIGHT = 180;
 const CHASE_SMOOTH = 10;
+const CAR_SMOOTH = 12;
+const FOOT_SMOOTH = 16;
 const TOP_SMOOTH = 8;
 const HEAD_SMOOTH = 12;
 const TELEPORT_DIST_SQ = 100 * 100;
@@ -25,6 +54,10 @@ const RAD_TO_DEG = 180 / Math.PI;
 
 function clamp(v: number, min: number, max: number) {
   return v < min ? min : v > max ? max : v;
+}
+
+function shortestAngleDiff(fromDeg: number, toDeg: number): number {
+  return ((toDeg - fromDeg + 540) % 360) - 180;
 }
 
 export function createCameraRig({ app, world, plane, camera, state }: FlightContext): FlightModule {
@@ -43,12 +76,14 @@ export function createCameraRig({ app, world, plane, camera, state }: FlightCont
   const headRot = new Quat();
   const yawRot = new Quat();
   const pitchRot = new Quat();
+  const rollRot = new Quat();
   const dir = new Vec3();
   const fallbackUp = new Vec3();
   const blendedUp = new Vec3();
   const crossTmp = new Vec3();
 
   let activeMode: CameraMode = state.camera;
+  let activeVehicle: VehicleKind = state.vehicle;
   let activeControl: FlightState['controlMode'] = state.controlMode;
   let wasCrashed = state.crashed;
   let snapNext = true;
@@ -60,8 +95,17 @@ export function createCameraRig({ app, world, plane, camera, state }: FlightCont
   let aimPitch = state.pitch;
   let headYaw = 0;
   let headPitch = 0;
+  let carOrbitIdle = 99;
 
   const canvas = (app.graphicsDevice as { canvas?: HTMLCanvasElement } | undefined)?.canvas ?? null;
+
+  function isAircraft(kind: VehicleKind) {
+    return kind === 'a29' || kind === 'heli';
+  }
+
+  function allowsMouseLook() {
+    return state.vehicle === 'foot' || state.vehicle === 'car' || state.controlMode === 'mouse';
+  }
 
   function isPointerLocked() {
     return typeof document !== 'undefined' && canvas !== null && document.pointerLockElement === canvas;
@@ -84,7 +128,7 @@ export function createCameraRig({ app, world, plane, camera, state }: FlightCont
   }
 
   function validatePointerLock() {
-    if (destroyed || state.controlMode !== 'mouse' || getRuntime(state).mode !== 'playing') {
+    if (destroyed || !allowsMouseLook() || getRuntime(state).mode !== 'playing') {
       releasePointerLock();
     }
   }
@@ -105,7 +149,7 @@ export function createCameraRig({ app, world, plane, camera, state }: FlightCont
       destroyed ||
       e.button !== 0 ||
       getRuntime(state).mode !== 'playing' ||
-      state.controlMode !== 'mouse' ||
+      !allowsMouseLook() ||
       !canvas ||
       isPointerLocked()
     ) {
@@ -142,7 +186,7 @@ export function createCameraRig({ app, world, plane, camera, state }: FlightCont
       destroyed ||
       getRuntime(state).mode !== 'playing' ||
       !isPointerLocked() ||
-      state.controlMode !== 'mouse' ||
+      !allowsMouseLook() ||
       state.crashed
     ) {
       return;
@@ -150,8 +194,13 @@ export function createCameraRig({ app, world, plane, camera, state }: FlightCont
     const { mouseSensitivity, invertY } = getRuntime(state).settings;
     const sens = Number.isFinite(mouseSensitivity) ? mouseSensitivity : MOUSE_SENSITIVITY;
     const ySign = invertY ? 1 : -1;
+    const pitchMin = state.vehicle === 'foot' ? -45 : state.vehicle === 'car' ? -25 : -85;
+    const pitchMax = state.vehicle === 'foot' ? 60 : state.vehicle === 'car' ? 35 : 85;
     aimYaw = ((aimYaw + e.movementX * sens) % 360 + 360) % 360;
-    aimPitch = clamp(aimPitch + e.movementY * sens * ySign, -85, 85);
+    aimPitch = clamp(aimPitch + e.movementY * sens * ySign, pitchMin, pitchMax);
+    if (state.vehicle === 'car' && (Math.abs(e.movementX) > 0 || Math.abs(e.movementY) > 0)) {
+      carOrbitIdle = 0;
+    }
   }
 
   if (canvas) canvas.addEventListener('mousedown', onCanvasMouseDown);
@@ -161,7 +210,29 @@ export function createCameraRig({ app, world, plane, camera, state }: FlightCont
     document.addEventListener('pointerlockerror', onPointerLockError);
   }
 
-  function syncAimToPlaneForward() {
+  function readVehicleRotation(out: Quat) {
+    if (state.vehicle === 'a29') {
+      out.copy(plane.root.getRotation());
+      return;
+    }
+    yawRot.setFromAxisAngle(Vec3.UP, -state.heading);
+    pitchRot.setFromAxisAngle(Vec3.RIGHT, state.pitch);
+    rollRot.setFromAxisAngle(Vec3.BACK, -state.roll);
+    out.mul2(yawRot, pitchRot);
+    out.mul(rollRot);
+  }
+
+  function syncAimToVehicleForward() {
+    if (state.vehicle === 'foot' || state.vehicle === 'car') {
+      aimYaw = ((state.heading % 360) + 360) % 360;
+      aimPitch = state.vehicle === 'foot' ? -6 : -4;
+      const yawRad = aimYaw * DEG_TO_RAD;
+      const pitchRad = aimPitch * DEG_TO_RAD;
+      const cosPitch = Math.cos(pitchRad);
+      aimDir.set(Math.sin(yawRad) * cosPitch, Math.sin(pitchRad), -Math.cos(yawRad) * cosPitch);
+      return;
+    }
+
     planeRot.transformVector(Vec3.FORWARD, planeForward);
     const len = planeForward.length();
     if (len > 0.0001) planeForward.mulScalar(1 / len);
@@ -174,28 +245,53 @@ export function createCameraRig({ app, world, plane, camera, state }: FlightCont
     }
   }
 
-  function updateAimState() {
-    if (state.controlMode === 'mouse' && isPointerLocked() && !state.crashed) {
+  function updateAimState(dt: number) {
+    if (state.vehicle === 'car') {
+      carOrbitIdle += dt;
+      // Quando o carro dirige sem mexer o mouse por ~1.4 s, a câmera realinha suavemente atrás do carro
+      if (!isPointerLocked() || (carOrbitIdle > 1.4 && Math.abs(state.speed) > 1.5)) {
+        const alpha = 1 - Math.exp(-4.5 * Math.max(dt, 0.001));
+        aimYaw = ((aimYaw + shortestAngleDiff(aimYaw, state.heading) * alpha) % 360 + 360) % 360;
+        aimPitch += (-4 - aimPitch) * alpha;
+      }
+      const yawRad = aimYaw * DEG_TO_RAD;
+      const pitchRad = aimPitch * DEG_TO_RAD;
+      const cosPitch = Math.cos(pitchRad);
+      aimDir.set(Math.sin(yawRad) * cosPitch, Math.sin(pitchRad), -Math.cos(yawRad) * cosPitch);
+    } else if (state.vehicle === 'foot') {
+      if (!isPointerLocked()) {
+        aimYaw = ((state.heading % 360) + 360) % 360;
+      }
+      const yawRad = aimYaw * DEG_TO_RAD;
+      const pitchRad = aimPitch * DEG_TO_RAD;
+      const cosPitch = Math.cos(pitchRad);
+      aimDir.set(Math.sin(yawRad) * cosPitch, Math.sin(pitchRad), -Math.cos(yawRad) * cosPitch);
+    } else if (state.controlMode === 'mouse' && isPointerLocked() && !state.crashed) {
       const yawRad = aimYaw * DEG_TO_RAD;
       const pitchRad = aimPitch * DEG_TO_RAD;
       const cosPitch = Math.cos(pitchRad);
       aimDir.set(Math.sin(yawRad) * cosPitch, Math.sin(pitchRad), -Math.cos(yawRad) * cosPitch);
     } else {
-      syncAimToPlaneForward();
+      syncAimToVehicleForward();
     }
+
     state.aimX = aimDir.x;
     state.aimY = aimDir.y;
     state.aimZ = aimDir.z;
   }
 
   function applyMode(mode: CameraMode) {
-    activeMode = mode;
-    state.camera = mode;
-    if (camera.camera) camera.camera.fov = FOV[mode];
-    const showExterior = mode !== 'cockpit';
+    const allowed = VEHICLE_CAMERAS[state.vehicle] ?? VEHICLE_CAMERAS.a29;
+    const resolved: CameraMode = allowed.includes(mode) ? mode : allowed[0];
+    activeMode = resolved;
+    state.camera = resolved;
+    if (camera.camera) camera.camera.fov = FOV[resolved];
+    const showExterior = resolved !== 'cockpit' || !isAircraft(state.vehicle);
     for (let i = 0; i < plane.exterior.length; i++) {
       const render = plane.exterior[i].render;
       if (render) render.enabled = showExterior;
+      const modelComp = plane.exterior[i].model;
+      if (modelComp) modelComp.enabled = showExterior;
     }
   }
 
@@ -217,9 +313,7 @@ export function createCameraRig({ app, world, plane, camera, state }: FlightCont
       return;
     }
 
-    // Preserva continuidade do vetor superior perto da vertical:
-    // ao olhar para cima (dir.y > 0), a projeção contínua de Vec3.UP aponta para -rumo;
-    // ao olhar para baixo (dir.y < 0), aponta para +rumo.
+    // Preserva continuidade do vetor superior perto da vertical (evita inversão 180°)
     const t = clamp((absY - 0.94) / 0.05, 0, 1);
     computeHeadingUp(headingDeg, fallbackUp);
     if (dir.y > 0) fallbackUp.mulScalar(-1);
@@ -235,14 +329,77 @@ export function createCameraRig({ app, world, plane, camera, state }: FlightCont
     camera.lookAt(target, blendedUp);
   }
 
-  function updateChase(dt: number, snap: boolean) {
+  function updateFootChase(dt: number, snap: boolean) {
+    // Terceira pessoa por cima do ombro direito; mouse gira a câmera livremente
+    const yawRad = aimYaw * DEG_TO_RAD;
+    const rightX = Math.cos(yawRad);
+    const rightZ = Math.sin(yawRad);
+    const anchorX = planePos.x + rightX * FOOT_SHOULDER_RIGHT;
+    const anchorY = planePos.y + FOOT_SHOULDER_HEIGHT;
+    const anchorZ = planePos.z + rightZ * FOOT_SHOULDER_RIGHT;
+
+    desiredPos.set(
+      anchorX - aimDir.x * FOOT_CHASE_DISTANCE,
+      anchorY - aimDir.y * FOOT_CHASE_DISTANCE,
+      anchorZ - aimDir.z * FOOT_CHASE_DISTANCE,
+    );
+    const minGroundY = world.groundAt(desiredPos.x, desiredPos.z) + 0.55;
+    if (desiredPos.y < minGroundY) desiredPos.y = minGroundY;
+
+    if (snap) {
+      camPos.copy(desiredPos);
+    } else {
+      const alpha = 1 - Math.exp(-FOOT_SMOOTH * dt);
+      camPos.copy(camera.getPosition()).lerp(camPos, desiredPos, alpha);
+      const minCamY = world.groundAt(camPos.x, camPos.z) + 0.55;
+      if (camPos.y < minCamY) camPos.y = minCamY;
+    }
+    camera.setPosition(camPos);
+    lookTarget.set(anchorX + aimDir.x * 35, anchorY + aimDir.y * 35, anchorZ + aimDir.z * 35);
+    safeLookAt(lookTarget, aimYaw);
+  }
+
+  function updateCarChase(dt: number, snap: boolean) {
+    // Chase baixa automotiva: segue o rumo do carro ou órbita do mouse
+    const yawRad = aimYaw * DEG_TO_RAD;
+    const pitchRad = aimPitch * DEG_TO_RAD;
+    const backX = -Math.sin(yawRad) * Math.cos(pitchRad);
+    const backZ = Math.cos(yawRad) * Math.cos(pitchRad);
+
+    desiredPos.set(
+      planePos.x + backX * CAR_CHASE_DISTANCE,
+      planePos.y + CAR_CHASE_HEIGHT - Math.sin(pitchRad) * CAR_CHASE_DISTANCE * 0.55,
+      planePos.z + backZ * CAR_CHASE_DISTANCE,
+    );
+    const minGroundY = world.groundAt(desiredPos.x, desiredPos.z) + 0.9;
+    if (desiredPos.y < minGroundY) desiredPos.y = minGroundY;
+
+    if (snap) {
+      camPos.copy(desiredPos);
+    } else {
+      const alpha = 1 - Math.exp(-CAR_SMOOTH * dt);
+      camPos.copy(camera.getPosition()).lerp(camPos, desiredPos, alpha);
+      const minCamY = world.groundAt(camPos.x, camPos.z) + 0.9;
+      if (camPos.y < minCamY) camPos.y = minCamY;
+    }
+    camera.setPosition(camPos);
+    lookTarget.set(planePos.x, planePos.y + 1.45, planePos.z);
+    safeLookAt(lookTarget, aimYaw);
+  }
+
+  function updateAircraftChase(dt: number, snap: boolean) {
+    const isHeli = state.vehicle === 'heli';
+    const chaseDist = isHeli ? HELI_CHASE_DISTANCE : A29_CHASE_DISTANCE;
+    const chaseHeight = isHeli ? HELI_CHASE_HEIGHT : A29_CHASE_HEIGHT;
+    const chaseOffset = isHeli ? HELI_CHASE_OFFSET : A29_CHASE_OFFSET;
+
     const useMouseAim = state.controlMode === 'mouse';
     if (useMouseAim) {
-      desiredPos.copy(aimDir).mulScalar(-CHASE_DISTANCE).add(planePos);
-      desiredPos.y += CHASE_HEIGHT;
+      desiredPos.copy(aimDir).mulScalar(-chaseDist).add(planePos);
+      desiredPos.y += chaseHeight;
       lookTarget.copy(aimDir).mulScalar(AIM_LOOK_AHEAD).add(planePos);
     } else {
-      planeRot.transformVector(CHASE_OFFSET, desiredPos).add(planePos);
+      planeRot.transformVector(chaseOffset, desiredPos).add(planePos);
       lookTarget.copy(planePos);
     }
 
@@ -261,8 +418,20 @@ export function createCameraRig({ app, world, plane, camera, state }: FlightCont
     safeLookAt(lookTarget, useMouseAim ? aimYaw : state.heading);
   }
 
+  function updateChase(dt: number, snap: boolean) {
+    if (state.vehicle === 'foot') {
+      updateFootChase(dt, snap);
+    } else if (state.vehicle === 'car') {
+      updateCarChase(dt, snap);
+    } else {
+      updateAircraftChase(dt, snap);
+    }
+  }
+
   function updateTop(dt: number, snap: boolean) {
-    desiredPos.set(planePos.x, planePos.y + TOP_HEIGHT, planePos.z);
+    const topHeight =
+      state.vehicle === 'foot' ? FOOT_TOP_HEIGHT : state.vehicle === 'car' ? CAR_TOP_HEIGHT : TOP_HEIGHT;
+    desiredPos.set(planePos.x, planePos.y + topHeight, planePos.z);
     yawRot.setFromAxisAngle(Vec3.UP, -state.heading);
     pitchRot.setFromAxisAngle(Vec3.RIGHT, -90);
     targetRot.mul2(yawRot, pitchRot);
@@ -280,7 +449,8 @@ export function createCameraRig({ app, world, plane, camera, state }: FlightCont
   }
 
   function updateCockpit(dt: number, snap: boolean) {
-    planeRot.transformVector(COCKPIT_OFFSET, desiredPos).add(planePos);
+    const offset = state.vehicle === 'heli' ? HELI_COCKPIT_OFFSET : A29_COCKPIT_OFFSET;
+    planeRot.transformVector(offset, desiredPos).add(planePos);
     camera.setPosition(desiredPos);
 
     let targetHeadYaw = 0;
@@ -316,7 +486,7 @@ export function createCameraRig({ app, world, plane, camera, state }: FlightCont
   }
 
   function applyActiveMode(dt: number, snap: boolean) {
-    if (activeMode === 'cockpit') {
+    if (activeMode === 'cockpit' && isAircraft(state.vehicle)) {
       updateCockpit(dt, snap);
     } else if (activeMode === 'top') {
       updateTop(dt, snap);
@@ -328,8 +498,9 @@ export function createCameraRig({ app, world, plane, camera, state }: FlightCont
   // Inicializa câmera, mira, FOV e visibilidade externa no quadro zero.
   applyMode(state.camera);
   planePos.set(state.x, state.y, state.z);
-  planeRot.copy(plane.root.getRotation());
-  updateAimState();
+  readVehicleRotation(planeRot);
+  syncAimToVehicleForward();
+  updateAimState(0);
   applyActiveMode(0, true);
   snapNext = false;
 
@@ -339,9 +510,26 @@ export function createCameraRig({ app, world, plane, camera, state }: FlightCont
 
       let modeSwitched = false;
       const keyboard = app.keyboard;
+
+      // Detecta troca de veículo (entrar/sair de carro, helicóptero, A-29 ou a pé)
+      if (state.vehicle !== activeVehicle) {
+        activeVehicle = state.vehicle;
+        applyMode(state.camera);
+        planePos.set(state.x, state.y, state.z);
+        readVehicleRotation(planeRot);
+        syncAimToVehicleForward();
+        headYaw = 0;
+        headPitch = 0;
+        carOrbitIdle = 99;
+        snapNext = true;
+        modeSwitched = true;
+      }
+
       if (keyboard?.wasPressed(KEY_C) || keyboard?.wasPressed(KEY_V)) {
-        const nextIdx = (CAMERA_ORDER.indexOf(state.camera) + 1) % CAMERA_ORDER.length;
-        applyMode(CAMERA_ORDER[nextIdx]);
+        const order = VEHICLE_CAMERAS[state.vehicle] ?? VEHICLE_CAMERAS.a29;
+        const idx = order.indexOf(state.camera);
+        const nextMode = order[(idx + 1) % order.length];
+        applyMode(nextMode);
         snapNext = true;
         modeSwitched = true;
       } else if (state.camera !== activeMode) {
@@ -353,35 +541,36 @@ export function createCameraRig({ app, world, plane, camera, state }: FlightCont
       if (consumeCameraSnap(state)) {
         applyMode(state.camera);
         planePos.set(state.x, state.y, state.z);
-        planeRot.copy(plane.root.getRotation());
-        syncAimToPlaneForward();
+        readVehicleRotation(planeRot);
+        syncAimToVehicleForward();
         headYaw = 0;
         headPitch = 0;
+        carOrbitIdle = 99;
         snapNext = true;
         modeSwitched = true;
       }
 
-      if (keyboard?.wasPressed(KEY_M)) {
+      if (isAircraft(state.vehicle) && keyboard?.wasPressed(KEY_M)) {
         state.controlMode = state.controlMode === 'mouse' ? 'keyboard' : 'mouse';
       }
       if (state.controlMode !== activeControl) {
         activeControl = state.controlMode;
-        if (activeControl === 'keyboard') {
+        if (!allowsMouseLook()) {
           releasePointerLock();
         } else {
-          planeRot.copy(plane.root.getRotation());
-          syncAimToPlaneForward();
+          readVehicleRotation(planeRot);
+          syncAimToVehicleForward();
         }
-      } else if (state.controlMode === 'keyboard' && isPointerLocked()) {
+      } else if (!allowsMouseLook() && isPointerLocked()) {
         releasePointerLock();
       }
 
       planePos.set(state.x, state.y, state.z);
-      planeRot.copy(plane.root.getRotation());
+      readVehicleRotation(planeRot);
 
       if (state.crashed) {
         if (!wasCrashed) wasCrashed = true;
-        updateAimState();
+        updateAimState(dt);
         if (modeSwitched) {
           applyActiveMode(dt, true);
         } else if (activeMode !== 'cockpit') {
@@ -395,14 +584,14 @@ export function createCameraRig({ app, world, plane, camera, state }: FlightCont
       if (wasCrashed) {
         wasCrashed = false;
         snapNext = true;
-        syncAimToPlaneForward();
+        syncAimToVehicleForward();
       } else if (lastPlanePos.distanceSq(planePos) > TELEPORT_DIST_SQ) {
         snapNext = true;
-        syncAimToPlaneForward();
+        syncAimToVehicleForward();
       }
       lastPlanePos.copy(planePos);
 
-      updateAimState();
+      updateAimState(dt);
       applyActiveMode(dt, snapNext);
       snapNext = false;
     },
@@ -418,6 +607,8 @@ export function createCameraRig({ app, world, plane, camera, state }: FlightCont
       for (let i = 0; i < plane.exterior.length; i++) {
         const render = plane.exterior[i].render;
         if (render) render.enabled = true;
+        const modelComp = plane.exterior[i].model;
+        if (modelComp) modelComp.enabled = true;
       }
     },
   };

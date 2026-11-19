@@ -1,0 +1,95 @@
+﻿import { Entity, KEY_E } from 'playcanvas';
+import { buildVehicleModel, type VehicleModel } from './models';
+import { createCarController } from './car';
+import { createFootController } from './foot';
+import { createFlightController } from './flight';
+import { AIRPORT, cityData, createWorldPhysics } from './world-data';
+import type { FlightContext, FlightModule, VehicleKind, VehicleSpawn } from './types';
+
+export function vehicleSpawns(): VehicleSpawn[] {
+  const {helipad}=cityData();
+  const cars:VehicleSpawn[]=[{id:'car-inicial',kind:'car',x:38,y:3,z:-622,heading:90,variant:0}];
+  for(let i=0;i<5;i++)cars.push({id:`car-${i+1}`,kind:'car',x:-900+86*(i*3+2)+78,y:3,z:-450+i*90,heading:0,variant:i%3});
+  return [...cars,{id:'a29-pista',kind:'a29',x:AIRPORT.x,y:AIRPORT.y,z:410,heading:0},
+    {id:'heli-centro',kind:'heli',x:helipad.x,y:helipad.y,z:helipad.z,heading:0}];
+}
+
+export function nearestVehicle(spawns:VehicleSpawn[],x:number,y:number,z:number) {
+  let nearest:VehicleSpawn|undefined,distance=Infinity;
+  for(const spawn of spawns) {
+    const d=Math.hypot(spawn.x-x,spawn.y-y,spawn.z-z),range=spawn.kind==='car'?4:8;
+    if(d<=range&&d<distance){nearest=spawn;distance=d;}
+  }
+  return nearest;
+}
+
+/** Replaces createFlightController(ctx) in game.ts; owns all movement and vehicle models. */
+export function createVehicleSystem(ctx:FlightContext):FlightModule {
+  const {app,state}=ctx;
+  const physics={...createWorldPhysics(),...ctx.world};
+  const original={...ctx.plane}, originalEnabled=original.root.enabled;
+  const parent=original.root.parent instanceof Entity?original.root.parent:app.root;
+  const spawns=vehicleSpawns();
+  const homes=new Map(spawns.map(s=>[s.id,{...s}]));
+  const models=new Map<string,VehicleModel>();
+  for(const spawn of spawns) {
+    const model=buildVehicleModel(app,spawn.kind,spawn.variant??0,parent);
+    const clearance=spawn.kind==='car'?0:Math.max(.1,...(model.hitbox??[]).map(p=>-p[1]));
+    spawn.y=physics.groundAt(spawn.x,spawn.z)+clearance;
+    model.root.setPosition(spawn.x,spawn.y,spawn.z);model.root.setLocalEulerAngles(0,-spawn.heading,0);
+    models.set(spawn.id,model);
+  }
+  const person=buildVehicleModel(app,'foot',0,parent);
+  person.root.enabled=false;original.root.enabled=false;
+  let current:VehicleSpawn|undefined,controller:FlightModule;
+  let destroyed=false;
+  function select(kind:VehicleKind,model:VehicleModel,pose:{x:number;y:number;z:number;heading:number},spawn?:VehicleSpawn) {
+    controller?.destroy?.();
+    state.vehicle=kind;
+    Object.assign(state,{x:pose.x,y:pose.y,z:pose.z,heading:pose.heading,speed:0,verticalSpeed:0,pitch:0,roll:0,crashed:false,stall:false,nearbyVehicleId:null,nearbyVehicleKind:null});
+    Object.assign(ctx.plane,model);
+    model.root.enabled=true;
+    const activeContext={...ctx,world:physics,plane:model};
+    controller=kind==='car'?createCarController(activeContext,physics):kind==='foot'?createFootController(activeContext,physics):createFlightController(activeContext,spawn,spawn?homes.get(spawn.id):undefined);
+    state.altitude=state.y;state.heightAboveGround=Math.max(0,state.y-physics.surfaceAt(state.x,state.z,state.y+.1));
+  }
+  function enter(spawn:VehicleSpawn) {
+    person.root.enabled=false;current=spawn;
+    select(spawn.kind,models.get(spawn.id)!,spawn,spawn);
+  }
+  function leave() {
+    if(!current||state.speed>2||Math.abs(state.verticalSpeed)>.5)return;
+    const support=physics.surfaceAt(state.x,state.z,state.y+.1);
+    if(state.y-support>4)return;
+    const h=state.heading*Math.PI/180;
+    const distance=current.kind==='car'?3.2:current.kind==='a29'?7:6;
+    for(const side of [1,-1]) {
+      const x=state.x+Math.cos(h)*distance*side,z=state.z+Math.sin(h)*distance*side;
+      const y=physics.surfaceAt(x,z,state.y+.35);
+      if(Math.abs(y-support)>.5||physics.obstacleAt(x,z,y,.35,1.8))continue;
+      Object.assign(current,{x:state.x,y:state.y,z:state.z,heading:state.heading});
+      const old=models.get(current.id)!;
+      for(const e of old.exterior){if(e.render)e.render.enabled=true;if(e.model)e.model.enabled=true;}
+      current=undefined;
+      select('foot',person,{x,y,z,heading:state.heading});return;
+    }
+  }
+  enter(spawns[0]);
+  return {update(dt) {
+    if(destroyed||!Number.isFinite(dt)||dt<=0)return;
+    controller.update(dt);
+    if(current)Object.assign(ctx.plane,models.get(current.id));else Object.assign(ctx.plane,person);
+    if(current)Object.assign(current,{x:state.x,y:state.y,z:state.z,heading:state.heading});
+    const nearby=state.vehicle==='foot'?nearestVehicle(spawns,state.x,state.y,state.z):undefined;
+    state.nearbyVehicleId=nearby?.id??null;state.nearbyVehicleKind=nearby?.kind??null;
+    if(app.keyboard?.wasPressed(KEY_E)) {
+      if(current)leave();else if(nearby)enter(nearby);
+    }
+  },destroy(){
+    if(destroyed)return;destroyed=true;controller.destroy?.();
+    const materials=new Set([...person.materials,...[...models.values()].flatMap(m=>m.materials)]);
+    for(const m of models.values())m.root.destroy();person.root.destroy();
+    for(const m of materials)m.destroy();
+    Object.assign(ctx.plane,original);original.root.enabled=originalEnabled;
+  }};
+}

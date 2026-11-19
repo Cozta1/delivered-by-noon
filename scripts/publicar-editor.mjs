@@ -7,9 +7,15 @@ const API_BASE = 'https://playcanvas.com/api';
 const DEFAULT_PROJECT_ID = '1606932';
 
 const TARGET_ASSETS = [
-  ...['terreno', 'cidade', 'mar', 'nuvens', 'ceu'].map((part) => ({
+  ...['terreno', 'cidade', 'mar', 'nuvens', 'ceu', 'aeroporto'].map((part) => ({
     name: `mundo-${part}.glb`,
     relPath: `public/models/mundo-${part}.glb`,
+    mime: 'model/gltf-binary',
+    preferredTypes: ['container', 'scene', 'model'],
+  })),
+  ...['a29', 'helicoptero', 'carro-compacto', 'carro-picape', 'carro-esportivo', 'personagem'].map((slug) => ({
+    name: `${slug}.glb`,
+    relPath: `public/models/${slug}.glb`,
     mime: 'model/gltf-binary',
     preferredTypes: ['container', 'scene', 'model'],
   })),
@@ -25,12 +31,6 @@ const TARGET_ASSETS = [
     relPath: 'dist-editor/flight-sim.js',
     mime: 'application/javascript',
     preferredTypes: ['script'],
-  },
-  {
-    name: 'a29.glb',
-    relPath: 'public/models/a29.glb',
-    mime: 'model/gltf-binary',
-    preferredTypes: ['container', 'scene', 'model'],
   },
 ];
 

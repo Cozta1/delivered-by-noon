@@ -9,7 +9,9 @@ export class FlightSim extends Script {
   private uiEl: HTMLDivElement | null = null;
   private sim: { destroy(): void } | null = null;
 
-  initialize() {
+  private mountSim() {
+    if (this.sim || this.uiEl || !this.enabled) return;
+
     const style = document.createElement('style');
     style.dataset.flightSim = 'true';
     style.textContent = cssText;
@@ -25,15 +27,6 @@ export class FlightSim extends Script {
     document.body.appendChild(ui);
     this.uiEl = ui;
 
-    this.once('destroy', () => {
-      this.sim?.destroy();
-      this.sim = null;
-      this.uiEl?.remove();
-      this.uiEl = null;
-      this.styleEl?.remove();
-      this.styleEl = null;
-    });
-
     if (!this.app.keyboard) {
       const notice = document.createElement('div');
       notice.style.cssText =
@@ -47,5 +40,26 @@ export class FlightSim extends Script {
     }
 
     this.sim = startFlightSim(this.app, ui);
+  }
+
+  private unmountSim() {
+    this.sim?.destroy();
+    this.sim = null;
+    this.uiEl?.remove();
+    this.uiEl = null;
+    this.styleEl?.remove();
+    this.styleEl = null;
+  }
+
+  initialize() {
+    this.on('disable', this.unmountSim, this);
+    this.on('enable', this.mountSim, this);
+    this.once('destroy', () => {
+      this.off('disable', this.unmountSim, this);
+      this.off('enable', this.mountSim, this);
+      this.unmountSim();
+    });
+
+    this.mountSim();
   }
 }

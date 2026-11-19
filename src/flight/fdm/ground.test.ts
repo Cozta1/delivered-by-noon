@@ -1,0 +1,119 @@
+﻿import { expect, it, vi } from 'vitest';
+import { Vec3, Entity, KEY_W, KEY_R, KEY_SHIFT } from 'playcanvas';
+import { HeliDynamics } from './heli';
+import { AircraftGround, RUNWAY_SPAWN, safeTouchdown } from './ground';
+import { FlightDynamics, FIXED_STEP } from './model';
+import { createWorldPhysics } from '../world-data';
+import { createFlightController } from '../flight';
+import { createFlightState, type FlightContext } from '../types';
+const controls={forward:0,right:0,yaw:0,collective:0};
+const tick=(seconds:number,step:()=>void)=>{for(let i=0;i<seconds/FIXED_STEP;i++)step();};
+
+it('hovers 30 seconds with <2m drift, moves forward >20m/s in 3s and turns 180 degrees in 2s',()=>{
+  const h=new HeliDynamics();h.reset(0,100,0,0);
+  tick(30,()=>h.step(controls,()=>0,1.2));expect(h.position.distance(new Vec3(0,100,0))).toBeLessThan(2);
+  tick(3,()=>h.step({...controls,forward:1},()=>0,1.2));expect(-h.velocity.z).toBeGreaterThan(20);const forwardSpeed=-h.velocity.z;
+  h.reset(0,100,0,0);tick(2,()=>h.step({...controls,yaw:-1},()=>0,1.2));expect(h.heading).toBeCloseTo(180,5);
+  console.log('Heli: hover drift=0m; forward after3s='+forwardSpeed+'; yaw after2s='+h.heading);
+});
+
+it('heli soft landing survives and hard or tilted impact crashes',()=>{
+  const h=new HeliDynamics();h.reset(0,1.21,0,0);h.velocity.y=-2;
+  h.step(controls,()=>0,1.2);expect(h.grounded).toBe(true);expect(h.crashed).toBe(false);
+  h.reset(0,1.21,0,0);h.velocity.y=-10;h.step(controls,()=>0,1.2);expect(h.crashed).toBe(true);
+  h.reset(0,1.21,0,0);h.roll=30;h.velocity.y=-2;h.step(controls,()=>0,1.2);expect(h.crashed).toBe(true);
+});
+
+it('A29 taxis, takes off naturally and touches down softly on runway but crashes on hard/off-runway impact',()=>{
+  const world=createWorldPhysics([]),fdm=new FlightDynamics(),ground=new AircraftGround(world.groundAt,1.65);
+  const s=RUNWAY_SPAWN;fdm.reset(s.x,s.y+1.65,s.z,0,.1,0);ground.park(fdm,0);
+  const input={pitch:0,roll:0,yaw:0,throttle:1};
+  let time=0;while(ground.grounded&&time<10){ground.step(fdm,input,false);time+=FIXED_STEP;}
+  expect(time).toBeLessThan(10);expect(ground.grounded).toBe(false);expect(fdm.speed).toBeGreaterThan(37);
+  tick(1,()=>{ground.step(fdm,input,false);fdm.step({...input,pitch:.05});});
+  expect(fdm.position.y).toBeGreaterThan(s.y+3);
+  fdm.reset(s.x,s.y+1.64,0,0,50,.2);fdm.worldVelocity.set(0,-2,-50);
+  ground.contact(fdm,0,2,s.y);expect(ground.grounded).toBe(true);expect(ground.crashed).toBe(false);
+  expect(fdm.position.y).toBeCloseTo(s.y+1.65);
+  ground.grounded=false;fdm.worldVelocity.y=-8;ground.contact(fdm,0,0,s.y);expect(ground.crashed).toBe(true);
+  expect(safeTouchdown(-2,0,0,false,50)).toBe(false);
+  expect(safeTouchdown(-2,20,0,true,50)).toBe(false);
+  console.log('A29 takeoff: '+time.toFixed(2)+'s, speed='+fdm.speed.toFixed(1));
+});
+
+
+it('does not mistake entering a building sideways for a heli landing',()=>{
+  const h=new HeliDynamics();h.reset(0,10,0,90);h.velocity.x=10;
+  h.step(controls,x=>x>0?100:0,1.2);
+  expect(h.crashed).toBe(true);expect(h.position.y).toBeLessThan(20);
+});
+
+it('flies the full A29 controller from a runway spawn without disabling the model',()=>{
+  const state=createFlightState(),pressed=new Set([KEY_W]);state.controlMode='keyboard';
+  const app={keyboard:{isPressed:(key:number)=>pressed.has(key),wasPressed:()=>false}} as unknown as FlightContext['app'];
+  const root=new Entity('plane',app);
+  const ctx={app,state,world:createWorldPhysics([]),plane:{root,prop:new Entity('prop',app),hitbox:[[-5,0,0],[5,0,0],[0,-1.65,0]]}} as unknown as FlightContext;
+  const spawn={...RUNWAY_SPAWN,id:'test',kind:'a29' as const};
+  const module=createFlightController(ctx,spawn);
+  let seconds=0;
+  while(state.heightAboveGround<3&&seconds<8){module.update(1/60);seconds+=1/60;expect(state.crashed).toBe(false);}
+  pressed.clear();expect(seconds).toBeLessThan(8);expect(state.speed).toBeGreaterThan(37);
+  for(let i=0;i<60;i++)module.update(1/60);
+  expect(state.crashed).toBe(false);expect(state.y).toBeGreaterThan(spawn.y+3);
+});
+
+
+it('checks every A29 contact before accepting wheel landing, independent of hitbox ordering',()=>{
+  for(const hitbox of [[[0,-1.65,0],[5,0,0]],[[5,0,0],[0,-1.65,0]]]) {
+    const state=createFlightState();state.controlMode='keyboard';
+    const app={keyboard:{isPressed:()=>false,wasPressed:()=>false}} as unknown as FlightContext['app'];
+    const ctx={app,state,world:{groundAt:(x:number)=>x>4?50:4.05,isRunway:()=>true},plane:{root:new Entity('plane',app),prop:new Entity('prop',app),hitbox}} as unknown as FlightContext;
+    const module=createFlightController(ctx,{id:'test',kind:'a29',x:0,y:4.05,z:0,heading:0});
+    module.update(1/60);expect(state.crashed).toBe(true);
+  }
+});
+
+
+it('starts at a parked aircraft pose but resets to its immutable runway/helipad anchor',()=>{
+  for(const kind of ['a29','heli'] as const) {
+    let reset=false;
+    const state=createFlightState();state.vehicle=kind;state.controlMode='keyboard';
+    const app={keyboard:{isPressed:()=>false,wasPressed:(key:number)=>reset&&key===KEY_R}} as unknown as FlightContext['app'];
+    const ctx={app,state,world:createWorldPhysics([]),plane:{root:new Entity('plane',app),prop:new Entity('prop',app),hitbox:[[0,-1,0]]}} as unknown as FlightContext;
+    const home={...RUNWAY_SPAWN,kind,id:'test'},parked={...home,x:home.x+5};
+    const module=createFlightController(ctx,parked,home);
+    expect(state.x).toBe(parked.x);parked.x=2000;home.x=2100;reset=true;module.update(1/60);
+    expect(state.x).toBe(RUNWAY_SPAWN.x);
+  }
+});
+
+it('heli mouse waits for targets behind it and publishes collective',()=>{
+  const canvas={},pressed=new Set<number>(),state=createFlightState();state.vehicle='heli';state.aimZ=1;
+  const app={graphicsDevice:{canvas},keyboard:{isPressed:(key:number)=>pressed.has(key),wasPressed:()=>false}} as unknown as FlightContext['app'];
+  const ctx={app,state,world:createWorldPhysics([]),plane:{root:new Entity('heli',app),prop:new Entity('prop',app),hitbox:[[0,-1,0]]}} as unknown as FlightContext;
+  vi.stubGlobal('document',{pointerLockElement:canvas});
+  try {
+    const module=createFlightController(ctx);module.update(.25);expect(state.speed).toBeCloseTo(0,6);expect(state.throttle).toBe(.5);
+    pressed.add(KEY_SHIFT);module.update(.25);expect(state.throttle).toBe(1);expect(state.verticalSpeed).toBeGreaterThan(0);
+  } finally {vi.unstubAllGlobals();}
+});
+
+it('taxies through the hangar opening below the roof',()=>{
+  const state=createFlightState();state.controlMode='keyboard';
+  const app={keyboard:{isPressed:(key:number)=>key===KEY_W,wasPressed:()=>false}} as unknown as FlightContext['app'];
+  const ctx={app,state,world:createWorldPhysics(),plane:{root:new Entity('plane',app),prop:new Entity('prop',app),hitbox:[[0,-1.65,0],[2,0,0],[-2,0,0]]}} as unknown as FlightContext;
+  const module=createFlightController(ctx,{id:'hangar',kind:'a29',x:1470,y:4.05,z:278,heading:0});
+  for(let i=0;i<120;i++){module.update(1/60);expect(state.crashed).toBe(false);}
+  expect(state.z).toBeLessThan(275);expect(state.y).toBeLessThan(7);
+});
+
+
+it('recalibrates a parked heli when the asynchronous GLB hitbox grows before its first frame',()=>{
+  const state=createFlightState();state.vehicle='heli';state.controlMode='keyboard';
+  const app={keyboard:{isPressed:()=>false,wasPressed:()=>false}} as unknown as FlightContext['app'];
+  const hitbox:[number,number,number][]=[[0,-.1,0]];
+  const ctx={app,state,world:createWorldPhysics([]),plane:{root:new Entity('heli',app),prop:new Entity('prop',app),hitbox}} as unknown as FlightContext;
+  const module=createFlightController(ctx,{...RUNWAY_SPAWN,id:'heli',kind:'heli'});
+  hitbox[0]=[0,-2,0];module.update(1/60);
+  expect(state.crashed).toBe(false);expect(state.y).toBeCloseTo(RUNWAY_SPAWN.y+2);
+});

@@ -26,7 +26,7 @@ const clearHandlerByFlight = new WeakMap<FlightState, () => void>();
 
 /** Lê se a fumaça acrobática está ligada para o estado de voo informado. */
 export function isSmokeActive(state: FlightState): boolean {
-  return smokeStateByFlight.get(state) ?? false;
+  return state.vehicle === 'a29' && (smokeStateByFlight.get(state) ?? false);
 }
 
 /** Limpa imediatamente todas as partículas ativas de fumaça (ex.: reinício de voo). */
@@ -149,17 +149,9 @@ export function createSmoke({ app, plane, state }: FlightContext): FlightModule 
     update(dt: number) {
       if (destroyed) return;
 
-      if (app.keyboard?.wasPressed(KEY_F)) {
+      if (state.vehicle === 'a29' && app.keyboard?.wasPressed(KEY_F)) {
         enabled = !enabled;
         smokeStateByFlight.set(state, enabled);
-  clearHandlerByFlight.set(state, () => {
-    for (let i = 0; i < POOL_SIZE; i++) {
-      ages[i] = -1;
-      entities[i].enabled = false;
-    }
-    hasLastEmitter = false;
-    emitTimer = 0;
-  });
         emitTimer = EMIT_INTERVAL;
       }
 
@@ -202,8 +194,8 @@ export function createSmoke({ app, plane, state }: FlightContext): FlightModule 
         meshInstances[i]?.setParameter('material_opacity', alpha);
       }
 
-      // Emissão a partir da cauda quando ligada e voando
-      if (!enabled || state.crashed) {
+      // Emissão a partir da cauda somente no A-29 quando ligada e voando
+      if (state.vehicle !== 'a29' || !enabled || state.crashed) {
         hasLastEmitter = false;
         emitTimer = 0;
         return;

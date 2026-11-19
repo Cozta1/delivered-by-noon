@@ -15,9 +15,7 @@ import { bindSceneAirplane, buildAirplane, type AirplaneModel } from './airplane
 import { createFlightAudio } from './audio/sound';
 import { createCameraRig } from './cameras';
 import { createCockpit } from './cockpit';
-import { createFlightController } from './flight';
 import { createHud } from './hud';
-import { rng } from './noise';
 import { clearSmoke, createSmoke } from './smoke';
 import { createFlightState, type FlightContext, type FlightModule } from './types';
 import { createGameMenus } from './ui/menus';
@@ -33,7 +31,9 @@ import {
   type GameSettings,
   type QualityLevel,
 } from './ui/settings';
-import { SKY_HORIZON, buildWorld, terrainHeight, type Box, type World } from './world';
+import { createVehicleSystem } from './vehicles';
+import { SKY_HORIZON, buildWorld, type World } from './world';
+import { createWorldPhysics } from './world-data';
 
 const QUALITY_CONFIG: Record<QualityLevel, { pixelRatio: number; fogStart: number; fogEnd: number; clouds: number }> = {
   low: { pixelRatio: 0.75, fogStart: 600, fogEnd: 2300, clouds: 0 },
@@ -82,76 +82,12 @@ function hasAnyVisual(node: Entity): boolean {
 }
 
 /**
- * Colisão lógica idêntica à de `world.ts` (terreno + cidade determinística),
+ * Colisão lógica oficial de `world-data.ts` (terreno, cidade, aeroporto/pista, heliponto),
  * sem criar malhas, texturas nem materiais — usada quando "Mundo" já está na cena.
  */
 function createLogicalGroundAt(): (x: number, z: number) => number {
-  const CITY = { x0: -900, x1: 900, z0: -700, z1: 480 };
-  const CITY_Y = 3;
-  const BLOCK = 70;
-  const STREET = 16;
-  const cell = BLOCK + STREET;
-  const r = rng(2024);
-  const boxes: Box[] = [];
-
-  for (let bz = CITY.z0; bz + BLOCK <= CITY.z1; bz += cell) {
-    for (let bx = CITY.x0; bx + BLOCK <= CITY.x1; bx += cell) {
-      const cx = bx + BLOCK / 2;
-      const cz = bz + BLOCK / 2;
-      if (r() < 0.07) continue;
-      const dist = Math.hypot(cx / 650, (cz + 150) / 500);
-      const tall = Math.exp(-dist * dist * 1.6);
-      const split = r() < 0.55 ? 2 : 1;
-      const sub = BLOCK / split;
-      for (let sx = 0; sx < split; sx++) {
-        for (let sz = 0; sz < split; sz++) {
-          const w = sub * (0.72 + r() * 0.2);
-          const d = sub * (0.72 + r() * 0.2);
-          const h = 14 + r() * 30 + tall * (60 + r() * 160);
-          const x = bx + sub * (sx + 0.5);
-          const z = bz + sub * (sz + 0.5);
-          // Consome os mesmos sorteios de cor/fachada/UV de world.ts para manter determinismo exato
-          r(); // FACADES
-          r(); // shade
-          r(); // u0
-          boxes.push({
-            x0: x - w / 2,
-            x1: x + w / 2,
-            z0: z - d / 2,
-            z1: z + d / 2,
-            top: CITY_Y + h,
-          });
-        }
-      }
-    }
-  }
-
-  const CELL = 100;
-  const grid = new Map<string, Box[]>();
-  for (const b of boxes) {
-    for (let gx = Math.floor(b.x0 / CELL); gx <= Math.floor(b.x1 / CELL); gx++) {
-      for (let gz = Math.floor(b.z0 / CELL); gz <= Math.floor(b.z1 / CELL); gz++) {
-        const k = `${gx},${gz}`;
-        let list = grid.get(k);
-        if (!list) grid.set(k, (list = []));
-        list.push(b);
-      }
-    }
-  }
-
-  return (x: number, z: number) => {
-    let h = Math.max(terrainHeight(x, z), 0);
-    if (x >= CITY.x0 - 20 && x <= CITY.x1 + 20 && z >= CITY.z0 - 20 && z <= CITY.z1 + 20 && CITY_Y > h) {
-      h = CITY_Y;
-    }
-    const list = grid.get(`${Math.floor(x / CELL)},${Math.floor(z / CELL)}`);
-    if (list) {
-      for (const b of list) {
-        if (x >= b.x0 && x <= b.x1 && z >= b.z0 && z <= b.z1 && b.top > h) h = b.top;
-      }
-    }
-    return h;
-  };
+  const physics = createWorldPhysics();
+  return (x: number, z: number) => physics.groundAt(x, z);
 }
 
 function buildSkyDome(
@@ -369,7 +305,7 @@ export function startFlightSim(app: AppBase, uiRoot: HTMLElement): { destroy(): 
     simRoot.addChild(camera);
   }
 
-  // Desliga câmeras e luzes pré-existentes da cena (ex.: Camera/Light padrão do Editor)
+  // Desliga câmeras, luzes e placeholders estáticos de veículos montados na cena do Editor
   const disabledEntities: Entity[] = [];
   for (const type of ['camera', 'light'] as const) {
     for (const comp of app.root.findComponents(type)) {
@@ -378,6 +314,13 @@ export function startFlightSim(app: AppBase, uiRoot: HTMLElement): { destroy(): 
         entity.enabled = false;
         disabledEntities.push(entity);
       }
+    }
+  }
+  for (const child of app.root.children as Entity[]) {
+    if (child === simRoot || child === camera || child === sun || child === scenePlane || !child.enabled) continue;
+    if (/^(Heli|Carro_|Personagem)/i.test(child.name)) {
+      child.enabled = false;
+      disabledEntities.push(child);
     }
   }
 
@@ -391,8 +334,8 @@ export function startFlightSim(app: AppBase, uiRoot: HTMLElement): { destroy(): 
 
   const ctx: FlightContext = { app, world, plane, camera, state };
 
-  // Ordem fixa (contrato em types.ts): voo → câmeras → cabine → HUD → fumaça
-  let flightModule: FlightModule = createFlightController(ctx);
+  // Ordem fixa (contrato em types.ts): veículos/voo → câmeras → cabine → HUD → fumaça
+  let flightModule: FlightModule = createVehicleSystem(ctx);
   const cameraRig = createCameraRig(ctx);
   const cockpitModule = createCockpit(ctx, uiRoot);
   const hudModule = createHud(ctx, uiRoot);
@@ -404,6 +347,8 @@ export function startFlightSim(app: AppBase, uiRoot: HTMLElement): { destroy(): 
   let hadPointerLockInFlight = false;
   let lastPauseAt = 0;
   let titleAngle = 0.65;
+  let wheelAngle = 0;
+  let heliRotorAngle = 0;
   const titleFocus = new Vec3();
   const titleCamPos = new Vec3();
 
@@ -468,9 +413,10 @@ export function startFlightSim(app: AppBase, uiRoot: HTMLElement): { destroy(): 
   function updateTitleCamera(dt: number) {
     titleAngle = (titleAngle + dt * 0.14) % (Math.PI * 2);
     if (camera.camera) camera.camera.fov = 58;
-    const radius = 34;
-    const height = 10.5 + Math.sin(titleAngle * 2) * 2.2;
-    titleFocus.set(state.x, state.y + 0.5, state.z);
+    const isGround = state.vehicle === 'car' || state.vehicle === 'foot';
+    const radius = isGround ? 14.5 : 34;
+    const height = (isGround ? 5.2 : 10.5) + Math.sin(titleAngle * 2) * (isGround ? 1.0 : 2.2);
+    titleFocus.set(state.x, state.y + (isGround ? 1.1 : 0.5), state.z);
     titleCamPos.set(
       titleFocus.x + Math.sin(titleAngle) * radius,
       titleFocus.y + height,
@@ -482,7 +428,7 @@ export function startFlightSim(app: AppBase, uiRoot: HTMLElement): { destroy(): 
 
   function resetFlightState() {
     flightModule.destroy?.();
-    flightModule = createFlightController(ctx);
+    flightModule = createVehicleSystem(ctx);
     clearSmoke(state);
     state.controlMode = settings.defaultControlMode;
     state.camera = 'chase';
@@ -652,9 +598,21 @@ export function startFlightSim(app: AppBase, uiRoot: HTMLElement): { destroy(): 
       updateTitleCamera(dt);
     } else if (mode === 'playing') {
       flightModule.update(dt);
+      // Anima rodas no carro e rotores no helicóptero
+      if (state.vehicle === 'car' && ctx.plane.wheels && ctx.plane.wheels.length > 0) {
+        wheelAngle = (wheelAngle - state.speed * dt * 165) % 360;
+        for (let i = 0; i < ctx.plane.wheels.length; i++) {
+          ctx.plane.wheels[i].setLocalEulerAngles(wheelAngle, 0, 0);
+        }
+      } else if (state.vehicle === 'heli') {
+        heliRotorAngle = (heliRotorAngle + (420 + state.throttle * 1100) * dt) % 360;
+        ctx.plane.prop.setLocalEulerAngles(0, heliRotorAngle, 0);
+        ctx.plane.tailRotor?.setLocalEulerAngles((heliRotorAngle * 2.4) % 360, 0, 0);
+      }
       cameraRig.update(dt);
       // Sincroniza visibilidade de componentes `model` legados na troca de câmera (cabine)
-      const showExt = state.camera !== 'cockpit';
+      const isAircraft = state.vehicle === 'a29' || state.vehicle === 'heli';
+      const showExt = !isAircraft || state.camera !== 'cockpit';
       for (let i = 0; i < plane.exterior.length; i++) {
         const modelComp = plane.exterior[i].model;
         if (modelComp && modelComp.enabled !== showExt) modelComp.enabled = showExt;
