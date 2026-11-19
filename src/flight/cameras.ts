@@ -415,6 +415,10 @@ export function createCameraRig({ app, world, plane, camera, state }: FlightCont
       }
       releasePointerLock();
       detachTransitionListenersIfDone();
+      for (let i = 0; i < plane.exterior.length; i++) {
+        const render = plane.exterior[i].render;
+        if (render) render.enabled = true;
+      }
     },
   };
 }

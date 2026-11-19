@@ -47,13 +47,34 @@ Você pode enviar `dist-editor/flight-sim.mjs` e `public/models/a29.glb` automat
 3. Envie também o modelo 3D `public/models/a29.glb` para a pasta **Assets** (o Editor criará automaticamente um asset container chamado **`a29.glb`**).
    > **Nota:** Se `a29.glb` não for enviado, o simulador usa automaticamente o modelo procedural de fallback do A-29.
 
-## 4. Anexar o script à cena
+## 4. Montar a cena visível no Viewport do Editor (Modo cena)
 
-1. Se o projeto no Editor já tiver uma cena anterior, **desative as entidades antigas** (`Player`, `Ground`, `Plane`) e quaisquer scripts antigos (`playerMovement`, `cameraFollow`, `gunController`) no **Inspector** (desmarcando *Enabled*) antes do **Launch**, para não conflitar com o simulador de voo.
-2. Na hierarquia da cena (**Hierarchy**, painel à esquerda), selecione a entidade **`Root`** (ou crie uma nova entidade vazia, por exemplo `FlightSim`).
-3. No **Inspector** (painel à direita), clique em **Add Component** → **Script**.
-4. No componente Script, clique em **Add Script** e escolha **`flightSim`**.
-   > **Nota:** A cena padrão do Editor já traz uma `Camera` e uma `Light`. Não é necessário removê-las manualmente: o script desativa automaticamente câmeras e luzes pré-existentes ao iniciar e cria o mundo, o avião, o sol, a câmera e o HUD/cabine.
+Para que o mundo, o A-29, a câmera e o sol apareçam **montados na Hierarchy e visíveis no Viewport** do PlayCanvas Editor (em vez de serem criados apenas em tempo de execução):
+
+1. **Publique os assets** no projeto do Editor:
+   ```bash
+   npm run publicar:editor
+   ```
+   (Envie também os arquivos `public/models/mundo-*.glb` nos Assets do Editor se ainda não estiverem lá.)
+2. **Abra a cena do projeto** no navegador: `https://playcanvas.com/editor/project/1606932` (aguarde terminar de carregar).
+3. Pressione **F12** para abrir o DevTools e clique na aba **Console**.
+4. Copie todo o conteúdo de `scripts/montar-cena-editor.js`, **cole no Console** e pressione **Enter**.
+   - O snippet usa apenas a Editor API oficial (`editor`), é 100% local e pode ser executado novamente sem duplicar entidades.
+   - Ele cria/atualiza `Jogo` (com o script `simuladorVoo`), `Mundo` (filhos de `mundo-*.glb`), `A29` (a partir de `a29.glb`), `CameraJogo` e `Sol`, desativa `Camera`/`Light` padrão e entidades/scripts antigos (`Player`, `Ground`, `Plane`, `playerMovement`, `cameraFollow`, `gunController`) e tenta habilitar **Settings → Input → Keyboard**.
+5. Confira na **Hierarchy** as cinco entidades criadas (selecione `A29` e aperte **F** para focar o avião no Viewport).
+6. Clique em **Launch**: o simulador detecta automaticamente `Mundo`, `A29`, `CameraJogo` e `Sol` na cena e os utiliza sem criar duplicatas (mantendo a colisão lógica do terreno/cidade).
+
+> **Nota:** Sem a cena montada (ou se alguma dessas entidades faltar), o script continua funcionando normalmente criando o que faltar em tempo de execução.
+
+### Como reverter a cena montada
+
+- **Imediatamente após colar o snippet:** pressione **Ctrl + Z** no Editor (as operações ficam no histórico de desfazer) ou restaure um checkpoint em **Version Control**.
+- **Manualmente a qualquer momento:** apague as entidades `Jogo`, `Mundo`, `A29`, `CameraJogo` e `Sol` na **Hierarchy** e marque novamente **Enabled** em `Camera`, `Light` e nas entidades antigas (`Player`, `Ground`, `Plane`) pelo **Inspector**.
+
+### Alternativa manual (sem usar o snippet)
+
+1. Desative no **Inspector** as entidades antigas (`Player`, `Ground`, `Plane`) e scripts antigos (`playerMovement`, `cameraFollow`, `gunController`).
+2. Selecione **`Root`** (ou crie uma entidade vazia `Jogo`), clique em **Add Component → Script** e escolha **`simuladorVoo`** (ou **`flightSim`**).
 
 ## 5. Executar (Launch)
 

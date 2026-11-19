@@ -7,6 +7,12 @@ const API_BASE = 'https://playcanvas.com/api';
 const DEFAULT_PROJECT_ID = '1606932';
 
 const TARGET_ASSETS = [
+  ...['terreno', 'cidade', 'mar', 'nuvens', 'ceu'].map((part) => ({
+    name: `mundo-${part}.glb`,
+    relPath: `public/models/mundo-${part}.glb`,
+    mime: 'model/gltf-binary',
+    preferredTypes: ['container', 'scene', 'model'],
+  })),
   {
     name: 'flight-sim.mjs',
     relPath: 'dist-editor/flight-sim.mjs',

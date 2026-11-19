@@ -1,10 +1,23 @@
-import { type AppBase, Color, Entity, FOG_LINEAR, TONEMAP_ACES, Vec3 } from 'playcanvas';
-import { buildAirplane } from './airplane';
+import {
+  ADDRESS_CLAMP_TO_EDGE,
+  type AppBase,
+  CULLFACE_FRONT,
+  Color,
+  Entity,
+  FOG_LINEAR,
+  PIXELFORMAT_SRGBA8,
+  StandardMaterial,
+  TONEMAP_ACES,
+  Texture,
+  Vec3,
+} from 'playcanvas';
+import { bindSceneAirplane, buildAirplane, type AirplaneModel } from './airplane';
 import { createFlightAudio } from './audio/sound';
 import { createCameraRig } from './cameras';
 import { createCockpit } from './cockpit';
 import { createFlightController } from './flight';
 import { createHud } from './hud';
+import { rng } from './noise';
 import { clearSmoke, createSmoke } from './smoke';
 import { createFlightState, type FlightContext, type FlightModule } from './types';
 import { createGameMenus } from './ui/menus';
@@ -20,13 +33,180 @@ import {
   type GameSettings,
   type QualityLevel,
 } from './ui/settings';
-import { SKY_HORIZON, buildWorld } from './world';
+import { SKY_HORIZON, buildWorld, terrainHeight, type Box, type World } from './world';
 
 const QUALITY_CONFIG: Record<QualityLevel, { pixelRatio: number; fogStart: number; fogEnd: number; clouds: number }> = {
   low: { pixelRatio: 0.75, fogStart: 600, fogEnd: 2300, clouds: 0 },
   medium: { pixelRatio: 1.25, fogStart: 800, fogEnd: 3300, clouds: 0.5 },
   high: { pixelRatio: 2, fogStart: 900, fogEnd: 4200, clouds: 1 },
 };
+
+const SCENE_ENTITY_NAMES = {
+  world: 'Mundo',
+  plane: 'A29',
+  camera: 'CameraJogo',
+  sun: 'Sol',
+} as const;
+
+function findSceneEntity(root: Entity, name: string, exclude?: Entity): Entity | null {
+  const stack: Entity[] = [];
+  for (let i = root.children.length - 1; i >= 0; i--) {
+    stack.push(root.children[i] as Entity);
+  }
+  while (stack.length > 0) {
+    const cur = stack.pop()!;
+    if (cur === exclude) continue;
+    if (cur.name === name) return cur;
+    for (let i = cur.children.length - 1; i >= 0; i--) {
+      stack.push(cur.children[i] as Entity);
+    }
+  }
+  return null;
+}
+
+function collectByNamePattern(root: Entity, pattern: RegExp, out: Entity[] = []): Entity[] {
+  for (let i = 0; i < root.children.length; i++) {
+    const child = root.children[i] as Entity;
+    if (pattern.test(child.name)) out.push(child);
+    collectByNamePattern(child, pattern, out);
+  }
+  return out;
+}
+
+function hasAnyRender(node: Entity): boolean {
+  if (node.render) return true;
+  for (let i = 0; i < node.children.length; i++) {
+    if (hasAnyRender(node.children[i] as Entity)) return true;
+  }
+  return false;
+}
+
+/**
+ * Colisão lógica idêntica à de `world.ts` (terreno + cidade determinística),
+ * sem criar malhas, texturas nem materiais — usada quando "Mundo" já está na cena.
+ */
+function createLogicalGroundAt(): (x: number, z: number) => number {
+  const CITY = { x0: -900, x1: 900, z0: -700, z1: 480 };
+  const CITY_Y = 3;
+  const BLOCK = 70;
+  const STREET = 16;
+  const cell = BLOCK + STREET;
+  const r = rng(2024);
+  const boxes: Box[] = [];
+
+  for (let bz = CITY.z0; bz + BLOCK <= CITY.z1; bz += cell) {
+    for (let bx = CITY.x0; bx + BLOCK <= CITY.x1; bx += cell) {
+      const cx = bx + BLOCK / 2;
+      const cz = bz + BLOCK / 2;
+      if (r() < 0.07) continue;
+      const dist = Math.hypot(cx / 650, (cz + 150) / 500);
+      const tall = Math.exp(-dist * dist * 1.6);
+      const split = r() < 0.55 ? 2 : 1;
+      const sub = BLOCK / split;
+      for (let sx = 0; sx < split; sx++) {
+        for (let sz = 0; sz < split; sz++) {
+          const w = sub * (0.72 + r() * 0.2);
+          const d = sub * (0.72 + r() * 0.2);
+          const h = 14 + r() * 30 + tall * (60 + r() * 160);
+          const x = bx + sub * (sx + 0.5);
+          const z = bz + sub * (sz + 0.5);
+          // Consome os mesmos sorteios de cor/fachada/UV de world.ts para manter determinismo exato
+          r(); // FACADES
+          r(); // shade
+          r(); // u0
+          boxes.push({
+            x0: x - w / 2,
+            x1: x + w / 2,
+            z0: z - d / 2,
+            z1: z + d / 2,
+            top: CITY_Y + h,
+          });
+        }
+      }
+    }
+  }
+
+  const CELL = 100;
+  const grid = new Map<string, Box[]>();
+  for (const b of boxes) {
+    for (let gx = Math.floor(b.x0 / CELL); gx <= Math.floor(b.x1 / CELL); gx++) {
+      for (let gz = Math.floor(b.z0 / CELL); gz <= Math.floor(b.z1 / CELL); gz++) {
+        const k = `${gx},${gz}`;
+        let list = grid.get(k);
+        if (!list) grid.set(k, (list = []));
+        list.push(b);
+      }
+    }
+  }
+
+  return (x: number, z: number) => {
+    let h = Math.max(terrainHeight(x, z), 0);
+    if (x >= CITY.x0 - 20 && x <= CITY.x1 + 20 && z >= CITY.z0 - 20 && z <= CITY.z1 + 20 && CITY_Y > h) {
+      h = CITY_Y;
+    }
+    const list = grid.get(`${Math.floor(x / CELL)},${Math.floor(z / CELL)}`);
+    if (list) {
+      for (const b of list) {
+        if (x >= b.x0 && x <= b.x1 && z >= b.z0 && z <= b.z1 && b.top > h) h = b.top;
+      }
+    }
+    return h;
+  };
+}
+
+function buildSkyDome(
+  app: AppBase,
+  parent: Entity,
+  materials: StandardMaterial[],
+  textures: Texture[],
+): Entity {
+  const sky = new Entity('Sky', app);
+  if (typeof document === 'undefined' || !app.graphicsDevice) {
+    parent.addChild(sky);
+    return sky;
+  }
+
+  const c = document.createElement('canvas');
+  c.width = 4;
+  c.height = 256;
+  const g = c.getContext('2d')!;
+  const grad = g.createLinearGradient(0, 0, 0, 256);
+  grad.addColorStop(0.0, '#1e2046');
+  grad.addColorStop(0.26, '#4f3a6e');
+  grad.addColorStop(0.42, '#c86868');
+  grad.addColorStop(0.5, '#fab88c');
+  grad.addColorStop(0.58, '#c69888');
+  grad.addColorStop(1.0, '#3a4668');
+  g.fillStyle = grad;
+  g.fillRect(0, 0, 4, 256);
+
+  const tex = new Texture(app.graphicsDevice, {
+    width: 4,
+    height: 256,
+    format: PIXELFORMAT_SRGBA8,
+    mipmaps: false,
+    addressU: ADDRESS_CLAMP_TO_EDGE,
+    addressV: ADDRESS_CLAMP_TO_EDGE,
+  });
+  tex.setSource(c);
+  textures.push(tex);
+
+  const m = new StandardMaterial();
+  m.useLighting = false;
+  m.useFog = false;
+  m.diffuse = new Color(0, 0, 0);
+  m.emissiveMap = tex;
+  m.emissive = new Color(1, 1, 1);
+  m.cull = CULLFACE_FRONT;
+  m.depthWrite = false;
+  m.update();
+  materials.push(m);
+
+  sky.addComponent('render', { type: 'sphere', material: m, castShadows: false });
+  sky.setLocalScale(9000, 9000, 9000);
+  parent.addChild(sky);
+  return sky;
+}
 
 export function startFlightSim(app: AppBase, uiRoot: HTMLElement): { destroy(): void } {
   // Preserva luz ambiente, névoa e pixel ratio originais para restaurar no destroy()
@@ -54,31 +234,142 @@ export function startFlightSim(app: AppBase, uiRoot: HTMLElement): { destroy(): 
   const simRoot = new Entity('FlightSimRoot');
   app.root.addChild(simRoot);
 
-  const sun = new Entity('Sun');
-  sun.addComponent('light', {
-    type: 'directional',
-    color: new Color(1, 0.8, 0.6),
-    intensity: 1.7,
-    castShadows: false,
-  });
-  sun.setEulerAngles(58, 125, 0);
-  simRoot.addChild(sun);
+  const restorers: Array<() => void> = [];
 
-  const world = buildWorld(app, simRoot);
-  const cloudEntities = simRoot.children.filter((c) => c.name === 'Cloud') as Entity[];
-  const plane = buildAirplane(app, simRoot);
+  // 1) Sol: usa entidade "Sol" da cena se existir; senão cria como antes
+  const sceneSun = findSceneEntity(app.root, SCENE_ENTITY_NAMES.sun, simRoot);
+  let sun: Entity;
+  if (sceneSun) {
+    const prevEnabled = sceneSun.enabled;
+    sceneSun.enabled = true;
+    if (!sceneSun.light) {
+      sceneSun.addComponent('light', {
+        type: 'directional',
+        color: new Color(1, 0.8, 0.6),
+        intensity: 1.7,
+        castShadows: false,
+      });
+    }
+    sun = sceneSun;
+    restorers.push(() => {
+      if (sceneSun.parent) sceneSun.enabled = prevEnabled;
+    });
+  } else {
+    sun = new Entity('Sun');
+    sun.addComponent('light', {
+      type: 'directional',
+      color: new Color(1, 0.8, 0.6),
+      intensity: 1.7,
+      castShadows: false,
+    });
+    sun.setEulerAngles(58, 125, 0);
+    simRoot.addChild(sun);
+  }
 
-  const camera = new Entity('Camera');
-  camera.addComponent('camera', {
-    clearColor: SKY_HORIZON.clone(),
-    fov: 65,
-    nearClip: 1.0,
-    farClip: 6000,
-    toneMapping: TONEMAP_ACES,
-  });
-  simRoot.addChild(camera);
+  // 2) Mundo: se "Mundo" existir na cena com malhas visuais, usa ela + colisão lógica sem render
+  const sceneWorld = findSceneEntity(app.root, SCENE_ENTITY_NAMES.world, simRoot);
+  let world: World;
+  let cloudEntities: Entity[];
+  if (sceneWorld && hasAnyRender(sceneWorld)) {
+    const prevWorldEnabled = sceneWorld.enabled;
+    sceneWorld.enabled = true;
+    const skyMats: StandardMaterial[] = [];
+    const skyTexs: Texture[] = [];
+    const sceneSkies = collectByNamePattern(sceneWorld, /(?:^|[-_\s])(sky|ceu|céu)(?:$|[-_\s.])/i);
+    let sky: Entity;
+    if (sceneSkies.length > 0) {
+      sky = sceneSkies[0];
+      const prevSkyPos = sky.getPosition().clone();
+      restorers.push(() => {
+        if (sky.parent) sky.setPosition(prevSkyPos);
+      });
+    } else {
+      sky = buildSkyDome(app, simRoot, skyMats, skyTexs);
+    }
+    cloudEntities = collectByNamePattern(sceneWorld, /(cloud|nuve)/i);
+    const prevCloudEnabled = cloudEntities.map((c) => c.enabled);
+    restorers.push(() => {
+      if (sceneWorld.parent) sceneWorld.enabled = prevWorldEnabled;
+      for (let i = 0; i < cloudEntities.length; i++) {
+        if (cloudEntities[i].parent) cloudEntities[i].enabled = prevCloudEnabled[i];
+      }
+    });
+    world = {
+      sky,
+      groundAt: createLogicalGroundAt(),
+      materials: skyMats,
+      textures: skyTexs,
+    };
+  } else {
+    world = buildWorld(app, simRoot);
+    cloudEntities = simRoot.children.filter((c) => c.name === 'Cloud') as Entity[];
+  }
 
-  // Desliga câmeras e luzes pré-existentes da cena (ex.: cena padrão do Editor)
+  // 3) Avião: se "A29" existir na cena, vincula a ela; senão cria como antes
+  const scenePlane = findSceneEntity(app.root, SCENE_ENTITY_NAMES.plane, simRoot);
+  let plane: AirplaneModel;
+  if (scenePlane) {
+    const prevEnabled = scenePlane.enabled;
+    const prevPos = scenePlane.getLocalPosition().clone();
+    const prevRot = scenePlane.getLocalRotation().clone();
+    const bound = bindSceneAirplane(app, scenePlane);
+    plane = bound.model;
+    restorers.push(() => {
+      bound.cleanup();
+      if (scenePlane.parent) {
+        scenePlane.setLocalPosition(prevPos);
+        scenePlane.setLocalRotation(prevRot);
+        scenePlane.enabled = prevEnabled;
+      }
+    });
+  } else {
+    plane = buildAirplane(app, simRoot);
+  }
+
+  // 4) Câmera: se "CameraJogo" existir na cena, usa ela; senão cria como antes
+  const sceneCamera = findSceneEntity(app.root, SCENE_ENTITY_NAMES.camera, simRoot);
+  let camera: Entity;
+  if (sceneCamera) {
+    const prevEnabled = sceneCamera.enabled;
+    const prevPos = sceneCamera.getLocalPosition().clone();
+    const prevRot = sceneCamera.getLocalRotation().clone();
+    const prevFov = sceneCamera.camera?.fov;
+    sceneCamera.enabled = true;
+    if (!sceneCamera.camera) {
+      sceneCamera.addComponent('camera', {
+        clearColor: SKY_HORIZON.clone(),
+        fov: 65,
+        nearClip: 1.0,
+        farClip: 6000,
+        toneMapping: TONEMAP_ACES,
+      });
+    } else {
+      sceneCamera.camera.clearColor = SKY_HORIZON.clone();
+      if (sceneCamera.camera.farClip < 6000) sceneCamera.camera.farClip = 6000;
+      sceneCamera.camera.toneMapping = TONEMAP_ACES;
+    }
+    camera = sceneCamera;
+    restorers.push(() => {
+      if (sceneCamera.parent) {
+        sceneCamera.setLocalPosition(prevPos);
+        sceneCamera.setLocalRotation(prevRot);
+        if (sceneCamera.camera && typeof prevFov === 'number') sceneCamera.camera.fov = prevFov;
+        sceneCamera.enabled = prevEnabled;
+      }
+    });
+  } else {
+    camera = new Entity('Camera');
+    camera.addComponent('camera', {
+      clearColor: SKY_HORIZON.clone(),
+      fov: 65,
+      nearClip: 1.0,
+      farClip: 6000,
+      toneMapping: TONEMAP_ACES,
+    });
+    simRoot.addChild(camera);
+  }
+
+  // Desliga câmeras e luzes pré-existentes da cena (ex.: Camera/Light padrão do Editor)
   const disabledEntities: Entity[] = [];
   for (const type of ['camera', 'light'] as const) {
     for (const comp of app.root.findComponents(type)) {
@@ -130,7 +421,7 @@ export function startFlightSim(app: AppBase, uiRoot: HTMLElement): { destroy(): 
     for (let i = 0; i < cloudEntities.length; i++) {
       if (cfg.clouds <= 0) cloudEntities[i].enabled = false;
       else if (cfg.clouds >= 1) cloudEntities[i].enabled = true;
-      else cloudEntities[i].enabled = i % 2 === 0;
+      else cloudEntities[i].enabled = cloudEntities.length === 1 ? true : i % 2 === 0;
     }
   }
 
@@ -400,6 +691,8 @@ export function startFlightSim(app: AppBase, uiRoot: HTMLElement): { destroy(): 
       for (const tex of textures) tex.destroy();
       materials.clear();
       textures.clear();
+
+      for (let i = restorers.length - 1; i >= 0; i--) restorers[i]();
 
       app.scene.ambientLight = prevAmbient.clone();
       app.scene.fog.type = prevFog.type;

@@ -37,6 +37,41 @@ export type AirplaneModel = {
   hitbox: [number, number, number][];
 };
 
+const DEFAULT_A29_HITBOX: ReadonlyArray<[number, number, number]> = [
+  [-5.57, -0.24, -1.18],
+  [-5.57, -0.24, 0.06],
+  [5.57, -0.24, -1.18],
+  [5.57, -0.24, 0.06],
+  [-5.57, -0.09, -1.18],
+  [-5.57, -0.09, 0.06],
+  [5.57, -0.09, -1.18],
+  [5.57, -0.09, 0.06],
+  [0, -0.04, -5.87],
+  [0, 1.2, -5.24],
+  [0, -1.28, -5.24],
+  [-1.24, -0.04, -5.24],
+  [1.24, -0.04, -5.24],
+  [0, -0.93, -4.45],
+  [-0.62, -0.71, -0.68],
+  [0.62, -0.71, -0.68],
+  [0, -0.78, 4.2],
+  [0, 1.42, -0.85],
+  [0, 1.42, 0.45],
+  [-2.07, 0.22, 5.04],
+  [2.07, 0.22, 5.04],
+  [-2.07, 0.34, 5.04],
+  [2.07, 0.34, 5.04],
+  [0, 0.08, 5.51],
+  [-0.08, 2.96, 4.55],
+  [0.08, 2.96, 4.55],
+  [-0.08, 2.96, 5.5],
+  [0.08, 2.96, 5.5],
+];
+
+function cloneDefaultHitbox(): [number, number, number][] {
+  return DEFAULT_A29_HITBOX.map(([x, y, z]) => [x, y, z]);
+}
+
 function relativeLocalMatrix(entity: Entity, ancestor: Entity, out: Mat4): Mat4 {
   const chain: Entity[] = [];
   let cur: Entity | null = entity;
@@ -334,36 +369,7 @@ export function buildAirplane(app: AppBase, parent: Entity = app.root): Airplane
   root.addChild(tipR);
 
   // Contorno em coordenadas locais (frente = -Z), cobrindo também voo invertido
-  const hitbox: [number, number, number][] = [
-    [-5.57, -0.24, -1.18],
-    [-5.57, -0.24, 0.06],
-    [5.57, -0.24, -1.18],
-    [5.57, -0.24, 0.06],
-    [-5.57, -0.09, -1.18],
-    [-5.57, -0.09, 0.06],
-    [5.57, -0.09, -1.18],
-    [5.57, -0.09, 0.06],
-    [0, -0.04, -5.87],
-    [0, 1.2, -5.24],
-    [0, -1.28, -5.24],
-    [-1.24, -0.04, -5.24],
-    [1.24, -0.04, -5.24],
-    [0, -0.93, -4.45],
-    [-0.62, -0.71, -0.68],
-    [0.62, -0.71, -0.68],
-    [0, -0.78, 4.2],
-    [0, 1.42, -0.85],
-    [0, 1.42, 0.45],
-    [-2.07, 0.22, 5.04],
-    [2.07, 0.22, 5.04],
-    [-2.07, 0.34, 5.04],
-    [2.07, 0.34, 5.04],
-    [0, 0.08, 5.51],
-    [-0.08, 2.96, 4.55],
-    [0.08, 2.96, 4.55],
-    [-0.08, 2.96, 5.5],
-    [0.08, 2.96, 5.5],
-  ];
+  const hitbox: [number, number, number][] = cloneDefaultHitbox();
 
   const model: AirplaneModel = { root, exterior, prop, wingTips: [tipL, tipR], materials, hitbox };
 
@@ -461,4 +467,96 @@ export function buildAirplane(app: AppBase, parent: Entity = app.root): Airplane
   }
 
   return model;
+}
+
+/**
+ * Vincula uma entidade já montada na cena do Editor (ex.: "A29") ao contrato AirplaneModel,
+ * sem criar duplicatas nem destruir os materiais dos assets da cena.
+ */
+export function bindSceneAirplane(
+  app: AppBase,
+  sceneRoot: Entity,
+): { model: AirplaneModel; cleanup(): void } {
+  sceneRoot.enabled = true;
+  const createdHelpers: Entity[] = [];
+  const exterior = collectRenderEntities(sceneRoot);
+
+  // Se a entidade da cena estiver vazia (sem malhas), anexa o modelo padrão como filho temporário
+  if (exterior.length === 0) {
+    const built = buildAirplane(app, sceneRoot);
+    built.root.setLocalPosition(0, 0, 0);
+    built.root.setLocalEulerAngles(0, 0, 0);
+    built.root.setLocalScale(1, 1, 1);
+    return {
+      model: {
+        root: sceneRoot,
+        exterior: built.exterior,
+        prop: built.prop,
+        wingTips: built.wingTips,
+        materials: built.materials,
+        hitbox: built.hitbox,
+      },
+      cleanup() {
+        built.root.destroy();
+      },
+    };
+  }
+
+  let prop =
+    (sceneRoot.findByName('Prop') as Entity | null) ??
+    (sceneRoot.findByName('prop') as Entity | null);
+  if (!prop) {
+    prop = new Entity('Prop', app);
+    prop.setLocalPosition(0, -0.04, -5.24);
+    sceneRoot.addChild(prop);
+    createdHelpers.push(prop);
+  }
+
+  let tipL = sceneRoot.findByName('wingTipL') as Entity | null;
+  if (!tipL) {
+    tipL = new Entity('wingTipL', app);
+    tipL.setLocalPosition(-5.57, -0.16, -0.56);
+    sceneRoot.addChild(tipL);
+    createdHelpers.push(tipL);
+  }
+
+  let tipR = sceneRoot.findByName('wingTipR') as Entity | null;
+  if (!tipR) {
+    tipR = new Entity('wingTipR', app);
+    tipR.setLocalPosition(5.57, -0.16, -0.56);
+    sceneRoot.addChild(tipR);
+    createdHelpers.push(tipR);
+  }
+
+  let hitbox = cloneDefaultHitbox();
+  const aabb = computeLocalAabb(sceneRoot);
+  if (aabb && aabb.halfExtents.x > 0.5 && aabb.halfExtents.z > 0.5 && aabb.halfExtents.y > 0.2) {
+    const derived = buildHitboxFromAabb(aabb);
+    hitbox = derived.hitbox;
+    tipL.setLocalPosition(-derived.halfSpan, derived.wingTipY, derived.wingTipZ);
+    tipR.setLocalPosition(derived.halfSpan, derived.wingTipY, derived.wingTipZ);
+  }
+
+  const model: AirplaneModel = {
+    root: sceneRoot,
+    exterior,
+    prop,
+    wingTips: [tipL, tipR],
+    // Materiais pertencem aos assets da cena do Editor; não devem ser destruídos ao sair
+    materials: [],
+    hitbox,
+  };
+
+  return {
+    model,
+    cleanup() {
+      for (let i = 0; i < exterior.length; i++) {
+        const render = exterior[i].render;
+        if (render) render.enabled = true;
+      }
+      for (let i = 0; i < createdHelpers.length; i++) {
+        createdHelpers[i].destroy();
+      }
+    },
+  };
 }

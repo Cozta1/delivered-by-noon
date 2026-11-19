@@ -8,6 +8,9 @@ import type { AppBase, Entity } from 'playcanvas';
 import type { AirplaneModel } from './airplane';
 import type { World } from './world';
 
+/** Veículo em uso: escolhido no menu (escrito pelo game/menu antes do voo; o voo reaparece ao trocar). */
+export type AircraftId = 'a29' | 'heli';
+
 export type CameraMode = 'chase' | 'top' | 'cockpit';
 export const CAMERA_ORDER: CameraMode[] = ['chase', 'top', 'cockpit'];
 export const CAMERA_LABEL: Record<CameraMode, string> = {
@@ -50,6 +53,8 @@ export interface FlightState {
   aimX: number;
   aimY: number;
   aimZ: number;
+  /** Veículo atual (ver AircraftId). */
+  aircraft: AircraftId;
 }
 
 export function createFlightState(): FlightState {
@@ -72,6 +77,7 @@ export function createFlightState(): FlightState {
     aimX: 0,
     aimY: 0,
     aimZ: -1,
+    aircraft: 'a29',
   };
 }
 
