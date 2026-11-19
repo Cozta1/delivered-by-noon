@@ -329,6 +329,10 @@ export function createCameraRig({ app, world, plane, camera, state }: FlightCont
     camera.lookAt(target, blendedUp);
   }
 
+  function surfaceFloorAt(x: number, z: number, ceiling: number): number {
+    return world.surfaceAt ? world.surfaceAt(x, z, ceiling) : world.groundAt(x, z);
+  }
+
   function updateFootChase(dt: number, snap: boolean) {
     // Terceira pessoa por cima do ombro direito; mouse gira a câmera livremente
     const yawRad = aimYaw * DEG_TO_RAD;
@@ -343,7 +347,8 @@ export function createCameraRig({ app, world, plane, camera, state }: FlightCont
       anchorY - aimDir.y * FOOT_CHASE_DISTANCE,
       anchorZ - aimDir.z * FOOT_CHASE_DISTANCE,
     );
-    const minGroundY = world.groundAt(desiredPos.x, desiredPos.z) + 0.55;
+    const ceiling = Math.max(planePos.y + 2.2, desiredPos.y + 0.6);
+    const minGroundY = surfaceFloorAt(desiredPos.x, desiredPos.z, ceiling) + 0.55;
     if (desiredPos.y < minGroundY) desiredPos.y = minGroundY;
 
     if (snap) {
@@ -351,7 +356,7 @@ export function createCameraRig({ app, world, plane, camera, state }: FlightCont
     } else {
       const alpha = 1 - Math.exp(-FOOT_SMOOTH * dt);
       camPos.copy(camera.getPosition()).lerp(camPos, desiredPos, alpha);
-      const minCamY = world.groundAt(camPos.x, camPos.z) + 0.55;
+      const minCamY = surfaceFloorAt(camPos.x, camPos.z, Math.max(planePos.y + 2.2, camPos.y + 0.6)) + 0.55;
       if (camPos.y < minCamY) camPos.y = minCamY;
     }
     camera.setPosition(camPos);
@@ -371,7 +376,8 @@ export function createCameraRig({ app, world, plane, camera, state }: FlightCont
       planePos.y + CAR_CHASE_HEIGHT - Math.sin(pitchRad) * CAR_CHASE_DISTANCE * 0.55,
       planePos.z + backZ * CAR_CHASE_DISTANCE,
     );
-    const minGroundY = world.groundAt(desiredPos.x, desiredPos.z) + 0.9;
+    const ceiling = Math.max(planePos.y + 3.5, desiredPos.y + 0.8);
+    const minGroundY = surfaceFloorAt(desiredPos.x, desiredPos.z, ceiling) + 0.9;
     if (desiredPos.y < minGroundY) desiredPos.y = minGroundY;
 
     if (snap) {
@@ -379,7 +385,7 @@ export function createCameraRig({ app, world, plane, camera, state }: FlightCont
     } else {
       const alpha = 1 - Math.exp(-CAR_SMOOTH * dt);
       camPos.copy(camera.getPosition()).lerp(camPos, desiredPos, alpha);
-      const minCamY = world.groundAt(camPos.x, camPos.z) + 0.9;
+      const minCamY = surfaceFloorAt(camPos.x, camPos.z, Math.max(planePos.y + 3.5, camPos.y + 0.8)) + 0.9;
       if (camPos.y < minCamY) camPos.y = minCamY;
     }
     camera.setPosition(camPos);
@@ -403,7 +409,8 @@ export function createCameraRig({ app, world, plane, camera, state }: FlightCont
       lookTarget.copy(planePos);
     }
 
-    const minGroundY = world.groundAt(desiredPos.x, desiredPos.z) + 2.2;
+    const ceiling = Math.max(planePos.y + 4.5, desiredPos.y + 1.0);
+    const minGroundY = surfaceFloorAt(desiredPos.x, desiredPos.z, ceiling) + 2.2;
     if (desiredPos.y < minGroundY) desiredPos.y = minGroundY;
 
     if (snap) {
@@ -411,7 +418,7 @@ export function createCameraRig({ app, world, plane, camera, state }: FlightCont
     } else {
       const alpha = 1 - Math.exp(-CHASE_SMOOTH * dt);
       camPos.copy(camera.getPosition()).lerp(camPos, desiredPos, alpha);
-      const minCamY = world.groundAt(camPos.x, camPos.z) + 2.2;
+      const minCamY = surfaceFloorAt(camPos.x, camPos.z, Math.max(planePos.y + 4.5, camPos.y + 1.0)) + 2.2;
       if (camPos.y < minCamY) camPos.y = minCamY;
     }
     camera.setPosition(camPos);
