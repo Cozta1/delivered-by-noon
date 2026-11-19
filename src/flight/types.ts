@@ -44,6 +44,12 @@ export interface FlightState {
   crashed: boolean;
   /** Câmera atual (escrita só pelo CameraRig). */
   camera: CameraMode;
+  /** Modo de controle: teclado direto ou mira pelo mouse (tecla M alterna; escrito pelo CameraRig). */
+  controlMode: 'keyboard' | 'mouse';
+  /** Direção desejada no mundo (vetor unitário), escrita pelo CameraRig no modo mouse; o voo pilota até ela. */
+  aimX: number;
+  aimY: number;
+  aimZ: number;
 }
 
 export function createFlightState(): FlightState {
@@ -62,6 +68,10 @@ export function createFlightState(): FlightState {
     stall: false,
     crashed: false,
     camera: 'chase',
+    controlMode: 'mouse',
+    aimX: 0,
+    aimY: 0,
+    aimZ: -1,
   };
 }
 

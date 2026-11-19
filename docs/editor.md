@@ -39,10 +39,13 @@ Isso cria `dist-editor/flight-sim.mjs` (com o CSS embutido e `playcanvas` como d
 
 ## 6. Controles
 
-| Tecla | Ação |
+| Entrada | Ação |
 |---|---|
-| **W / S** ou **↑ / ↓** | Arfagem (baixar / subir o nariz) |
-| **A / D** ou **← / →** | Rolagem (inclinar asas e curvar) |
+| **Mouse** | Move a mira livremente (no modo mouse, o avião pilota até ela) |
+| **Clique esquerdo** | Trava o ponteiro para mirar (**Esc** solta) |
+| **M** | Alterna entre modo **Mouse** e **Teclado** |
+| **W / S** ou **↑ / ↓** | Arfagem (baixar / subir o nariz; ajuste fino no modo mouse) |
+| **A / D** ou **← / →** | Rolagem (inclinar asas e curvar; ajuste fino no modo mouse) |
 | **Q / E** | Leme (guinada esquerda / direita) |
 | **Shift / Ctrl** | Acelerador (+ / −) |
 | **C** ou **V** | Alternar câmera (**ATRÁS**, **DE CIMA**, **CABINE**) |

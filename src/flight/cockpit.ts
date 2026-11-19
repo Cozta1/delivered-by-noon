@@ -125,19 +125,20 @@ function drawReadoutBox(
 }
 
 function drawAirspeed(ctx: CanvasRenderingContext2D, cx: number, cy: number, r: number, speedMs: number) {
-  drawDialFrame(ctx, cx, cy, r, 'VEL', 'km/h');
-  const speedKmh = clamp(speedMs * 3.6, 0, 480);
+  drawDialFrame(ctx, cx, cy, r, 'VEL', 'm/s');
+  const maxSpeed = 160;
+  const speed = clamp(speedMs, 0, maxSpeed);
   const start = 0.75 * Math.PI;
   const sweep = 1.5 * Math.PI;
-  const toAngle = (v: number) => start + (v / 480) * sweep;
+  const toAngle = (v: number) => start + (v / maxSpeed) * sweep;
 
-  // Faixas coloridas (estol < 126 km/h, cruzeiro, alta velocidade)
+  // Faixas coloridas: estol (< 25 m/s), cruzeiro (25..140 m/s), acima da máxima (> 140 m/s)
   const arcR = r * 0.82;
   ctx.lineWidth = Math.max(2.5, r * 0.055);
   const arcs: Array<[number, number, string]> = [
-    [0, 126, C_CORAL],
-    [126, 380, C_TEAL],
-    [380, 480, C_AMBER],
+    [0, 25, C_CORAL],
+    [25, 140, C_TEAL],
+    [140, maxSpeed, C_AMBER],
   ];
   for (const [a, b, col] of arcs) {
     ctx.beginPath();
@@ -149,12 +150,12 @@ function drawAirspeed(ctx: CanvasRenderingContext2D, cx: number, cy: number, r: 
   ctx.textAlign = 'center';
   ctx.textBaseline = 'middle';
   ctx.font = `600 ${Math.max(8, r * 0.135)}px system-ui, sans-serif`;
-  for (let v = 0; v <= 480; v += 20) {
+  for (let v = 0; v <= maxSpeed; v += 5) {
     const a = toAngle(v);
-    const major = v % 60 === 0;
+    const major = v % 20 === 0;
     const cos = Math.cos(a);
     const sin = Math.sin(a);
-    const r0 = r * (major ? 0.68 : 0.75);
+    const r0 = r * (major ? 0.68 : 0.76);
     const r1 = r * 0.85;
     ctx.beginPath();
     ctx.moveTo(cx + cos * r0, cy + sin * r0);
@@ -165,13 +166,29 @@ function drawAirspeed(ctx: CanvasRenderingContext2D, cx: number, cy: number, r: 
 
     if (major) {
       const lr = r * 0.54;
-      ctx.fillStyle = C_TEXT;
+      ctx.fillStyle = v === 140 ? C_AMBER : C_TEXT;
       ctx.fillText(String(v), cx + cos * lr, cy + sin * lr);
     }
   }
 
-  drawReadoutBox(ctx, cx, cy + r * 0.48, r * 0.74, r * 0.25, `${Math.round(speedMs * 3.6)}`);
-  drawNeedle(ctx, cx, cy, toAngle(speedKmh), r * 0.74, r * 0.18, Math.max(2.5, r * 0.055), C_AMBER);
+  // Marcas explícitas de estol (25 m/s) e velocidade máxima (140 m/s)
+  for (const [markVal, markCol] of [
+    [25, C_CORAL],
+    [140, C_CORAL],
+  ] as const) {
+    const a = toAngle(markVal);
+    const cos = Math.cos(a);
+    const sin = Math.sin(a);
+    ctx.beginPath();
+    ctx.moveTo(cx + cos * r * 0.64, cy + sin * r * 0.64);
+    ctx.lineTo(cx + cos * r * 0.88, cy + sin * r * 0.88);
+    ctx.lineWidth = Math.max(2.4, r * 0.05);
+    ctx.strokeStyle = markCol;
+    ctx.stroke();
+  }
+
+  drawReadoutBox(ctx, cx, cy + r * 0.48, r * 0.74, r * 0.25, `${Math.round(speedMs)}`);
+  drawNeedle(ctx, cx, cy, toAngle(speed), r * 0.74, r * 0.18, Math.max(2.5, r * 0.055), C_AMBER);
   drawCenterCap(ctx, cx, cy, r);
 }
 
@@ -195,68 +212,83 @@ function drawHorizon(
   ctx.translate(cx, cy);
   ctx.rotate(-rollDeg * DEG_TO_RAD);
 
-  const pxPerDeg = innerR / 36;
-  const pitchShift = clamp(pitchDeg, -65, 65) * pxPerDeg;
+  const pxPerDeg = innerR / 44;
+  const pitchShift = clamp(pitchDeg, -90, 90) * pxPerDeg;
   ctx.translate(0, pitchShift);
 
-  // Céu crepuscular e solo verde-azulado
-  const skyGrad = ctx.createLinearGradient(0, -innerR * 2.4, 0, 0);
+  // Céu crepuscular e solo verde-azulado cobrindo todo o giro de -90°..+90°
+  const skyGrad = ctx.createLinearGradient(0, -90 * pxPerDeg, 0, 0);
   skyGrad.addColorStop(0, '#231a3a');
   skyGrad.addColorStop(0.6, '#6f486c');
   skyGrad.addColorStop(1, '#e8935c');
   ctx.fillStyle = skyGrad;
-  ctx.fillRect(-innerR * 2.5, -innerR * 3, innerR * 5, innerR * 3);
+  ctx.fillRect(-innerR * 3, -innerR * 5, innerR * 6, innerR * 5);
 
-  const groundGrad = ctx.createLinearGradient(0, 0, 0, innerR * 2.4);
+  const groundGrad = ctx.createLinearGradient(0, 0, 0, 90 * pxPerDeg);
   groundGrad.addColorStop(0, '#1e4549');
   groundGrad.addColorStop(1, '#09181b');
   ctx.fillStyle = groundGrad;
-  ctx.fillRect(-innerR * 2.5, 0, innerR * 5, innerR * 3);
+  ctx.fillRect(-innerR * 3, 0, innerR * 6, innerR * 5);
 
   // Linha do horizonte
   ctx.beginPath();
-  ctx.moveTo(-innerR * 2.2, 0);
-  ctx.lineTo(innerR * 2.2, 0);
+  ctx.moveTo(-innerR * 2.5, 0);
+  ctx.lineTo(innerR * 2.5, 0);
   ctx.lineWidth = 2;
   ctx.strokeStyle = '#fff0db';
   ctx.stroke();
 
-  // Escada de arfagem (±10°, ±20°, ±30°)
-  ctx.font = `600 ${Math.max(7, r * 0.11)}px system-ui, sans-serif`;
+  // Escada de arfagem completa (-80°..+80°; linhas tracejadas no mergulho)
+  ctx.font = `600 ${Math.max(7, r * 0.105)}px system-ui, sans-serif`;
   ctx.fillStyle = '#f8ebe0';
   ctx.textBaseline = 'middle';
-  for (const deg of [-30, -20, -10, 10, 20, 30]) {
+  for (let deg = -80; deg <= 80; deg += 10) {
+    if (deg === 0) continue;
     const y = -deg * pxPerDeg;
-    const half = r * (deg % 20 === 0 ? 0.24 : 0.14);
+    const major = deg % 20 === 0;
+    const half = r * (major ? 0.24 : 0.13);
     ctx.beginPath();
+    if (deg < 0) ctx.setLineDash([4, 3]);
+    else ctx.setLineDash([]);
     ctx.moveTo(-half, y);
     ctx.lineTo(half, y);
-    ctx.lineWidth = 1.4;
+    ctx.lineWidth = major ? 1.5 : 1.1;
     ctx.strokeStyle = 'rgba(255, 244, 232, 0.85)';
     ctx.stroke();
-    if (deg % 20 === 0) {
+    ctx.setLineDash([]);
+    if (major) {
       ctx.textAlign = 'right';
       ctx.fillText(String(Math.abs(deg)), -half - 4, y);
       ctx.textAlign = 'left';
       ctx.fillText(String(Math.abs(deg)), half + 4, y);
     }
   }
+
+  // Marcadores de zênite (+90°) e nadir (-90°) para loops
+  for (const pole of [-90, 90]) {
+    const py = -pole * pxPerDeg;
+    ctx.beginPath();
+    ctx.arc(0, py, Math.max(3, r * 0.045), 0, Math.PI * 2);
+    ctx.lineWidth = 1.4;
+    ctx.strokeStyle = pole > 0 ? '#fff0db' : C_CORAL;
+    ctx.stroke();
+  }
   ctx.restore();
 
-  // Arco superior de inclinação (roll)
+  // Escala de rolagem completa (-180°..+180° incluindo voo de dorso)
   const bankR = innerR * 0.88;
-  ctx.strokeStyle = 'rgba(231, 242, 242, 0.75)';
-  for (const deg of [-60, -45, -30, -15, 0, 15, 30, 45, 60]) {
+  for (const deg of [-135, -90, -60, -45, -30, -15, 0, 15, 30, 45, 60, 90, 135, 180]) {
     const a = -Math.PI / 2 + deg * DEG_TO_RAD;
-    const len = deg === 0 ? 7 : deg % 30 === 0 ? 6 : 4;
+    const len = deg === 0 || deg === 180 || Math.abs(deg) === 90 ? 7 : deg % 30 === 0 ? 5.5 : 3.5;
     ctx.beginPath();
     ctx.moveTo(cx + Math.cos(a) * (bankR - len), cy + Math.sin(a) * (bankR - len));
     ctx.lineTo(cx + Math.cos(a) * bankR, cy + Math.sin(a) * bankR);
-    ctx.lineWidth = deg === 0 ? 2 : 1.3;
+    ctx.lineWidth = deg === 0 || deg === 180 ? 2 : 1.25;
+    ctx.strokeStyle = deg === 180 ? C_AMBER : 'rgba(231, 242, 242, 0.75)';
     ctx.stroke();
   }
 
-  // Triângulo móvel do ângulo de rolagem
+  // Triângulo móvel do ângulo de rolagem (-180°..+180°)
   ctx.save();
   ctx.translate(cx, cy);
   ctx.rotate(-rollDeg * DEG_TO_RAD);
@@ -395,7 +427,7 @@ function drawCompass(ctx: CanvasRenderingContext2D, cx: number, cy: number, r: n
 
 function drawVsi(ctx: CanvasRenderingContext2D, cx: number, cy: number, r: number, vsMs: number) {
   drawDialFrame(ctx, cx, cy, r, 'VARIO', 'm/s');
-  const maxVs = 50;
+  const maxVs = 150;
   const clamped = clamp(vsMs, -maxVs, maxVs);
   const maxSweep = 0.78 * Math.PI;
   const toAngle = (v: number) => Math.PI + (v / maxVs) * maxSweep;
@@ -414,11 +446,11 @@ function drawVsi(ctx: CanvasRenderingContext2D, cx: number, cy: number, r: numbe
 
   ctx.textAlign = 'center';
   ctx.textBaseline = 'middle';
-  ctx.font = `600 ${Math.max(8, r * 0.13)}px system-ui, sans-serif`;
+  ctx.font = `600 ${Math.max(8, r * 0.125)}px system-ui, sans-serif`;
 
-  for (let v = -50; v <= 50; v += 5) {
+  for (let v = -maxVs; v <= maxVs; v += 10) {
     const a = toAngle(v);
-    const major = v % 10 === 0;
+    const major = v % 30 === 0;
     const cos = Math.cos(a);
     const sin = Math.sin(a);
     const r0 = r * (major ? 0.69 : 0.76);
@@ -430,8 +462,8 @@ function drawVsi(ctx: CanvasRenderingContext2D, cx: number, cy: number, r: numbe
     ctx.strokeStyle = v === 0 ? C_AMBER : major ? C_TEXT : C_MUTED;
     ctx.stroke();
 
-    if (major && Math.abs(v) < 50) {
-      const lr = r * 0.54;
+    if (major && Math.abs(v) < maxVs) {
+      const lr = r * 0.53;
       ctx.fillStyle = v === 0 ? C_AMBER : C_TEXT;
       ctx.fillText(String(Math.abs(v)), cx + cos * lr, cy + sin * lr);
     }

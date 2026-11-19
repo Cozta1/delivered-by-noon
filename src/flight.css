@@ -32,16 +32,108 @@ canvas {
 
 .hud-telemetry[hidden],
 .hud-metrics[hidden],
+.hud-lock-hint[hidden],
+.hud-aim-ring[hidden],
+.hud-nose-cross[hidden],
 .hud-alert[hidden],
 .cockpit-root[hidden] {
   display: none;
+}
+
+.hud-reticles {
+  position: absolute;
+  inset: 0;
+  overflow: hidden;
+  pointer-events: none;
+}
+
+.hud-reticles--cockpit {
+  bottom: 35%;
+}
+
+.hud-aim-ring {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 38px;
+  height: 38px;
+  border-radius: 50%;
+  border: 2px solid rgba(255, 198, 128, 0.94);
+  box-shadow:
+    0 0 0 1px rgba(10, 12, 18, 0.55),
+    inset 0 0 0 1px rgba(10, 12, 18, 0.45);
+  will-change: transform;
+}
+
+.hud-aim-ring::before,
+.hud-aim-ring::after {
+  content: '';
+  position: absolute;
+  background: rgba(255, 198, 128, 0.9);
+  box-shadow: 0 0 2px rgba(10, 12, 18, 0.6);
+}
+
+.hud-aim-ring::before {
+  left: 50%;
+  top: -5px;
+  bottom: -5px;
+  width: 2px;
+  transform: translateX(-50%);
+  mask: linear-gradient(180deg, #000 0 7px, transparent 7px calc(100% - 7px), #000 calc(100% - 7px));
+}
+
+.hud-aim-ring::after {
+  top: 50%;
+  left: -5px;
+  right: -5px;
+  height: 2px;
+  transform: translateY(-50%);
+  mask: linear-gradient(90deg, #000 0 7px, transparent 7px calc(100% - 7px), #000 calc(100% - 7px));
+}
+
+.hud-aim-ring--unlocked {
+  border-style: dashed;
+  opacity: 0.72;
+}
+
+.hud-nose-cross {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 16px;
+  height: 16px;
+  will-change: transform;
+}
+
+.hud-nose-cross::before,
+.hud-nose-cross::after {
+  content: '';
+  position: absolute;
+  background: #5cf0d8;
+  box-shadow: 0 0 2px rgba(8, 14, 18, 0.9);
+}
+
+.hud-nose-cross::before {
+  left: 50%;
+  top: 0;
+  bottom: 0;
+  width: 2px;
+  transform: translateX(-50%);
+}
+
+.hud-nose-cross::after {
+  top: 50%;
+  left: 0;
+  right: 0;
+  height: 2px;
+  transform: translateY(-50%);
 }
 
 .hud-telemetry {
   position: absolute;
   top: 16px;
   left: 16px;
-  min-width: 176px;
+  min-width: 184px;
   padding: 12px 14px;
   border-radius: 10px;
   background: rgba(16, 18, 28, 0.62);
@@ -58,22 +150,49 @@ canvas {
   padding: 8px 10px;
 }
 
+.hud-badges {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
 .hud-metrics {
   display: flex;
   flex-direction: column;
   gap: 8px;
 }
 
-.hud-camera {
-  align-self: flex-start;
+.hud-camera,
+.hud-control {
   padding: 2px 8px;
   border-radius: 4px;
-  background: rgba(255, 158, 74, 0.18);
-  border: 1px solid rgba(255, 158, 74, 0.45);
-  color: #ffbd7d;
   font-size: 11px;
   font-weight: 700;
   letter-spacing: 0.1em;
+}
+
+.hud-camera {
+  background: rgba(255, 158, 74, 0.18);
+  border: 1px solid rgba(255, 158, 74, 0.45);
+  color: #ffbd7d;
+}
+
+.hud-control--mouse {
+  background: rgba(61, 214, 189, 0.18);
+  border: 1px solid rgba(61, 214, 189, 0.45);
+  color: #7bf0dc;
+}
+
+.hud-control--keyboard {
+  background: rgba(180, 194, 206, 0.16);
+  border: 1px solid rgba(180, 194, 206, 0.35);
+  color: #d6e1e8;
+}
+
+.hud-lock-hint {
+  font-size: 11px;
+  color: #ffd5a6;
+  opacity: 0.9;
 }
 
 .hud-metric {
@@ -177,12 +296,15 @@ canvas {
   left: 50%;
   transform: translateX(-50%);
   z-index: 3;
+  max-width: calc(100vw - 24px);
+  overflow: hidden;
+  text-overflow: ellipsis;
   padding: 5px 14px;
   border-radius: 999px;
   background: rgba(10, 14, 20, 0.64);
   border: 1px solid rgba(255, 255, 255, 0.12);
   color: rgba(235, 240, 242, 0.88);
-  font-size: 12px;
+  font-size: 11.5px;
   letter-spacing: 0.02em;
   white-space: nowrap;
 }
