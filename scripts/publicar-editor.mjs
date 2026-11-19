@@ -179,17 +179,22 @@ async function uploadAsset({ projectId, branchId, token, target, existing }) {
   }
 
   const bytes = readFileSync(fullPath);
-  const form = new FormData();
-  form.append('name', target.name);
-  form.append('branchId', branchId);
-  form.append('preload', 'true');
-  form.append('file', new Blob([bytes], { type: target.mime }), target.name);
+  const file = new Blob([bytes], { type: target.mime });
 
   if (existing) {
-    return apiRequest('PUT', `/assets/${existing.id}`, token, form);
+    // Atualização: a API só aceita arquivo e branch ("preload: not supported field" em 2026-11-19).
+    const update = new FormData();
+    update.append('branchId', branchId);
+    update.append('file', file, target.name);
+    return apiRequest('PUT', `/assets/${existing.id}`, token, update);
   }
 
+  const form = new FormData();
+  form.append('name', target.name);
   form.append('projectId', projectId);
+  form.append('branchId', branchId);
+  form.append('preload', 'true');
+  form.append('file', file, target.name);
   return apiRequest('POST', '/assets', token, form);
 }
 
