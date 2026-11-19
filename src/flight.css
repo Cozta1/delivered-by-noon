@@ -17,3 +17,236 @@ canvas {
   inset: 0;
   pointer-events: none;
 }
+
+/* -------------------------------------------------------------------------
+ * HUD
+ * ------------------------------------------------------------------------- */
+.hud-root {
+  position: relative;
+  z-index: 2;
+  width: 100%;
+  height: 100%;
+  color: #f3ece8;
+  user-select: none;
+}
+
+.hud-telemetry[hidden],
+.hud-metrics[hidden],
+.hud-alert[hidden],
+.cockpit-root[hidden] {
+  display: none;
+}
+
+.hud-telemetry {
+  position: absolute;
+  top: 16px;
+  left: 16px;
+  min-width: 176px;
+  padding: 12px 14px;
+  border-radius: 10px;
+  background: rgba(16, 18, 28, 0.62);
+  border: 1px solid rgba(255, 198, 146, 0.22);
+  backdrop-filter: blur(6px);
+  box-shadow: 0 8px 24px rgba(10, 8, 16, 0.35);
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.hud-telemetry--compact {
+  min-width: 0;
+  padding: 8px 10px;
+}
+
+.hud-metrics {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.hud-camera {
+  align-self: flex-start;
+  padding: 2px 8px;
+  border-radius: 4px;
+  background: rgba(255, 158, 74, 0.18);
+  border: 1px solid rgba(255, 158, 74, 0.45);
+  color: #ffbd7d;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.1em;
+}
+
+.hud-metric {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 14px;
+}
+
+.hud-label {
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  color: #a9b8be;
+}
+
+.hud-value {
+  font-family: ui-monospace, SFMono-Regular, Consolas, monospace;
+  font-size: 19px;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  color: #fdf6ef;
+}
+
+.hud-value-sm {
+  font-family: ui-monospace, SFMono-Regular, Consolas, monospace;
+  font-size: 12px;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  color: #d7e7e8;
+}
+
+.hud-throttle-row {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  margin-top: 2px;
+}
+
+.hud-throttle-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+}
+
+.hud-throttle-track {
+  height: 7px;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.12);
+  overflow: hidden;
+}
+
+.hud-throttle-fill {
+  width: 100%;
+  height: 100%;
+  border-radius: 999px;
+  transform-origin: left center;
+  background: linear-gradient(90deg, #3dd6bd 0%, #ff9e4a 85%, #eb5e4b 100%);
+}
+
+.hud-alert {
+  position: absolute;
+  top: 40%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  padding: 10px 24px;
+  border-radius: 8px;
+  font-size: 22px;
+  font-weight: 800;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  text-align: center;
+  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.45);
+}
+
+.hud-alert--stall {
+  color: #ffcf6e;
+  background: rgba(34, 18, 12, 0.78);
+  border: 2px solid #ff9e4a;
+  animation: hud-blink 0.65s ease-in-out infinite alternate;
+}
+
+.hud-alert--crashed {
+  color: #fff2f0;
+  background: rgba(132, 26, 22, 0.86);
+  border: 2px solid #ff7a6b;
+}
+
+@keyframes hud-blink {
+  from {
+    opacity: 1;
+  }
+  to {
+    opacity: 0.25;
+  }
+}
+
+.hud-footer {
+  position: absolute;
+  bottom: 10px;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 3;
+  padding: 5px 14px;
+  border-radius: 999px;
+  background: rgba(10, 14, 20, 0.64);
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  color: rgba(235, 240, 242, 0.88);
+  font-size: 12px;
+  letter-spacing: 0.02em;
+  white-space: nowrap;
+}
+
+/* -------------------------------------------------------------------------
+ * Cabine (câmera cockpit)
+ * ------------------------------------------------------------------------- */
+.cockpit-root {
+  position: absolute;
+  inset: 0;
+  z-index: 1;
+}
+
+.cockpit-frame {
+  position: absolute;
+  inset: 0 0 35% 0;
+}
+
+.cockpit-brow {
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 28px;
+  background: linear-gradient(180deg, #0b1116 0%, #151c24 72%, rgba(21, 28, 36, 0) 100%);
+  border-bottom: 2px solid rgba(255, 168, 102, 0.14);
+}
+
+.cockpit-pillar {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  width: clamp(22px, 3.2vw, 48px);
+  background: linear-gradient(90deg, #0b1116 0%, #162027 100%);
+}
+
+.cockpit-pillar--left {
+  left: 0;
+  clip-path: polygon(0 0, 100% 0, 58% 100%, 0 100%);
+  box-shadow: inset -2px 0 0 rgba(255, 168, 102, 0.12);
+}
+
+.cockpit-pillar--right {
+  right: 0;
+  background: linear-gradient(270deg, #0b1116 0%, #162027 100%);
+  clip-path: polygon(0 0, 100% 0, 100% 100%, 42% 100%);
+  box-shadow: inset 2px 0 0 rgba(255, 168, 102, 0.12);
+}
+
+.cockpit-panel {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  height: 35%;
+  background: linear-gradient(180deg, #16393f 0%, #0f272b 12%, #0a1b1f 100%);
+  border-top: 3px solid #26545c;
+  box-shadow:
+    inset 0 2px 0 rgba(255, 184, 120, 0.16),
+    0 -10px 28px rgba(8, 12, 16, 0.55);
+}
+
+.cockpit-canvas {
+  display: block;
+  width: 100%;
+  height: 100%;
+}
