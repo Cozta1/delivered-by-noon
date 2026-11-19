@@ -14,6 +14,13 @@ const TARGET_ASSETS = [
     preferredTypes: ['script'],
   },
   {
+    // Versão clássica (pc.createScript, script "simuladorVoo"): o Editor do usuário não listou o .mjs.
+    name: 'flight-sim.js',
+    relPath: 'dist-editor/flight-sim.js',
+    mime: 'application/javascript',
+    preferredTypes: ['script'],
+  },
+  {
     name: 'a29.glb',
     relPath: 'public/models/a29.glb',
     mime: 'model/gltf-binary',
