@@ -10,6 +10,7 @@ import {
   createCylinder,
   createSphere,
 } from 'playcanvas';
+import { getActiveRoute } from './rota';
 import type { DeliveryPoint, FlightContext, FlightModule, MissionState, Stage } from './types';
 import { getRuntime } from './ui/settings';
 
@@ -41,7 +42,7 @@ function makeBeaconMaterial(r: number, g: number, b: number, opacity: number, in
 }
 
 function formatDistance(meters: number): string {
-  if (meters >= 1000) return `${(meters / 1000).toFixed(1)} km`;
+  if (meters >= 1000) return `${(meters / 1000).toFixed(1).replace('.', ',')} km`;
   return `${Math.round(meters)} m`;
 }
 
@@ -374,7 +375,11 @@ export function createMarkers(ctx: FlightContext, uiRoot?: HTMLElement | null): 
     const ey = Math.max(marginTop, Math.min(ch - marginBottom, cy + dy / scale));
     const angleDeg = (Math.atan2(dy, dx) * 180) / Math.PI;
 
-    const dist = Math.hypot(next.x - state.x, next.z - state.z);
+    const route = getActiveRoute(state);
+    const dist =
+      route && route.deliveryId === next.id
+        ? route.distance
+        : Math.hypot(next.x - state.x, next.z - state.z);
     const isFinal = Boolean(ctx.mission && isFinalDelivery(next, ctx.mission));
     const labelText = isFinal ? `UniAcademia · ${formatDistance(dist)}` : formatDistance(dist);
     if (labelText !== lastArrowText) {

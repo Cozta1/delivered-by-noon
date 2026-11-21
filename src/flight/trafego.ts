@@ -29,12 +29,18 @@ export interface RoadGraphPoint {
   s: number;
 }
 
+export interface RoadLineGroup {
+  category: string;
+  width: number;
+  lines: ReadonlyArray<ReadonlyArray<number>>;
+}
+
 export interface RoadGraphEdge {
   id: number;
   from: number;
   to: number;
   reverseId: number;
-  category: RoadClass;
+  category: string;
   cls: number;
   width: number;
   laneOffset: number;
@@ -51,6 +57,31 @@ export interface RoadGraph {
   edgeGrid: Map<number, number[]>;
 }
 
+export interface BuildRoadGraphOptions {
+  filter?: (category: string) => boolean;
+  snap?: number;
+  /** Ponte opcional (m) para ligar componentes desconexos próximos (ex.: faixas duplas no OSM). */
+  bridgeGaps?: number;
+}
+
+export const MAIN_ROAD_CATEGORIES: ReadonlySet<string> = new Set<RoadClass>([
+  'motorway',
+  'trunk',
+  'primary',
+  'secondary',
+  'tertiary',
+]);
+
+export const PEDESTRIAN_CATEGORIES: ReadonlySet<string> = new Set([
+  'footway',
+  'pedestrian',
+  'path',
+  'steps',
+  'cycleway',
+  'bridleway',
+  'track',
+]);
+
 export const MAX_TRAFFIC_CARS = 40;
 const SPAWN_MIN_DIST = 150;
 const SPAWN_MAX_DIST = 600;
@@ -61,12 +92,16 @@ const FOLLOW_SAFE_DIST = 7.5;
 const FOLLOW_DETECT_DIST = 18.0;
 const EDGE_GRID_CELL = 100;
 
-const CLASS_SPEED: Record<RoadClass, number> = {
+const CLASS_SPEED: Record<string, number> = {
   motorway: 16.0,
   trunk: 14.5,
   primary: 12.5,
   secondary: 10.5,
   tertiary: 8.5,
+  unclassified: 8.0,
+  residential: 8.0,
+  living_street: 7.5,
+  service: 7.5,
 };
 
 const TRAFFIC_COLORS: ReadonlyArray<[number, number, number]> = [
@@ -86,21 +121,26 @@ const gridKey = (gx: number, gz: number) => gx * 4096 + gz;
 
 let cachedGraph: RoadGraph | undefined;
 
-/** Constrói (e memoriza) o grafo direcionado das vias de Juiz de Fora a partir de cityLayout(). */
-export function getRoadGraph(): RoadGraph {
-  if (cachedGraph) return cachedGraph;
-
-  const layout = cityLayout();
-  const SNAP = 7.5;
+/** Constrói um grafo viário direcionado (mão dupla) a partir de grupos de polilinhas. */
+export function buildRoadGraph(
+  roadLines: ReadonlyArray<RoadLineGroup>,
+  options?: BuildRoadGraphOptions,
+): RoadGraph {
+  const filter = options?.filter;
+  const SNAP = options?.snap ?? 7.5;
   const SEG_CELL = 64;
 
-  // 1. Coleta todos os segmentos e divide nos cruzamentos internos
+  // 1. Coleta todos os segmentos elegíveis e divide nos cruzamentos internos
   interface RawSeg {
     x0: number;
     z0: number;
     x1: number;
     z1: number;
-    category: RoadClass;
+    minX: number;
+    maxX: number;
+    minZ: number;
+    maxZ: number;
+    category: string;
     cls: number;
     width: number;
     splits: number[];
@@ -108,17 +148,22 @@ export function getRoadGraph(): RoadGraph {
   const rawSegs: RawSeg[] = [];
   const segGrid = new Map<number, number[]>();
 
-  layout.roadLines.forEach((group, cls) => {
+  roadLines.forEach((group, cls) => {
+    if (filter && !filter(group.category)) return;
+    const width = group.width > 0 ? group.width : 7.0;
     for (const line of group.lines) {
       for (let i = 0; i + 3 < line.length; i += 2) {
         const x0 = line[i], z0 = line[i + 1], x1 = line[i + 2], z1 = line[i + 3];
-        if (Math.hypot(x1 - x0, z1 - z0) < 1.5) continue;
+        const ddx = x1 - x0, ddz = z1 - z0;
+        if (ddx * ddx + ddz * ddz < 2.25) continue;
+        const minX = x0 < x1 ? x0 : x1, maxX = x0 > x1 ? x0 : x1;
+        const minZ = z0 < z1 ? z0 : z1, maxZ = z0 > z1 ? z0 : z1;
         const id = rawSegs.length;
-        rawSegs.push({ x0, z0, x1, z1, category: group.category, cls, width: group.width, splits: [0, 1] });
-        const gx0 = Math.floor(Math.min(x0, x1) / SEG_CELL);
-        const gx1 = Math.floor(Math.max(x0, x1) / SEG_CELL);
-        const gz0 = Math.floor(Math.min(z0, z1) / SEG_CELL);
-        const gz1 = Math.floor(Math.max(z0, z1) / SEG_CELL);
+        rawSegs.push({ x0, z0, x1, z1, minX, maxX, minZ, maxZ, category: group.category, cls, width, splits: [0, 1] });
+        const gx0 = Math.floor(minX / SEG_CELL);
+        const gx1 = Math.floor(maxX / SEG_CELL);
+        const gz0 = Math.floor(minZ / SEG_CELL);
+        const gz1 = Math.floor(maxZ / SEG_CELL);
         for (let gx = gx0; gx <= gx1; gx++) {
           for (let gz = gz0; gz <= gz1; gz++) {
             const k = gridKey(gx, gz);
@@ -133,23 +178,26 @@ export function getRoadGraph(): RoadGraph {
 
   const tested = new Set<number>();
   for (const list of segGrid.values()) {
-    for (let a = 0; a < list.length; a++) {
+    const n = list.length;
+    for (let a = 0; a < n; a++) {
       const ia = list[a], sa = rawSegs[ia];
-      for (let b = a + 1; b < list.length; b++) {
-        const ib = list[b];
+      const dax = sa.x1 - sa.x0, daz = sa.z1 - sa.z0;
+      for (let b = a + 1; b < n; b++) {
+        const ib = list[b], sb = rawSegs[ib];
+        if (sa.maxX < sb.minX || sb.maxX < sa.minX || sa.maxZ < sb.minZ || sb.maxZ < sa.minZ) continue;
         const pair = ia < ib ? ia * 1_000_000 + ib : ib * 1_000_000 + ia;
         if (tested.has(pair)) continue;
         tested.add(pair);
-        const sb = rawSegs[ib];
-        const dax = sa.x1 - sa.x0, daz = sa.z1 - sa.z0;
         const dbx = sb.x1 - sb.x0, dbz = sb.z1 - sb.z0;
         const det = dax * dbz - daz * dbx;
         if (Math.abs(det) < 1e-3) continue;
         const rx = sb.x0 - sa.x0, rz = sb.z0 - sa.z0;
         const ta = (rx * dbz - rz * dbx) / det;
+        if (ta <= -0.02 || ta >= 1.02) continue;
         const tb = (rx * daz - rz * dax) / det;
-        if (ta > 0.02 && ta < 0.98 && tb > -0.02 && tb < 1.02) sa.splits.push(ta);
-        if (tb > 0.02 && tb < 0.98 && ta > -0.02 && ta < 1.02) sb.splits.push(tb);
+        if (tb <= -0.02 || tb >= 1.02) continue;
+        if (ta > 0.02 && ta < 0.98) sa.splits.push(ta);
+        if (tb > 0.02 && tb < 0.98) sb.splits.push(tb);
       }
     }
   }
@@ -157,18 +205,20 @@ export function getRoadGraph(): RoadGraph {
   // 2. Funde nós próximos (cruzamentos e pontas de polilinhas)
   const nodes: RoadGraphNode[] = [];
   const nodeGrid = new Map<number, number[]>();
+  const snap2 = SNAP * SNAP;
   const getNode = (x: number, z: number): number => {
     const gx = Math.floor(x / SNAP), gz = Math.floor(z / SNAP);
-    let bestId = -1, bestD = SNAP;
+    let bestId = -1, bestD2 = snap2;
     for (let dx = -1; dx <= 1; dx++) {
       for (let dz = -1; dz <= 1; dz++) {
         const list = nodeGrid.get(gridKey(gx + dx, gz + dz));
         if (!list) continue;
         for (let i = 0; i < list.length; i++) {
           const id = list[i];
-          const d = Math.hypot(nodes[id].x - x, nodes[id].z - z);
-          if (d < bestD) {
-            bestD = d;
+          const ndx = nodes[id].x - x, ndz = nodes[id].z - z;
+          const d2 = ndx * ndx + ndz * ndz;
+          if (d2 < bestD2) {
+            bestD2 = d2;
             bestId = id;
           }
         }
@@ -187,7 +237,7 @@ export function getRoadGraph(): RoadGraph {
   // 3. Cria arestas direcionadas nos dois sentidos (ida e volta, cada uma na mão direita)
   const edges: RoadGraphEdge[] = [];
   const edgeGrid = new Map<number, number[]>();
-  const seenUndirected = new Set<string>();
+  const seenUndirected = new Set<number>();
 
   const indexEdge = (edge: RoadGraphEdge) => {
     const gx = Math.floor(edge.midX / EDGE_GRID_CELL);
@@ -198,6 +248,72 @@ export function getRoadGraph(): RoadGraph {
     list.push(edge.id);
   };
 
+  const addBidirectional = (
+    u: number,
+    v: number,
+    category: string,
+    cls: number,
+    width: number,
+    minLen = 2,
+  ) => {
+    if (u === v) return;
+    const pairKey = u < v ? u * 1_000_000 + v : v * 1_000_000 + u;
+    if (seenUndirected.has(pairKey)) return;
+    const nA = nodes[u], nB = nodes[v];
+    const len = Math.hypot(nB.x - nA.x, nB.z - nA.z);
+    if (len < minLen) return;
+    seenUndirected.add(pairKey);
+
+    const laneOffset = width * 0.24;
+    const baseSpeed = CLASS_SPEED[category] ?? 8.0;
+    const midX = (nA.x + nB.x) * 0.5;
+    const midZ = (nA.z + nB.z) * 0.5;
+
+    const idFwd = edges.length;
+    const idRev = idFwd + 1;
+    const fwd: RoadGraphEdge = {
+      id: idFwd,
+      from: u,
+      to: v,
+      reverseId: idRev,
+      category,
+      cls,
+      width,
+      laneOffset,
+      baseSpeed,
+      length: len,
+      pts: [
+        { x: nA.x, z: nA.z, s: 0 },
+        { x: nB.x, z: nB.z, s: len },
+      ],
+      midX,
+      midZ,
+    };
+    const rev: RoadGraphEdge = {
+      id: idRev,
+      from: v,
+      to: u,
+      reverseId: idFwd,
+      category,
+      cls,
+      width,
+      laneOffset,
+      baseSpeed,
+      length: len,
+      pts: [
+        { x: nB.x, z: nB.z, s: 0 },
+        { x: nA.x, z: nA.z, s: len },
+      ],
+      midX,
+      midZ,
+    };
+    edges.push(fwd, rev);
+    nodes[u].outEdges.push(idFwd);
+    nodes[v].outEdges.push(idRev);
+    indexEdge(fwd);
+    indexEdge(rev);
+  };
+
   for (const s of rawSegs) {
     s.splits.sort((a, b) => a - b);
     let prev = getNode(s.x0, s.z0);
@@ -205,73 +321,80 @@ export function getRoadGraph(): RoadGraph {
       if (s.splits[i] - s.splits[i - 1] < 1e-4) continue;
       const t = s.splits[i];
       const cur = getNode(s.x0 + (s.x1 - s.x0) * t, s.z0 + (s.z1 - s.z0) * t);
-      if (cur === prev) continue;
-      const pairKey = prev < cur ? `${prev}:${cur}` : `${cur}:${prev}`;
-      if (seenUndirected.has(pairKey)) {
-        prev = cur;
-        continue;
-      }
-      seenUndirected.add(pairKey);
-
-      const nA = nodes[prev], nB = nodes[cur];
-      const len = Math.hypot(nB.x - nA.x, nB.z - nA.z);
-      if (len < 2) {
-        prev = cur;
-        continue;
-      }
-      const laneOffset = s.width * 0.24;
-      const baseSpeed = CLASS_SPEED[s.category];
-      const midX = (nA.x + nB.x) * 0.5;
-      const midZ = (nA.z + nB.z) * 0.5;
-
-      const idFwd = edges.length;
-      const idRev = idFwd + 1;
-      const fwd: RoadGraphEdge = {
-        id: idFwd,
-        from: prev,
-        to: cur,
-        reverseId: idRev,
-        category: s.category,
-        cls: s.cls,
-        width: s.width,
-        laneOffset,
-        baseSpeed,
-        length: len,
-        pts: [
-          { x: nA.x, z: nA.z, s: 0 },
-          { x: nB.x, z: nB.z, s: len },
-        ],
-        midX,
-        midZ,
-      };
-      const rev: RoadGraphEdge = {
-        id: idRev,
-        from: cur,
-        to: prev,
-        reverseId: idFwd,
-        category: s.category,
-        cls: s.cls,
-        width: s.width,
-        laneOffset,
-        baseSpeed,
-        length: len,
-        pts: [
-          { x: nB.x, z: nB.z, s: 0 },
-          { x: nA.x, z: nA.z, s: len },
-        ],
-        midX,
-        midZ,
-      };
-      edges.push(fwd, rev);
-      nodes[prev].outEdges.push(idFwd);
-      nodes[cur].outEdges.push(idRev);
-      indexEdge(fwd);
-      indexEdge(rev);
+      addBidirectional(prev, cur, s.category, s.cls, s.width);
       prev = cur;
     }
   }
 
-  cachedGraph = { nodes, edges, edgeGrid };
+  // 4. Opcional: liga componentes desconexos muito próximos (ex.: avenidas duplicadas ou pontas soltas no OSM)
+  const bridge = options?.bridgeGaps ?? 0;
+  if (bridge > 0 && nodes.length > 1) {
+    const parent = new Int32Array(nodes.length);
+    for (let i = 0; i < nodes.length; i++) parent[i] = i;
+    const find = (x: number): number => {
+      let r = x;
+      while (parent[r] !== r) r = parent[r];
+      while (parent[x] !== r) {
+        const next = parent[x];
+        parent[x] = r;
+        x = next;
+      }
+      return r;
+    };
+    const unite = (a: number, b: number) => {
+      const ra = find(a), rb = find(b);
+      if (ra !== rb) parent[ra] = rb;
+    };
+    for (let i = 0; i < edges.length; i += 2) unite(edges[i].from, edges[i].to);
+
+    const bGrid = new Map<number, number[]>();
+    for (let i = 0; i < nodes.length; i++) {
+      if (nodes[i].outEdges.length === 0) continue;
+      const k = gridKey(Math.floor(nodes[i].x / bridge), Math.floor(nodes[i].z / bridge));
+      let list = bGrid.get(k);
+      if (!list) bGrid.set(k, (list = []));
+      list.push(i);
+    }
+
+    const b2 = bridge * bridge;
+    for (let i = 0; i < nodes.length; i++) {
+      if (nodes[i].outEdges.length === 0) continue;
+      const gx = Math.floor(nodes[i].x / bridge), gz = Math.floor(nodes[i].z / bridge);
+      let bestJ = -1, bestD2 = b2;
+      const ri = find(i);
+      for (let dx = -1; dx <= 1; dx++) {
+        for (let dz = -1; dz <= 1; dz++) {
+          const list = bGrid.get(gridKey(gx + dx, gz + dz));
+          if (!list) continue;
+          for (let m = 0; m < list.length; m++) {
+            const j = list[m];
+            if (find(j) === ri) continue;
+            const ddx = nodes[j].x - nodes[i].x, ddz = nodes[j].z - nodes[i].z;
+            const d2 = ddx * ddx + ddz * ddz;
+            if (d2 < bestD2) {
+              bestD2 = d2;
+              bestJ = j;
+            }
+          }
+        }
+      }
+      if (bestJ >= 0) {
+        addBidirectional(i, bestJ, 'tertiary', 4, 7.5, 0.5);
+        unite(i, bestJ);
+      }
+    }
+  }
+
+  return { nodes, edges, edgeGrid };
+}
+
+/** Constrói (e memoriza) o grafo direcionado das vias principais de Juiz de Fora para o tráfego. */
+export function getRoadGraph(): RoadGraph {
+  if (cachedGraph) return cachedGraph;
+  cachedGraph = buildRoadGraph(cityLayout().roadLines, {
+    filter: (cat) => MAIN_ROAD_CATEGORIES.has(cat),
+    snap: 7.5,
+  });
   return cachedGraph;
 }
 

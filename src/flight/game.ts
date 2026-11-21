@@ -24,6 +24,7 @@ import { createMarkers } from './markers';
 import { createMissionSystem, startMission } from './mission';
 import { enableFrustumCulling } from './models/glb';
 import { clearSmoke, createSmoke } from './smoke';
+import { createGpsRoute } from './rota';
 import { createTraffic } from './trafego';
 import {
   STAGE_ORDER,
@@ -538,6 +539,7 @@ export function startFlightSim(
   const flightModule: VehicleSystemJumpable = createVehicleSystem(ctx);
   loadingScreen.setStage('vehicles', 'Veículos e fachada da UniAcademia prontos', true);
   const missionModule: FlightModule = createMissionSystem(ctx);
+  const gpsModule: FlightModule = createGpsRoute(ctx);
   const trafficModule: FlightModule = createTraffic(ctx);
   const dayNightModule = createDayNight(ctx, sun);
   const cameraRig = createCameraRig(ctx);
@@ -780,6 +782,7 @@ export function startFlightSim(
     requestCameraSnap(state);
     dayNightModule.update(0);
     cameraRig.update(0);
+    gpsModule.update(0);
     markersModule.update(0);
     cockpitModule.update(0);
     hudModule.update(0);
@@ -810,6 +813,7 @@ export function startFlightSim(
     menus.setMode('playing');
     dayNightModule.update(0);
     cameraRig.update(0);
+    gpsModule.update(0);
     markersModule.update(0);
     cockpitModule.update(0);
     hudModule.update(0);
@@ -872,6 +876,7 @@ export function startFlightSim(
     showPlaneExterior();
     menus.setMode('title');
     dayNightModule.update(0);
+    gpsModule.update(0);
     markersModule.update(0);
     cockpitModule.update(0);
     hudModule.update(0);
@@ -888,6 +893,7 @@ export function startFlightSim(
     else audio.playDefeat();
     // Modo apresentação não registra recorde
     menus.showEndScreen(outcome, mission, presentationActive);
+    gpsModule.update(0);
     markersModule.update(0);
     cockpitModule.update(0);
     hudModule.update(0);
@@ -911,6 +917,8 @@ export function startFlightSim(
     audio.applySettings(settings);
     applyQuality(settings.quality);
     syncTrafficControl?.(settings.traffic);
+    syncGroundGpsControl?.(settings.showGroundGps);
+    gpsModule.update(0);
     if (controlChanged) {
       state.controlMode = settings.defaultControlMode;
       if (state.controlMode === 'keyboard') releasePointerLock();
@@ -942,8 +950,9 @@ export function startFlightSim(
   });
   menus.setHiddenByLoading(true);
 
-  // Opção "Tráfego: Desligado / Pouco / Normal" injetada na lista de opções (sem alterar ui/menus.ts)
+  // Opções "Tráfego" e "GPS no chão" injetadas na lista de opções (sem alterar ui/menus.ts)
   let syncTrafficControl: ((level: TrafficLevel) => void) | null = null;
+  let syncGroundGpsControl: ((enabled: boolean) => void) | null = null;
   if (typeof document !== 'undefined' && typeof uiRoot.querySelector === 'function') {
     const optList = uiRoot.querySelector('.menu-options-list');
     if (optList) {
@@ -979,6 +988,27 @@ export function startFlightSim(
         for (const [v, b] of btns) b.classList.toggle('is-active', v === level);
       };
       syncTrafficControl(settings.traffic);
+
+      const gpsRow = document.createElement('label');
+      gpsRow.className = 'menu-opt-toggle';
+      const gpsLbl = document.createElement('span');
+      gpsLbl.className = 'menu-opt-label';
+      gpsLbl.textContent = 'GPS no chão';
+      const gpsInput = document.createElement('input');
+      gpsInput.type = 'checkbox';
+      gpsInput.className = 'menu-checkbox';
+      gpsInput.addEventListener('change', () => {
+        audio.unlock();
+        audio.playClick();
+        applyUpdatedSettings({ ...settings, showGroundGps: gpsInput.checked });
+        menus.syncSettings(settings);
+      });
+      gpsRow.append(gpsLbl, gpsInput);
+      optList.appendChild(gpsRow);
+      syncGroundGpsControl = (enabled) => {
+        gpsInput.checked = enabled;
+      };
+      syncGroundGpsControl(settings.showGroundGps);
     }
   }
 
@@ -1159,6 +1189,7 @@ export function startFlightSim(
       trafficModule.update(dt);
       const clockBefore = mission.clockMinutes;
       missionModule?.update(dt);
+      gpsModule.update(dt);
 
       // Aplica duração configurada do dia e escala de tempo da dificuldade sem alterar mission.ts
       if (mission.status === 'playing' && mission.clockMinutes > clockBefore) {
@@ -1335,6 +1366,7 @@ export function startFlightSim(
       audio.destroy();
       menus.destroy();
       missionModule?.destroy?.();
+      gpsModule.destroy?.();
       trafficModule.destroy?.();
       flightModule.destroy?.();
       dayNightModule.destroy?.();

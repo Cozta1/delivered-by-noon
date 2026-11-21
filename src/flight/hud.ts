@@ -1,4 +1,5 @@
 import { type Entity, KEY_SHIFT, KEY_W, Quat, Vec3 } from 'playcanvas';
+import { getActiveRoute } from './rota';
 import { isSmokeActive } from './smoke';
 import {
   CAMERA_LABEL,
@@ -373,7 +374,7 @@ function formatClock(minutes: number): string {
 }
 
 function formatDistance(meters: number): string {
-  if (meters >= 1000) return `${(meters / 1000).toFixed(1)} km`;
+  if (meters >= 1000) return `${(meters / 1000).toFixed(1).replace('.', ',')} km`;
   return `${Math.round(meters)} m`;
 }
 
@@ -906,8 +907,44 @@ export function createHud(ctx: FlightContext, uiRoot?: HTMLElement | null): Flig
         mapCtx.restore();
       }
 
-      // Próxima entrega destacada (halo dourado pulsante)
+      // Próxima entrega destacada (halo dourado pulsante) + rota de GPS sobre as vias
       if (next) {
+        const route = getActiveRoute(state);
+        if (route && route.points.length >= 2) {
+          const routeColor = next.leadsToNext ? '#ff6ee0' : '#ffd648';
+          mapCtx.save();
+          mapCtx.lineCap = 'round';
+          mapCtx.lineJoin = 'round';
+          mapCtx.beginPath();
+          for (let i = 0; i < route.points.length; i++) {
+            const p = worldToRotatedMap(route.points[i].x, route.points[i].z, scale, cosH, sinH, half);
+            if (i === 0) mapCtx.moveTo(p.x, p.y);
+            else mapCtx.lineTo(p.x, p.y);
+          }
+          mapCtx.strokeStyle = 'rgba(8, 12, 20, 0.88)';
+          mapCtx.lineWidth = 5.4;
+          mapCtx.stroke();
+          mapCtx.strokeStyle = routeColor;
+          mapCtx.lineWidth = 3.2;
+          mapCtx.stroke();
+
+          // Trecho final tracejado do último ponto da via até a entrega
+          if (route.finalLegDistance > 2) {
+            const lastPt = route.points[route.points.length - 1];
+            const pA = worldToRotatedMap(lastPt.x, lastPt.z, scale, cosH, sinH, half);
+            const pB = worldToRotatedMap(route.target.x, route.target.z, scale, cosH, sinH, half);
+            mapCtx.setLineDash([4, 3]);
+            mapCtx.beginPath();
+            mapCtx.moveTo(pA.x, pA.y);
+            mapCtx.lineTo(pB.x, pB.y);
+            mapCtx.strokeStyle = routeColor;
+            mapCtx.lineWidth = 2.2;
+            mapCtx.stroke();
+            mapCtx.setLineDash([]);
+          }
+          mapCtx.restore();
+        }
+
         const raw = worldToRotatedMap(next.x, next.z, scale, cosH, sinH, half);
         const pt = clampToMap(raw.x, raw.y, size, 10);
         const haloR = 6 + pulse * 3.5;
@@ -1198,7 +1235,11 @@ export function createHud(ctx: FlightContext, uiRoot?: HTMLElement | null): Flig
         const idxInStage = Math.min(stageDeliveries.length, doneInStage + 1);
         if (next) {
           targetText = `Entrega ${idxInStage}/${Math.max(1, stageDeliveries.length)}: ${next.name}`;
-          const dist = Math.hypot(next.x - state.x, next.z - state.z);
+          const route = getActiveRoute(state);
+          const dist =
+            route && route.deliveryId === next.id
+              ? route.distance
+              : Math.hypot(next.x - state.x, next.z - state.z);
           distText = formatDistance(dist);
           if (next.airDrop) hintText = 'ESPAÇO · LANÇAR';
           else if (next.leadsToNext) hintText = 'PRÓXIMO VEÍCULO';

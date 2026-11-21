@@ -13,6 +13,7 @@ export interface GameSettings {
   defaultControlMode: 'mouse' | 'keyboard';
   quality: QualityLevel;
   traffic: TrafficLevel;
+  showGroundGps: boolean;
   showHud: boolean;
   showFps: boolean;
   reduceMotion: boolean;
@@ -28,6 +29,7 @@ export const DEFAULT_SETTINGS: Readonly<GameSettings> = {
   defaultControlMode: 'mouse',
   quality: 'high',
   traffic: 'normal',
+  showGroundGps: true,
   showHud: true,
   showFps: false,
   reduceMotion: false,
@@ -62,6 +64,7 @@ export function sanitizeSettings(raw: Partial<GameSettings> | null | undefined):
     defaultControlMode,
     quality,
     traffic,
+    showGroundGps: typeof s.showGroundGps === 'boolean' ? s.showGroundGps : DEFAULT_SETTINGS.showGroundGps,
     showHud: typeof s.showHud === 'boolean' ? s.showHud : DEFAULT_SETTINGS.showHud,
     showFps: typeof s.showFps === 'boolean' ? s.showFps : DEFAULT_SETTINGS.showFps,
     reduceMotion: typeof s.reduceMotion === 'boolean' ? s.reduceMotion : DEFAULT_SETTINGS.reduceMotion,
