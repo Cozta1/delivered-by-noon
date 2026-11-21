@@ -7,6 +7,7 @@
 import type { AppBase, Entity } from 'playcanvas';
 import type { AirplaneModel } from './airplane';
 import type { World } from './world';
+import { terrainHeight } from './world-data';
 
 /**
  * O que o jogador controla agora: a pé ou um veículo (Etapa 4, mundo aberto de veículos).
@@ -100,8 +101,9 @@ export function createFlightState(): FlightState {
   };
 }
 
-/** Ponto de nascimento: sobre o mar, ao sul da cidade, voando para o norte. */
-export const SPAWN = { x: 0, y: 180, z: 720, heading: 0, speed: 70 };
+/** Ponto de nascimento no ar (reinício sem veículo): ao sul de Juiz de Fora, voando para o norte sobre o relevo. */
+const spawnZ = (() => { for (let z = 1300; z <= 2900; z += 50) if (terrainHeight(0, z) < 90) return z; return 2900; })();
+export const SPAWN = { x: 0, y: 180, z: spawnZ, heading: 0, speed: 70 };
 
 // ---------------------------------------------------------------------------
 // Delivered by Midnight: missão de entregas (ver brain/decisoes/0005-delivered-by-midnight.md)

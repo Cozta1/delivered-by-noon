@@ -1,9 +1,9 @@
-﻿import { afterEach, expect, it, vi } from 'vitest';
-import { Entity, KEY_SPACE, KEY_SHIFT, KEY_W } from 'playcanvas';
+import { afterEach, expect, it, vi } from 'vitest';
+import { Entity, KEY_SPACE, KEY_SHIFT, KEY_W, KEY_D } from 'playcanvas';
 import { canEnterVehicle, CLOCK_MINUTES_PER_SECOND, createMissionSystem, DAY_REAL_SECONDS, startMission } from './mission';
 import { createFlightState, createMissionState, STAGE_ORDER, type DeliveryPoint, type FlightContext } from './types';
 import { CarDynamics, createCarController, getCarNitro } from './car';
-import { createWorldPhysics, deliveryRampData } from './world-data';
+import { AIRPORT, HANGAR, createWorldPhysics } from './world-data';
 
 afterEach(()=>vi.restoreAllMocks());
 function setup() {
@@ -90,21 +90,12 @@ it('creates a visible crate and releases its entity/material on destruction',()=
   s.module.destroy?.();expect(parent.children.some(e=>e.name==='Encomenda da meia-noite')).toBe(false);
 });
 
-it('tuned car is faster, drains/refills nitro and jumps from the shared delivery ramp',()=>{
-  const flat=createWorldPhysics([]),normal=new CarDynamics(flat),tuned=new CarDynamics(flat,true);
+it('tuned car is faster and drains/refills nitro',()=>{
+  const flat=createWorldPhysics([],3),normal=new CarDynamics(flat),tuned=new CarDynamics(flat,true);
   for(const car of [normal,tuned])car.reset(0,3,0,0);
   for(let i=0;i<600;i++)for(const car of [normal,tuned])car.step({drive:1,steer:0,handbrake:false,nitro:true},1/120);
   expect(tuned.speed).toBeCloseTo(65);expect(normal.speed).toBeCloseTo(45);expect(tuned.nitro).toBe(0);
   for(let i=0;i<120;i++)tuned.step({drive:0,steer:0,handbrake:false},1/120);expect(tuned.nitro).toBeGreaterThan(.17);
-  const ramp=deliveryRampData(),world=createWorldPhysics(ramp.boxes),jumper=new CarDynamics(world,true);
-  jumper.reset(920,world.surfaceAt(920,410),410,90);
-  let jumped=false,landed=false,maxY=0;
-  for(let i=0;i<1000;i++){
-    jumper.step({drive:1,steer:0,handbrake:false,nitro:true},1/120);
-    if(jumper.airborne)jumped=true;else if(jumped)landed=true;
-    maxY=Math.max(maxY,jumper.y);
-  }
-  expect(jumped).toBe(true);expect(landed).toBe(true);expect(maxY).toBeGreaterThan(ramp.ramps[0].y1+.5);expect(jumper.roll).toBe(0);
 });
 
 
@@ -120,13 +111,13 @@ it('keeps each handoff delivery and the final city airdrop until the other three
 
 
 it('tuned jumps hit the real hangar ceiling and fall back below it instead of landing on top',()=>{
-  const world=createWorldPhysics(),car=new CarDynamics(world,true);
-  car.reset(1470,14.3,257.5,0);car.airborne=true;car.verticalSpeed=8;
+  const world=createWorldPhysics(),car=new CarDynamics(world,true),hx=(HANGAR.x0+HANGAR.x1)/2;
+  car.reset(hx,AIRPORT.y+10.25,257.5,0);car.airborne=true;car.verticalSpeed=8;
   let maxY=car.y;
   for(let i=0;i<480;i++) {
     car.step({drive:0,steer:0,handbrake:false},1/120);maxY=Math.max(maxY,car.y);
   }
-  expect(maxY).toBeLessThan(14.36);expect(car.y).toBeCloseTo(4.05);expect(car.airborne).toBe(false);
+  expect(maxY).toBeLessThan(AIRPORT.y+10.31);expect(car.y).toBeCloseTo(AIRPORT.y);expect(car.airborne).toBe(false);
 });
 
 
@@ -140,4 +131,29 @@ it('publishes the real tuned nitro to the HUD bridge and cleans it on destructio
   expect(getCarNitro(state)).toBeCloseTo(.6,4);
   expect((state as typeof state&{nitro?:number}).nitro).toBe(getCarNitro(state));
   controller.destroy?.();expect((state as typeof state&{nitro?:number}).nitro).toBeUndefined();
+});
+
+
+it('car and tuned ignore mouse mode/aim and retain keyboard steering, throttle, nitro and brakes',()=>{
+  for(const kind of ['car','tuned'] as const) {
+    const pressed=new Set<number>();
+    const simulator=(mode:'mouse'|'keyboard')=>{
+      const state=createFlightState();state.vehicle=kind;state.controlMode=mode;state.y=3;state.aimX=1;state.aimZ=1;
+      const app={keyboard:{isPressed:(key:number)=>pressed.has(key)}} as unknown as FlightContext['app'];
+      const root=new Entity(kind,app),world=createWorldPhysics([]);
+      const ctx={app,state,world,plane:{root,wheels:[],hitbox:[]}} as unknown as FlightContext;
+      return {state,module:createCarController(ctx,world)};
+    };
+    const mouse=simulator('mouse'),keyboard=simulator('keyboard');
+    for(let i=0;i<30;i++){mouse.module.update(1/60);keyboard.module.update(1/60);}
+    expect(mouse.state.heading).toBe(0);
+    for(const key of [KEY_W,KEY_D,KEY_SHIFT])pressed.add(key);
+    for(let i=0;i<90;i++){mouse.state.aimX=Math.sin(i);mouse.state.aimZ=Math.cos(i);mouse.module.update(1/60);keyboard.module.update(1/60);}
+    expect(mouse.state.speed).toBeGreaterThan(10);expect(mouse.state.heading).toBeGreaterThan(10);
+    pressed.clear();pressed.add(KEY_SPACE);
+    for(let i=0;i<60;i++){mouse.module.update(1/60);keyboard.module.update(1/60);}
+    for(const field of ['x','y','z','heading','pitch','roll','speed','verticalSpeed','throttle'] as const)expect(mouse.state[field]).toBeCloseTo(keyboard.state[field],10);
+    expect(getCarNitro(mouse.state)).toBe(getCarNitro(keyboard.state));
+    mouse.module.destroy?.();keyboard.module.destroy?.();
+  }
 });

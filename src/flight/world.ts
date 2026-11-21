@@ -2,6 +2,7 @@ import {
   type AppBase,
   ADDRESS_CLAMP_TO_EDGE,
   CULLFACE_FRONT,
+  CULLFACE_NONE,
   Color,
   Entity,
   Mesh,
@@ -10,7 +11,8 @@ import {
   StandardMaterial,
   Texture,
 } from 'playcanvas';
-import { CITY, CITY_Y, WORLD_SIZE, terrainHeight, airportData, deliveryRampData, createWorldPhysics, terrainData, cityData, cloudData, windowImages, skyImage, type Box, type MeshData, type ImageData } from './world-data';
+import { WORLD_SIZE, UNIACADEMIA, airportData, deliveryRampData, landmarkBoxes, createWorldPhysics, terrainData, cityData, cityDetails, cityStreetImages, cloudData, windowImages, skyImage, type Box, type MeshData, type ImageData } from './world-data';
+import { buildLandmark } from './models';
 export { WORLD_SIZE, terrainHeight, type Box } from './world-data';
 
 // ---------------------------------------------------------------------------
@@ -105,8 +107,10 @@ function buildCity(
   materials: StandardMaterial[],
   textures: Texture[],
 ) {
-  const { mesh, boxes: buildings, parks } = cityData();
-  boxes.push(...buildings);
+  const city=cityData();
+  const { mesh, boxes: buildings } = city;
+  const details=cityDetails(city);
+  boxes.push(...buildings,...details.boxes);
   const { diffuse, emissive } = windowTextures(app);
   textures.push(diffuse, emissive);
   const m = new StandardMaterial();
@@ -120,34 +124,25 @@ function buildCity(
   materials.push(m);
   meshEntity(parent, 'City', buildMesh(app, mesh), m);
 
-  // Asfalto das ruas e parques
-  const road = new StandardMaterial();
-  road.diffuse = new Color(0.33, 0.33, 0.38);
-  road.gloss = 0.15;
-  road.update();
-  materials.push(road);
-  const ground = new Entity('Streets');
-  ground.addComponent('render', { type: 'plane', material: road, castShadows: false });
-  ground.setLocalScale(CITY.x1 - CITY.x0 + 40, 1, CITY.z1 - CITY.z0 + 40);
-  ground.setPosition((CITY.x0 + CITY.x1) / 2, CITY_Y, (CITY.z0 + CITY.z1) / 2);
-  parent.addChild(ground);
-
-  const park = new StandardMaterial();
-  park.diffuse = new Color(0.36, 0.6, 0.3);
-  park.update();
-  materials.push(park);
-  for (const p of parks) {
-    const e = new Entity('Park');
-    e.addComponent('render', { type: 'plane', material: park, castShadows: false });
-    e.setLocalScale(p.x1 - p.x0, 1, p.z1 - p.z0);
-    e.setPosition((p.x0 + p.x1) / 2, CITY_Y + 0.15, (p.z0 + p.z1) / 2);
-    parent.addChild(e);
+  const images=cityStreetImages();
+  const makeTexture=(data:ImageData)=>{
+    const texture=new Texture(app.graphicsDevice,{width:data.width,height:data.height,format:PIXELFORMAT_SRGBA8,mipmaps:true,anisotropy:4});
+    texture.setSource(imageCanvas(data));textures.push(texture);return texture;
+  };
+  for(const name of ['roads','ground','props'] as const) {
+    const material=new StandardMaterial();material.diffuseVertexColor=true;material.gloss=.1;
+    if(name==='roads')material.diffuseMap=makeTexture(images.road);
+    material.update();materials.push(material);
+    const entity=meshEntity(parent,`Cidade - ${name}`,buildMesh(app,details.meshes[name]),material);
+    entity.render!.castShadows=false;
   }
+  const lamps=new StandardMaterial();
+  lamps.name='Lampadas dos postes';lamps.diffuse=new Color(1,.82,.48);lamps.emissive=new Color(1,.82,.48);
+  lamps.emissiveIntensity=1.8;lamps.cull=CULLFACE_NONE;lamps.update();materials.push(lamps);
+  meshEntity(parent,'Lampadas dos postes',buildMesh(app,details.meshes.lamps),lamps).render!.castShadows=false;
+  return lamps;
 }
 
-// ---------------------------------------------------------------------------
-// Céu (domo com degradê de fim de tarde) e nuvens
-// ---------------------------------------------------------------------------
 export const SKY_HORIZON = new Color(0.98, 0.72, 0.55);
 
 function buildSky(
@@ -217,9 +212,22 @@ export type World = Partial<ReturnType<typeof createWorldPhysics>> & {
   sky: Entity;
   /** Altura do obstáculo mais alto em (x, z): terreno, mar (0) ou prédio. */
   groundAt: (x: number, z: number) => number;
+  streetLightMaterial?: StandardMaterial;
   materials: StandardMaterial[];
   textures: Texture[];
 };
+
+/** O modelo da UniAcademia (models/, Gemini) fica no lote plano; sem GPU/assets (testes) o mundo segue sem ele. */
+function placeUniAcademia(app: AppBase, parent: Entity) {
+  if (!app.assets) return;
+  try {
+    const model = buildLandmark(app, 'uniacademia', parent);
+    model.root.setPosition(UNIACADEMIA.x, UNIACADEMIA.y, UNIACADEMIA.z);
+    model.root.setLocalEulerAngles(0, -UNIACADEMIA.heading, 0);
+  } catch (error) {
+    console.warn('UniAcademia indisponível:', error);
+  }
+}
 
 export function buildWorld(app: AppBase, parent: Entity = app.root): World {
   const boxes: Box[] = [];
@@ -227,7 +235,7 @@ export function buildWorld(app: AppBase, parent: Entity = app.root): World {
   const textures: Texture[] = [];
   buildTerrain(app, parent, materials);
   buildSea(parent, materials);
-  buildCity(app, parent, boxes, materials, textures);
+  const streetLightMaterial=buildCity(app, parent, boxes, materials, textures);
   buildClouds(parent, materials);
   const sky = buildSky(app, parent, materials, textures);
 
@@ -239,6 +247,8 @@ export function buildWorld(app: AppBase, parent: Entity = app.root): World {
   airportMaterial.update();
   materials.push(airportMaterial);
   for (const part of [...airport.parts,...deliveryRamps.parts]) meshEntity(parent, part.name, buildMesh(app, part.mesh), airportMaterial);
+  boxes.push(...landmarkBoxes());
+  placeUniAcademia(app, parent);
   const physics = createWorldPhysics(boxes);
-  return { sky, ...physics, materials, textures };
+  return { sky, ...physics, streetLightMaterial, materials, textures };
 }

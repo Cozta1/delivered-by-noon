@@ -13,7 +13,7 @@ import {
   type VehicleKind,
 } from './types';
 import { getRuntime } from './ui/settings';
-import { AIRPORT, CITY, cityData } from './world-data';
+import { AIRPORT, CITY, WORLD_SIZE, cityLayout, terrainHeight } from './world-data';
 
 type AlertState = 'none' | 'stall' | 'crashed';
 
@@ -31,43 +31,224 @@ interface MinimapBlip {
 
 const VEHICLE_BADGE: Record<VehicleKind, string> = {
   foot: 'A PÉ',
-  car: 'CARRO',
-  tuned: 'TUNADO',
+  car: 'HATCH',
+  tuned: 'COUPÉ TUNADO',
   a29: 'A-29',
   heli: 'HELI',
 };
 
 const NEARBY_LABEL: Record<Exclude<VehicleKind, 'foot'>, string> = {
-  car: 'carro',
-  tuned: 'carro tunado',
+  car: 'Hatch',
+  tuned: 'Coupé Tunado',
   a29: 'A-29',
   heli: 'helicóptero',
 };
 
 const STAGE_LABEL: Record<Stage, string> = {
-  car: 'ESTÁGIO 1/4 · CARRO',
-  tuned: 'ESTÁGIO 2/4 · CARRO TUNADO',
+  car: 'ESTÁGIO 1/4 · HATCH',
+  tuned: 'ESTÁGIO 2/4 · COUPÉ TUNADO',
   heli: 'ESTÁGIO 3/4 · HELICÓPTERO',
   a29: 'ESTÁGIO 4/4 · AVIÃO A-29',
 };
 
 const STAGE_SHORT_CODE: Record<Stage, string> = {
-  car: 'C',
-  tuned: 'T',
+  car: 'H',
+  tuned: 'C',
   heli: 'H',
   a29: 'A',
 };
 
 const FOOTER_BY_VEHICLE: Record<VehicleKind, string> = {
-  foot: 'W/A/S/D andar · Espaço pular · Mouse câmera · E entrar em veículo · C câmera · Esc/P pausa',
-  car: 'W/S acelerar/ré · A/D virar · Espaço freio de mão · E sair · C câmera · R reiniciar · Esc/P pausa',
-  tuned: 'W/S acelerar/ré · A/D virar · Shift NITRO · Espaço freio de mão · E sair · C câmera · Esc/P pausa',
+  foot: 'W/A/S/D andar · Espaço pular · Mouse gira câmera · E entrar em veículo · C câmera · Esc/P pausa',
+  car: 'W/S acelerar/ré · A/D virar · Espaço freio de mão · Mouse gira câmera · E sair · C câmera · R reiniciar · Esc/P pausa',
+  tuned: 'W/S acelerar/ré · A/D virar · Shift NITRO · Espaço freio de mão · Mouse gira câmera · E sair · C câmera · Esc/P pausa',
   a29: 'Mouse mira · M mouse/teclado · Shift/Ctrl acel · Espaço soltar carga · F fumaça · E sair · C câmera · Esc/P pausa',
-  heli: 'W/S inclinar · A/D lateral · Q/E girar · Shift/Ctrl coletivo · Mouse mira · E sair · C câmera · Esc/P pausa',
+  heli: 'W/S inclinar · A/D lateral · Q/E girar · Shift/Ctrl coletivo · Mouse gira câmera · E sair · C câmera · R reiniciar · Esc/P pausa',
 };
 
 const PROJECTION_DIST = 500;
-const HELIPAD_POS = cityData().helipad;
+
+// Dimensões da planta pré-renderizada do minimapa (uma única vez por sessão)
+const MAP_WORLD_MIN_X = -WORLD_SIZE * 0.5;
+const MAP_WORLD_MIN_Z = -WORLD_SIZE * 0.5;
+const MAP_WORLD_SPAN = WORLD_SIZE;
+const MAP_CANVAS_PX = 1024;
+const MAP_PX_PER_M = MAP_CANVAS_PX / MAP_WORLD_SPAN;
+
+interface MinimapBlueprint {
+  canvas: HTMLCanvasElement;
+  helipad: { x: number; z: number };
+  workshop: { x: number; z: number };
+}
+
+let cachedBlueprint: MinimapBlueprint | null = null;
+
+function buildMinimapBlueprint(): MinimapBlueprint | null {
+  if (cachedBlueprint) return cachedBlueprint;
+  if (typeof document === 'undefined') return null;
+
+  const canvas = document.createElement('canvas');
+  canvas.width = MAP_CANVAS_PX;
+  canvas.height = MAP_CANVAS_PX;
+  const g = canvas.getContext('2d');
+  if (!g) return null;
+
+  const layout = cityLayout();
+  const wx = (x: number) => (x - MAP_WORLD_MIN_X) * MAP_PX_PER_M;
+  const wz = (z: number) => (z - MAP_WORLD_MIN_Z) * MAP_PX_PER_M;
+  const ws = (m: number) => m * MAP_PX_PER_M;
+
+  // 1) Mar de fundo
+  g.fillStyle = '#0c2336';
+  g.fillRect(0, 0, MAP_CANVAS_PX, MAP_CANVAS_PX);
+
+  // 2) Continente recortado pela linha costeira real (`layout.coastline`)
+  if (layout.coastline.length > 1) {
+    g.beginPath();
+    g.moveTo(wx(layout.coastline[0].x), 0);
+    for (let i = 0; i < layout.coastline.length; i++) {
+      g.lineTo(wx(layout.coastline[i].x), wz(layout.coastline[i].z));
+    }
+    g.lineTo(wx(layout.coastline[layout.coastline.length - 1].x), 0);
+    g.closePath();
+    g.fillStyle = '#142622';
+    g.fill();
+
+    // Faixa sutil de praia ao longo da costa
+    g.strokeStyle = 'rgba(214, 190, 140, 0.45)';
+    g.lineWidth = 3.2;
+    g.beginPath();
+    for (let i = 0; i < layout.coastline.length; i++) {
+      const px = wx(layout.coastline[i].x);
+      const pz = wz(layout.coastline[i].z);
+      if (i === 0) g.moveTo(px, pz);
+      else g.lineTo(px, pz);
+    }
+    g.stroke();
+  } else {
+    g.fillStyle = '#142622';
+    g.fillRect(0, 0, MAP_CANVAS_PX, wz(540));
+  }
+
+  // Relevo suave de montanhas ao norte/oeste (amostragem grossa, executada 1 única vez)
+  const step = 120;
+  for (let z = MAP_WORLD_MIN_Z; z < 500; z += step) {
+    for (let x = MAP_WORLD_MIN_X; x < MAP_WORLD_MIN_X + MAP_WORLD_SPAN; x += step) {
+      if (x > CITY.x0 - 40 && x < CITY.x1 + 40 && z > CITY.z0 - 40 && z < CITY.z1 + 40) continue;
+      const h = terrainHeight(x, z);
+      if (h > 26) {
+        const a = Math.min(0.24, (h - 26) / 380);
+        g.fillStyle = `rgba(116, 152, 134, ${a.toFixed(3)})`;
+        g.fillRect(wx(x), wz(z), ws(step) + 1, ws(step) + 1);
+      }
+    }
+  }
+
+  // 3) Base de asfalto e grade real de ruas (`layout.asphalt` e `layout.roads`)
+  g.fillStyle = '#202630';
+  g.fillRect(
+    wx(layout.asphalt.x0),
+    wz(layout.asphalt.z0),
+    ws(layout.asphalt.x1 - layout.asphalt.x0),
+    ws(layout.asphalt.z1 - layout.asphalt.z0),
+  );
+
+  // Quarteirões (calçadas)
+  g.fillStyle = '#2c3542';
+  for (let i = 0; i < layout.blocks.length; i++) {
+    const b = layout.blocks[i];
+    g.fillRect(wx(b.x0), wz(b.z0), ws(b.x1 - b.x0), ws(b.z1 - b.z0));
+  }
+
+  // Ruas principais e faixa tracejada central
+  g.fillStyle = '#181e27';
+  for (let i = 0; i < layout.roads.length; i++) {
+    const r = layout.roads[i];
+    g.fillRect(wx(r.x0), wz(r.z0), ws(r.x1 - r.x0), ws(r.z1 - r.z0));
+  }
+  g.strokeStyle = 'rgba(225, 198, 120, 0.22)';
+  g.lineWidth = 0.7;
+  g.beginPath();
+  for (let i = 0; i < layout.roads.length; i++) {
+    const r = layout.roads[i];
+    if (r.axis === 'z') {
+      const mx = wx((r.x0 + r.x1) * 0.5);
+      g.moveTo(mx, wz(r.z0));
+      g.lineTo(mx, wz(r.z1));
+    } else {
+      const mz = wz((r.z0 + r.z1) * 0.5);
+      g.moveTo(wx(r.x0), mz);
+      g.lineTo(wx(r.x1), mz);
+    }
+  }
+  g.stroke();
+
+  // 4) Parques
+  g.fillStyle = '#1e5038';
+  g.strokeStyle = 'rgba(96, 206, 146, 0.35)';
+  g.lineWidth = 0.9;
+  for (let i = 0; i < layout.parks.length; i++) {
+    const p = layout.parks[i];
+    const px = wx(p.x0);
+    const pz = wz(p.z0);
+    const pw = ws(p.x1 - p.x0);
+    const ph = ws(p.z1 - p.z0);
+    g.fillRect(px, pz, pw, ph);
+    g.strokeRect(px, pz, pw, ph);
+  }
+
+  // 5) Planta real de cada prédio (`layout.buildings`), sombreada por altura
+  for (let i = 0; i < layout.buildings.length; i++) {
+    const b = layout.buildings[i];
+    const hNorm = Math.max(0, Math.min(1, (b.top - 10) / 180));
+    const lum = Math.round(74 + hNorm * 64);
+    g.fillStyle = `rgb(${lum - 8}, ${lum}, ${lum + 14})`;
+    g.fillRect(wx(b.x0), wz(b.z0), Math.max(1.2, ws(b.x1 - b.x0)), Math.max(1.2, ws(b.z1 - b.z0)));
+  }
+
+  // 6) Pista do aeroporto (`layout.runway`)
+  const rwX = wx(layout.runway.x0);
+  const rwZ = wz(layout.runway.z0);
+  const rwW = Math.max(4, ws(layout.runway.x1 - layout.runway.x0));
+  const rwH = Math.max(14, ws(layout.runway.z1 - layout.runway.z0));
+  g.fillStyle = '#475160';
+  g.fillRect(rwX, rwZ, rwW, rwH);
+  g.strokeStyle = '#ffd58a';
+  g.lineWidth = 1.2;
+  g.setLineDash([4, 3]);
+  g.beginPath();
+  g.moveTo(rwX + rwW * 0.5, rwZ + 4);
+  g.lineTo(rwX + rwW * 0.5, rwZ + rwH - 4);
+  g.stroke();
+  g.setLineDash([]);
+
+  // 7) Oficina do Coupé Tunado (`layout.workshop`)
+  const wkX = wx(layout.workshop.x);
+  const wkZ = wz(layout.workshop.z);
+  g.fillStyle = 'rgba(42, 26, 12, 0.9)';
+  g.strokeStyle = '#ff9e4a';
+  g.lineWidth = 1.5;
+  g.fillRect(wkX - 5, wkZ - 5, 10, 10);
+  g.strokeRect(wkX - 5, wkZ - 5, 10, 10);
+
+  // 8) Heliponto (`layout.helipad`)
+  const hpX = wx(layout.helipad.x);
+  const hpZ = wz(layout.helipad.z);
+  g.beginPath();
+  g.arc(hpX, hpZ, 5.5, 0, Math.PI * 2);
+  g.fillStyle = 'rgba(14, 38, 46, 0.92)';
+  g.fill();
+  g.strokeStyle = '#5cf0d8';
+  g.lineWidth = 1.4;
+  g.stroke();
+
+  cachedBlueprint = {
+    canvas,
+    helipad: { x: layout.helipad.x, z: layout.helipad.z },
+    workshop: { x: layout.workshop.x, z: layout.workshop.z },
+  };
+  return cachedBlueprint;
+}
 
 // Estado de nitro do carro tunado compartilhado com áudio e chamas de escape
 const nitroActiveByState = new WeakMap<FlightState, boolean>();
@@ -166,6 +347,8 @@ export function createHud(ctx: FlightContext, uiRoot?: HTMLElement | null): Flig
   const ui = uiRoot ?? (typeof document !== 'undefined' ? document.getElementById('ui') : null);
   if (!ui) return { update() {} };
 
+  const blueprint = buildMinimapBlueprint();
+
   const root = el('div', 'hud-root');
 
   // Camada de mira e cruz do nariz (somente aeronaves no modo mouse)
@@ -227,7 +410,7 @@ export function createHud(ctx: FlightContext, uiRoot?: HTMLElement | null): Flig
   throttleRow.append(throttleHead, throttleTrack);
   metricsGroup.append(speedRow, altRow, throttleRow);
 
-  // Velocímetro automotivo (carro e carro tunado)
+  // Velocímetro automotivo (Hatch e Coupé Tunado)
   const carDash = el('div', 'hud-car-dash');
   carDash.hidden = true;
   const carSpeedLine = el('div', 'hud-car-speed-line');
@@ -239,7 +422,7 @@ export function createHud(ctx: FlightContext, uiRoot?: HTMLElement | null): Flig
   const carRpmFill = el('div', 'hud-car-rpm-fill');
   carRpmTrack.append(carRpmFill);
 
-  // Barra de nitro (exclusiva do carro tunado)
+  // Barra de nitro (exclusiva do Coupé Tunado)
   const nitroRow = el('div', 'hud-nitro-row');
   nitroRow.hidden = true;
   const nitroHead = el('div', 'hud-throttle-head');
@@ -258,7 +441,7 @@ export function createHud(ctx: FlightContext, uiRoot?: HTMLElement | null): Flig
   // Painel do objetivo da missão (estágio, entrega atual, distância)
   const objPanel = el('div', 'hud-objective');
   objPanel.hidden = true;
-  const objStage = el('div', 'hud-obj-stage', 'ESTÁGIO 1/4 · CARRO');
+  const objStage = el('div', 'hud-obj-stage', 'ESTÁGIO 1/4 · HATCH');
   const objTarget = el('div', 'hud-obj-target', 'Aguardando entregas...');
   const objFoot = el('div', 'hud-obj-foot');
   const objDist = el('span', 'hud-obj-dist', '');
@@ -268,7 +451,7 @@ export function createHud(ctx: FlightContext, uiRoot?: HTMLElement | null): Flig
 
   leftCol.append(panel, objPanel);
 
-  // Canto superior direito: Minimapa 2D
+  // Canto superior direito: Minimapa 2D com planta real da cidade (gira e centraliza no jogador)
   const minimapWrap = el('div', 'hud-minimap');
   const minimapCanvas = document.createElement('canvas');
   minimapCanvas.className = 'hud-minimap-canvas';
@@ -379,25 +562,37 @@ export function createHud(ctx: FlightContext, uiRoot?: HTMLElement | null): Flig
     if (idx < 0 || idx >= STAGE_ORDER.length - 1) return null;
     const nextStage = STAGE_ORDER[idx + 1];
 
-    // 1) Procura o veículo já existente na cena pelo tipo
     for (let i = 0; i < blips.length; i++) {
       if (blips[i].kind === nextStage) {
         return { stage: nextStage, x: blips[i].x, z: blips[i].z };
       }
     }
-
-    // 2) Fallback: entrega `leadsToNext` do estágio atual
     for (let i = 0; i < mission.deliveries.length; i++) {
       const d = mission.deliveries[i];
       if (d.stage === mission.stage && d.leadsToNext) {
         return { stage: nextStage, x: d.x, z: d.z };
       }
     }
-
-    // 3) Fallback geográfico conhecido (heliponto / aeroporto)
-    if (nextStage === 'heli') return { stage: nextStage, x: HELIPAD_POS.x, z: HELIPAD_POS.z };
+    if (nextStage === 'tuned' && blueprint) return { stage: nextStage, x: blueprint.workshop.x, z: blueprint.workshop.z };
+    if (nextStage === 'heli' && blueprint) return { stage: nextStage, x: blueprint.helipad.x, z: blueprint.helipad.z };
     if (nextStage === 'a29') return { stage: nextStage, x: AIRPORT.x, z: 410 };
     return null;
+  }
+
+  function worldToRotatedMap(
+    wx: number,
+    wz: number,
+    scale: number,
+    cosH: number,
+    sinH: number,
+    half: number,
+  ): { x: number; y: number } {
+    const dx = (wx - state.x) * scale;
+    const dz = (wz - state.z) * scale;
+    // Rotaciona por -heading para que a frente do jogador aponte sempre para cima
+    const rx = dx * cosH + dz * sinH;
+    const ry = -dx * sinH + dz * cosH;
+    return { x: half + rx, y: half + ry };
   }
 
   function clampToMap(x: number, y: number, size: number, pad: number): { x: number; y: number; clamped: boolean } {
@@ -408,8 +603,8 @@ export function createHud(ctx: FlightContext, uiRoot?: HTMLElement | null): Flig
     if (Math.abs(dx) <= maxR && Math.abs(dy) <= maxR) {
       return { x, y, clamped: false };
     }
-    const scale = Math.max(Math.abs(dx) / maxR, Math.abs(dy) / maxR, 1e-4);
-    return { x: half + dx / scale, y: half + dy / scale, clamped: true };
+    const s = Math.max(Math.abs(dx) / maxR, Math.abs(dy) / maxR, 1e-4);
+    return { x: half + dx / s, y: half + dy / s, clamped: true };
   }
 
   function drawMinimap() {
@@ -424,64 +619,37 @@ export function createHud(ctx: FlightContext, uiRoot?: HTMLElement | null): Flig
 
     mapCtx.setTransform(dpr, 0, 0, dpr, 0, 0);
     const half = size * 0.5;
-    const range = state.vehicle === 'foot' || state.vehicle === 'car' ? 580 : state.vehicle === 'tuned' ? 720 : 1280;
+    const range =
+      state.vehicle === 'foot'
+        ? 360
+        : state.vehicle === 'car'
+          ? 480
+          : state.vehicle === 'tuned'
+            ? 620
+            : 1220;
     const scale = half / range;
-    const toX = (wx: number) => half + (wx - state.x) * scale;
-    const toY = (wz: number) => half + (wz - state.z) * scale;
+    const hRad = (state.heading * Math.PI) / 180;
+    const cosH = Math.cos(hRad);
+    const sinH = Math.sin(hRad);
 
-    // Fundo terreno
-    mapCtx.fillStyle = '#101d22';
+    // Fundo marinho caso o recorte gire além das bordas
+    mapCtx.fillStyle = '#0c2336';
     mapCtx.fillRect(0, 0, size, size);
 
-    // Mar ao sul (z > 540)
-    const seaY = toY(540);
-    if (seaY < size) {
-      mapCtx.fillStyle = '#0f2c40';
-      mapCtx.fillRect(0, Math.max(0, seaY), size, size - Math.max(0, seaY));
+    // 1) Planta pré-renderizada da cidade girando e centralizando no jogador
+    if (blueprint) {
+      mapCtx.save();
+      mapCtx.translate(half, half);
+      mapCtx.rotate(-hRad);
+      const drawScale = scale / MAP_PX_PER_M;
+      const ox = -((state.x - MAP_WORLD_MIN_X) * MAP_PX_PER_M) * drawScale;
+      const oz = -((state.z - MAP_WORLD_MIN_Z) * MAP_PX_PER_M) * drawScale;
+      const drawSize = MAP_CANVAS_PX * drawScale;
+      mapCtx.drawImage(blueprint.canvas, ox, oz, drawSize, drawSize);
+      mapCtx.restore();
     }
 
-    // Cidade
-    const cx0 = toX(CITY.x0);
-    const cx1 = toX(CITY.x1);
-    const cz0 = toY(CITY.z0);
-    const cz1 = toY(CITY.z1);
-    mapCtx.fillStyle = 'rgba(126, 152, 174, 0.22)';
-    mapCtx.fillRect(cx0, cz0, cx1 - cx0, cz1 - cz0);
-    mapCtx.strokeStyle = 'rgba(180, 204, 218, 0.25)';
-    mapCtx.lineWidth = 1;
-    mapCtx.strokeRect(cx0, cz0, cx1 - cx0, cz1 - cz0);
-
-    // Pista de pouso
-    const rwX = toX(AIRPORT.x);
-    const rwY = toY(AIRPORT.z);
-    const rwW = Math.max(4, AIRPORT.width * scale);
-    const rwH = Math.max(16, AIRPORT.length * scale);
-    mapCtx.fillStyle = '#4b5563';
-    mapCtx.fillRect(rwX - rwW * 0.5, rwY - rwH * 0.5, rwW, rwH);
-    mapCtx.strokeStyle = '#ffd58a';
-    mapCtx.lineWidth = 1;
-    mapCtx.beginPath();
-    mapCtx.moveTo(rwX, rwY - rwH * 0.44);
-    mapCtx.lineTo(rwX, rwY + rwH * 0.44);
-    mapCtx.stroke();
-
-    // Heliponto no centro da cidade
-    const hpX = toX(HELIPAD_POS.x);
-    const hpY = toY(HELIPAD_POS.z);
-    mapCtx.beginPath();
-    mapCtx.arc(hpX, hpY, 6, 0, Math.PI * 2);
-    mapCtx.fillStyle = 'rgba(20, 44, 52, 0.85)';
-    mapCtx.fill();
-    mapCtx.strokeStyle = '#5cf0d8';
-    mapCtx.lineWidth = 1.2;
-    mapCtx.stroke();
-    mapCtx.fillStyle = '#5cf0d8';
-    mapCtx.font = '700 8px system-ui, sans-serif';
-    mapCtx.textAlign = 'center';
-    mapCtx.textBaseline = 'middle';
-    mapCtx.fillText('H', hpX, hpY + 0.5);
-
-    // Veículos estacionados / na cena (escaneados a cada ~10 quadros)
+    // 2) Veículos estacionados / na cena (escaneados a cada ~10 quadros)
     if (minimapFrame % 10 === 0) {
       scanSceneVehicles(app.root, blips);
     }
@@ -490,9 +658,8 @@ export function createHud(ctx: FlightContext, uiRoot?: HTMLElement | null): Flig
     for (let i = 0; i < blips.length; i++) {
       const b = blips[i];
       if (Math.hypot(b.x - state.x, b.z - state.z) < 4) continue;
-      const bx = toX(b.x);
-      const by = toY(b.z);
-      if (bx < 4 || bx > size - 4 || by < 4 || by > size - 4) continue;
+      const p = worldToRotatedMap(b.x, b.z, scale, cosH, sinH, half);
+      if (p.x < 4 || p.x > size - 4 || p.y < 4 || p.y > size - 4) continue;
       mapCtx.fillStyle =
         b.kind === 'a29'
           ? '#60a5fa'
@@ -502,20 +669,24 @@ export function createHud(ctx: FlightContext, uiRoot?: HTMLElement | null): Flig
               ? '#ff4dc4'
               : '#ff9e4a';
       mapCtx.beginPath();
-      mapCtx.arc(bx, by, b.kind === 'car' ? 2.6 : 3.4, 0, Math.PI * 2);
+      mapCtx.arc(p.x, p.y, b.kind === 'car' ? 2.6 : 3.4, 0, Math.PI * 2);
       mapCtx.fill();
+      mapCtx.strokeStyle = '#09111a';
+      mapCtx.lineWidth = 0.8;
+      mapCtx.stroke();
     }
 
-    // Entregas e próximo veículo a desbloquear
+    // 3) Entregas pendentes, próxima entrega destacada e próximo veículo a desbloquear
     const mission = ctx.mission;
     if (mission && mission.status === 'playing') {
       const { pendingStage, next } = findNextDelivery(mission);
       const pulse = 0.5 + 0.5 * Math.sin(animPhase * 5.2);
 
-      // Próximo veículo a desbloquear (badge quadrado com letra T/H/A)
+      // Próximo veículo a desbloquear
       const nextVeh = findNextVehicleCoords(mission);
       if (nextVeh) {
-        const pt = clampToMap(toX(nextVeh.x), toY(nextVeh.z), size, 12);
+        const raw = worldToRotatedMap(nextVeh.x, nextVeh.z, scale, cosH, sinH, half);
+        const pt = clampToMap(raw.x, raw.y, size, 12);
         mapCtx.save();
         mapCtx.fillStyle = 'rgba(20, 12, 34, 0.92)';
         mapCtx.strokeStyle = '#ff5cd6';
@@ -530,11 +701,12 @@ export function createHud(ctx: FlightContext, uiRoot?: HTMLElement | null): Flig
         mapCtx.restore();
       }
 
-      // Entregas pendentes do estágio atual (diamantes ciano)
+      // Entregas pendentes (diamantes ciano)
       for (let i = 0; i < pendingStage.length; i++) {
         const d = pendingStage[i];
         if (next && d.id === next.id) continue;
-        const pt = clampToMap(toX(d.x), toY(d.z), size, 8);
+        const raw = worldToRotatedMap(d.x, d.z, scale, cosH, sinH, half);
+        const pt = clampToMap(raw.x, raw.y, size, 8);
         mapCtx.save();
         mapCtx.translate(pt.x, pt.y);
         mapCtx.rotate(Math.PI / 4);
@@ -546,14 +718,15 @@ export function createHud(ctx: FlightContext, uiRoot?: HTMLElement | null): Flig
         mapCtx.restore();
       }
 
-      // Próxima entrega destacada (halo pulsante dourado + centro brilhante)
+      // Próxima entrega destacada (halo dourado pulsante)
       if (next) {
-        const pt = clampToMap(toX(next.x), toY(next.z), size, 10);
+        const raw = worldToRotatedMap(next.x, next.z, scale, cosH, sinH, half);
+        const pt = clampToMap(raw.x, raw.y, size, 10);
         const haloR = 6 + pulse * 3.5;
         mapCtx.beginPath();
         mapCtx.arc(pt.x, pt.y, haloR, 0, Math.PI * 2);
-        mapCtx.strokeStyle = next.airDrop ? 'rgba(92, 225, 255, 0.85)' : 'rgba(255, 214, 72, 0.9)';
-        mapCtx.lineWidth = 1.8;
+        mapCtx.strokeStyle = next.airDrop ? 'rgba(92, 225, 255, 0.88)' : 'rgba(255, 214, 72, 0.92)';
+        mapCtx.lineWidth = 1.9;
         mapCtx.stroke();
 
         mapCtx.beginPath();
@@ -566,29 +739,38 @@ export function createHud(ctx: FlightContext, uiRoot?: HTMLElement | null): Flig
       }
     }
 
-    // Seta do jogador no centro
+    // 4) Seta do jogador centralizada apontando sempre para cima (frente do veículo)
     mapCtx.save();
     mapCtx.translate(half, half);
-    mapCtx.rotate((state.heading * Math.PI) / 180);
     mapCtx.beginPath();
-    mapCtx.moveTo(0, -6.5);
-    mapCtx.lineTo(4.5, 5);
+    mapCtx.moveTo(0, -7);
+    mapCtx.lineTo(4.8, 5.2);
     mapCtx.lineTo(0, 2.5);
-    mapCtx.lineTo(-4.5, 5);
+    mapCtx.lineTo(-4.8, 5.2);
     mapCtx.closePath();
     mapCtx.fillStyle = '#fff5e6';
     mapCtx.fill();
     mapCtx.strokeStyle = '#0c131d';
-    mapCtx.lineWidth = 1;
+    mapCtx.lineWidth = 1.1;
     mapCtx.stroke();
     mapCtx.restore();
 
-    // Indicador Norte
+    // 5) Indicador Norte girando na borda conforme a bússola do jogador
+    const northRawX = half - sinH * (half - 11);
+    const northRawY = half - cosH * (half - 11);
+    const northPt = clampToMap(northRawX, northRawY, size, 10);
+    mapCtx.beginPath();
+    mapCtx.arc(northPt.x, northPt.y, 7.5, 0, Math.PI * 2);
+    mapCtx.fillStyle = 'rgba(10, 14, 24, 0.86)';
+    mapCtx.fill();
+    mapCtx.strokeStyle = 'rgba(255, 189, 125, 0.65)';
+    mapCtx.lineWidth = 1;
+    mapCtx.stroke();
     mapCtx.fillStyle = '#ffbd7d';
-    mapCtx.font = '800 10px system-ui, sans-serif';
+    mapCtx.font = '800 9px system-ui, sans-serif';
     mapCtx.textAlign = 'center';
-    mapCtx.textBaseline = 'top';
-    mapCtx.fillText('N', half, 5);
+    mapCtx.textBaseline = 'middle';
+    mapCtx.fillText('N', northPt.x, northPt.y + 0.5);
   }
 
   function updateMarker(
@@ -653,7 +835,6 @@ export function createHud(ctx: FlightContext, uiRoot?: HTMLElement | null): Flig
       return { ratio: external, active };
     }
 
-    // Fallback local suave quando car.ts não escreve `nitro` em FlightState
     if (playing && dt > 0) {
       if (shiftHeld && forwardHeld && !nitroExhausted && localNitro > 0.01) {
         localNitro = Math.max(0, localNitro - dt * 0.34);
@@ -699,7 +880,7 @@ export function createHud(ctx: FlightContext, uiRoot?: HTMLElement | null): Flig
       metricsGroup.hidden = !isAircraft || isCockpit;
       carDash.hidden = !isCar;
       nitroRow.hidden = vehicle !== 'tuned';
-      controlBadge.hidden = !isAircraft;
+      controlBadge.hidden = vehicle !== 'a29';
       smokeBadge.hidden = vehicle !== 'a29';
 
       const compact = vehicle === 'foot' || isCockpit;
@@ -719,10 +900,10 @@ export function createHud(ctx: FlightContext, uiRoot?: HTMLElement | null): Flig
       const isMouse = state.controlMode === 'mouse';
       controlBadge.textContent = isMouse ? 'MOUSE' : 'TECLADO';
       controlBadge.className = `hud-control ${isMouse ? 'hud-control--mouse' : 'hud-control--keyboard'}`;
-      if (vehicle === 'foot') {
+      if (vehicle === 'foot' || vehicle === 'heli') {
         lockHint.textContent = 'Clique para girar a câmera';
         lockHint.hidden = locked || rt.mode !== 'playing';
-      } else if (isAircraft) {
+      } else if (vehicle === 'a29') {
         lockHint.textContent = 'Clique no canvas para mirar';
         lockHint.hidden = !isMouse || locked || rt.mode !== 'playing';
       } else {
@@ -798,7 +979,7 @@ export function createHud(ctx: FlightContext, uiRoot?: HTMLElement | null): Flig
         objHint.hidden = !hintText;
       }
 
-      // Mensagens da missão (ex.: "Entregue! +150", "Carro tunado liberado!", aviso bloqueado)
+      // Mensagens da missão
       const showMsg = Boolean(mission.message && mission.messageTimer > 0);
       const msgKey = showMsg ? `${mission.message}` : '';
       if (msgKey !== lastMsgKey) {
@@ -834,7 +1015,7 @@ export function createHud(ctx: FlightContext, uiRoot?: HTMLElement | null): Flig
       }
     }
 
-    // Velocímetro automotivo + barra de nitro do tunado
+    // Velocímetro automotivo + barra de nitro do Coupé Tunado
     const nitroInfo = updateNitro(dt, rt.mode === 'playing');
     if (isCar) {
       const kmh = Math.round(Math.abs(state.speed) * 3.6);
@@ -885,8 +1066,8 @@ export function createHud(ctx: FlightContext, uiRoot?: HTMLElement | null): Flig
       }
     }
 
-    // Miras de voo (apenas aeronaves no modo mouse)
-    const showReticles = rt.mode === 'playing' && isAircraft && state.controlMode === 'mouse' && !state.crashed;
+    // Miras de voo (apenas A-29 no modo mouse; nos demais veículos o mouse só gira a câmera)
+    const showReticles = rt.mode === 'playing' && vehicle === 'a29' && state.controlMode === 'mouse' && !state.crashed;
     const cw = canvas?.clientWidth || root.clientWidth || (typeof window !== 'undefined' ? window.innerWidth : 0);
     const ch = canvas?.clientHeight || root.clientHeight || (typeof window !== 'undefined' ? window.innerHeight : 0);
     if (showReticles) {

@@ -9,33 +9,40 @@ import { attachAsyncGlb, collectNodesByPrefix, makeMaterial } from './glb';
 /** Mesmo formato do AirplaneModel: root, exterior, prop (hélice/rotor), wingTips, materials, hitbox, wheels?, tailRotor?. */
 export type VehicleModel = AirplaneModel;
 
+export type LandmarkKind = 'uniacademia';
+
 const CAR_VARIANTS: ReadonlyArray<{
   filename: string;
   label: string;
   body: [number, number, number];
   accent: [number, number, number];
+  rim: [number, number, number];
   size: [number, number, number];
   wheelRadius: number;
   wheelX: number;
   wheelZ: number;
   hasBed?: boolean;
   hasWing?: boolean;
+  isHatch?: boolean;
 }> = [
   {
-    filename: 'carro-compacto.glb',
-    label: 'Compacto',
-    body: [0.1, 0.56, 0.58],
-    accent: [0.93, 0.94, 0.95],
-    size: [1.78, 1.48, 3.88],
+    filename: 'carro.glb',
+    label: 'Hatch',
+    body: [0.94, 0.95, 0.97],
+    accent: [0.06, 0.065, 0.08],
+    rim: [0.18, 0.19, 0.22],
+    size: [1.74, 1.46, 3.96],
     wheelRadius: 0.32,
-    wheelX: 0.84,
-    wheelZ: 1.2,
+    wheelX: 0.83,
+    wheelZ: 1.23,
+    isHatch: true,
   },
   {
     filename: 'carro-picape.glb',
     label: 'Picape',
     body: [0.84, 0.42, 0.1],
     accent: [0.16, 0.18, 0.2],
+    rim: [0.78, 0.8, 0.84],
     size: [1.94, 1.72, 4.86],
     wheelRadius: 0.4,
     wheelX: 0.94,
@@ -47,6 +54,7 @@ const CAR_VARIANTS: ReadonlyArray<{
     label: 'Esportivo',
     body: [0.86, 0.16, 0.14],
     accent: [0.96, 0.96, 0.98],
+    rim: [0.78, 0.8, 0.84],
     size: [1.94, 1.24, 4.48],
     wheelRadius: 0.34,
     wheelX: 0.93,
@@ -100,7 +108,7 @@ function attachCarHeadlights(
 
     const lens = new Entity(`HeadlightGlow_${s < 0 ? 'L' : 'R'}`, app);
     lens.addComponent('render', { type: 'box', material: mLens, castShadows: false, receiveShadows: false });
-    lens.setLocalScale(0.36, 0.16, 0.08);
+    lens.setLocalScale(0.36, 0.14, 0.08);
     lens.setLocalPosition(lx, lensY, frontZ - 0.05);
     group.addChild(lens);
 
@@ -118,13 +126,13 @@ function buildCar(app: AppBase, variant: number, parent: Entity): VehicleModel {
   const idx = ((Math.floor(variant) % CAR_VARIANTS.length) + CAR_VARIANTS.length) % CAR_VARIANTS.length;
   const spec = CAR_VARIANTS[idx];
 
-  const mBody = makeMaterial(...spec.body, 0.72);
-  const mAccent = makeMaterial(...spec.accent, 0.65);
-  const mGlass = makeMaterial(0.09, 0.15, 0.22, 0.9);
-  const mDark = makeMaterial(0.11, 0.12, 0.14, 0.38);
-  const mRim = makeMaterial(0.78, 0.8, 0.84, 0.8);
-  const mHead = makeMaterial(1.0, 0.95, 0.72, 0.85);
-  const mTail = makeMaterial(0.88, 0.1, 0.08, 0.8);
+  const mBody = makeMaterial(...spec.body, 0.76);
+  const mAccent = makeMaterial(...spec.accent, 0.68);
+  const mGlass = makeMaterial(0.05, 0.08, 0.13, 0.92);
+  const mDark = makeMaterial(0.09, 0.1, 0.12, 0.38);
+  const mRim = makeMaterial(...spec.rim, 0.8);
+  const mHead = makeMaterial(0.95, 0.97, 1.0, 0.9);
+  const mTail = makeMaterial(0.88, 0.1, 0.08, 0.82);
   const materials: StandardMaterial[] = [mBody, mAccent, mGlass, mDark, mRim, mHead, mTail];
 
   const root = new Entity(`Carro_${spec.label}`, app);
@@ -155,14 +163,14 @@ function buildCar(app: AppBase, variant: number, parent: Entity): VehicleModel {
 
   const [w, h, l] = spec.size;
   const r = spec.wheelRadius;
-  const bodyH = spec.hasWing ? 0.44 : 0.56;
+  const bodyH = spec.hasWing ? 0.44 : spec.isHatch ? 0.5 : 0.56;
   const bodyY = r + bodyH * 0.48;
 
   part('chassis', mBody, [0, bodyY, 0], [w, bodyH, l]);
-  part('bumperF', mDark, [0, r + 0.08, -l * 0.5], [w + 0.03, 0.22, 0.18]);
-  part('bumperR', mDark, [0, r + 0.08, l * 0.5], [w + 0.03, 0.22, 0.18]);
+  part('bumperF', mDark, [0, r + 0.06, -l * 0.5], [w + 0.02, 0.18, 0.14]);
+  part('bumperR', mDark, [0, r + 0.06, l * 0.5], [w + 0.02, 0.18, 0.14]);
 
-  // Cabine conforme variante (compacto / picape / esportivo)
+  // Cabine conforme variante (Hatch 5 portas / Picape / Esportivo)
   if (spec.hasBed) {
     part('cabin', mGlass, [0, bodyY + 0.62, -0.22], [w * 0.9, 0.68, 1.55]);
     part('roof', mBody, [0, h - 0.05, -0.2], [w * 0.88, 0.1, 1.5]);
@@ -174,13 +182,22 @@ function buildCar(app: AppBase, variant: number, parent: Entity): VehicleModel {
     part('stripe', mAccent, [0, bodyY + bodyH * 0.52, -0.05], [0.34, 0.03, l * 0.92]);
     part('spoiler', mDark, [0, 1.06, l * 0.45], [w * 0.96, 0.06, 0.32], [8, 0, 0]);
   } else {
-    part('cabin', mGlass, [0, bodyY + 0.56, 0.22], [w * 0.84, 0.56, 2.15]);
-    part('roof', mAccent, [0, h - 0.04, 0.25], [w * 0.8, 0.09, 1.95]);
+    // Hatch 5 portas branco com teto escuro, grade trapezoidal grande e faróis puxados
+    part('hood', mBody, [0, bodyY + 0.26, -1.2], [w * 0.88, 0.15, 1.2], [8, 0, 0]);
+    part('cabin', mGlass, [0, bodyY + 0.56, 0.24], [w * 0.84, 0.54, 2.2]);
+    part('roof', mAccent, [0, h - 0.03, 0.32], [w * 0.74, 0.07, 1.62]);
+    part('hatchSpoiler', mBody, [0, h - 0.04, 1.68], [w * 0.76, 0.07, 0.26], [-6, 0, 0]);
+    part('grille', mDark, [0, 0.48, -l * 0.505], [0.96, 0.34, 0.08]);
   }
 
   for (const s of [-1, 1] as const) {
-    part(`headlight_${s < 0 ? 'L' : 'R'}`, mHead, [s * (w * 0.34), bodyY + 0.08, -l * 0.5], [0.34, 0.14, 0.08]);
-    part(`taillight_${s < 0 ? 'L' : 'R'}`, mTail, [s * (w * 0.35), bodyY + 0.1, l * 0.5], [0.32, 0.16, 0.08]);
+    if (spec.isHatch) {
+      part(`headlight_${s < 0 ? 'L' : 'R'}`, mHead, [s * 0.64, 0.68, -l * 0.46], [0.34, 0.13, 0.52], [10, s * 22, 0]);
+      part(`taillight_${s < 0 ? 'L' : 'R'}`, mTail, [s * 0.72, 0.92, l * 0.47], [0.22, 0.4, 0.18]);
+    } else {
+      part(`headlight_${s < 0 ? 'L' : 'R'}`, mHead, [s * (w * 0.34), bodyY + 0.08, -l * 0.5], [0.34, 0.14, 0.08]);
+      part(`taillight_${s < 0 ? 'L' : 'R'}`, mTail, [s * (w * 0.35), bodyY + 0.1, l * 0.5], [0.32, 0.16, 0.08]);
+    }
   }
 
   // 4 rodas separadas ("Roda_*") para girar em X
@@ -195,14 +212,13 @@ function buildCar(app: AppBase, variant: number, parent: Entity): VehicleModel {
     const wheel = new Entity(wName, app);
     wheel.setLocalPosition(wx, r, wz);
     procedural.addChild(wheel);
-    part(`${wName}_tire`, mDark, [0, 0, 0], [r * 2, 0.24, r * 2], [0, 0, 90], wheel, 'cylinder');
-    part(`${wName}_rim`, mRim, [0, 0, 0], [r * 1.15, 0.26, r * 1.15], [0, 0, 90], wheel, 'cylinder');
+    part(`${wName}_tire`, mDark, [0, 0, 0], [r * 2, 0.22, r * 2], [0, 0, 90], wheel, 'cylinder');
+    part(`${wName}_rim`, mRim, [0, 0, 0], [r * 1.38, 0.24, r * 1.38], [0, 0, 90], wheel, 'cylinder');
     wheels.push(wheel);
   }
 
-  attachCarHeadlights(app, root, materials, w, bodyY + 0.08, -l * 0.5);
+  attachCarHeadlights(app, root, materials, w, spec.isHatch ? 0.68 : bodyY + 0.08, -l * 0.5);
 
-  // Nó vazio `prop` (contrato VehicleModel)
   const prop = new Entity('prop', app);
   root.addChild(prop);
 
@@ -249,53 +265,44 @@ function buildCar(app: AppBase, variant: number, parent: Entity): VehicleModel {
 }
 
 /**
- * Carro tunado original ("Delivered by Midnight"): variação esportiva larga com aerofólio GT,
- * saias laterais, entrada de ar no capô, rodas grandes com aro dourado, neon azul/ciano embaixo
- * e chamas de nitro nos escapes.
+ * Coupé Tunado ("Coupé Tunado", kind "tuned"): cupê 2 portas cinza grafite rebaixado,
+ * alargadores de para-lama, entradas no capô, aerofólio traseiro, grade dupla genérica,
+ * faróis duplos, rodas largas cromadas e gaiola de proteção visível pelo vidro.
+ * Carrega `carro-tunado.glb` com fallback procedural imediato.
  */
 function buildTunedCar(app: AppBase, parent: Entity): VehicleModel {
-  const mBody = makeMaterial(0.95, 0.12, 0.54, 0.88);
-  mBody.emissive = new Color(0.14, 0.01, 0.08);
-  mBody.update();
-
-  const mAccent = makeMaterial(0.08, 0.94, 0.98, 0.9);
-  mAccent.emissive = new Color(0.06, 0.55, 0.62);
-  mAccent.update();
-
-  const mCarbon = makeMaterial(0.08, 0.09, 0.12, 0.55);
-  const mGlass = makeMaterial(0.05, 0.1, 0.18, 0.94);
-  const mRim = makeMaterial(0.98, 0.78, 0.2, 0.9);
-  const mCaliper = makeMaterial(0.98, 0.22, 0.18, 0.75);
-  const mHead = makeMaterial(0.88, 0.97, 1.0, 0.95);
-  mHead.emissive = new Color(0.75, 0.92, 1.0);
+  const mBody = makeMaterial(0.22, 0.24, 0.27, 0.78);
+  const mCarbon = makeMaterial(0.07, 0.075, 0.09, 0.48);
+  const mGlass = makeMaterial(0.06, 0.1, 0.15, 0.94, 0.45);
+  const mCage = makeMaterial(0.94, 0.34, 0.08, 0.6);
+  const mChrome = makeMaterial(0.9, 0.92, 0.96, 0.94);
+  const mCaliper = makeMaterial(0.92, 0.14, 0.14, 0.75);
+  const mHead = makeMaterial(0.94, 0.97, 1.0, 0.95);
+  mHead.emissive = new Color(0.8, 0.92, 1.0);
   mHead.update();
 
-  const mTail = makeMaterial(1.0, 0.12, 0.24, 0.9);
-  mTail.emissive = new Color(0.9, 0.08, 0.2);
+  const mTail = makeMaterial(0.88, 0.09, 0.1, 0.88);
+  mTail.emissive = new Color(0.75, 0.06, 0.08);
   mTail.update();
 
-  const mNeonTube = makeGlowMaterial(0.1, 0.96, 1.0, 0.95, 2.6);
-  const mNeonPool = makeGlowMaterial(0.08, 0.92, 1.0, 0.42, 2.0);
   const mNitroFlame = makeGlowMaterial(0.24, 0.86, 1.0, 0.9, 3.0);
 
   const materials: StandardMaterial[] = [
     mBody,
-    mAccent,
     mCarbon,
     mGlass,
-    mRim,
+    mCage,
+    mChrome,
     mCaliper,
     mHead,
     mTail,
-    mNeonTube,
-    mNeonPool,
     mNitroFlame,
   ];
 
   const root = new Entity('Carro_Tunado', app);
   parent.addChild(root);
 
-  const procedural = new Entity('Procedural_Tunado', app);
+  const procedural = new Entity('Procedural_CoupeTunado', app);
   root.addChild(procedural);
 
   const exterior: Entity[] = [];
@@ -318,96 +325,65 @@ function buildTunedCar(app: AppBase, parent: Entity): VehicleModel {
     return e;
   };
 
-  const w = 2.12;
-  const h = 1.24;
-  const l = 4.68;
-  const r = 0.42; // Rodas grandes
-  const bodyH = 0.45;
-  const bodyY = r + bodyH * 0.42;
+  const w = 1.98;
+  const h = 1.26;
+  const l = 4.42;
+  const r = 0.37;
+  const wheelX = 0.98;
+  const wheelZ = 1.39;
 
-  // Carroceria esportiva rebaixada + capô aerodinâmico
-  part('chassis', mBody, [0, bodyY, 0], [w, bodyH, l]);
-  part('hoodSlope', mBody, [0, bodyY + 0.14, -1.22], [w * 0.86, 0.18, 1.85], [6, 0, 0]);
-  part('hoodScoop', mCarbon, [0, bodyY + 0.27, -1.08], [0.64, 0.13, 0.92], [5, 0, 0]);
-  part('hoodVentGlow', mAccent, [0, bodyY + 0.28, -1.52], [0.56, 0.05, 0.08]);
+  // Carroceria cupê 2 portas cinza grafite rebaixada
+  part('chassis', mBody, [0, 0.52, 0], [1.82, 0.46, 4.38]);
+  part('hood', mBody, [0, 0.77, -1.32], [1.68, 0.12, 1.56], [3, 0, 0]);
+  part('trunk', mBody, [0, 0.79, 1.68], [1.68, 0.14, 0.96]);
+  part('roof', mBody, [0, 1.24, 0.34], [1.32, 0.065, 1.32]);
 
-  // Faixas duplas de corrida ciano neon
+  // Gaiola de proteção visível através do vidro semitransparente
+  part('cageBarTop', mCage, [0, 1.16, 0.52], [1.06, 0.05, 0.05]);
+  part('cageBarDiag', mCage, [0, 0.96, 0.52], [1.08, 0.045, 0.045], [0, 0, 22]);
   for (const s of [-1, 1] as const) {
-    part(`stripe_${s < 0 ? 'L' : 'R'}`, mAccent, [s * 0.24, bodyY + bodyH * 0.51, -0.02], [0.16, 0.03, l * 0.94]);
+    part(`cagePost_${s < 0 ? 'L' : 'R'}`, mCage, [s * 0.52, 0.95, 0.52], [0.05, 0.48, 0.05]);
   }
+  part('cabin', mGlass, [0, 1.0, 0.3], [1.44, 0.44, 1.96]);
 
-  // Cabine baixa e teto estilo cupê
-  part('cabin', mGlass, [0, bodyY + 0.42, 0.24], [w * 0.76, 0.44, 1.82]);
-  part('roof', mCarbon, [0, h - 0.04, 0.28], [w * 0.68, 0.08, 1.28]);
-
-  // Alargadores de para-lama (widebody)
-  const wheelX = 1.04;
-  const wheelZ = 1.44;
+  // Alargadores de para-lama, entradas no capô, saias, splitter, aerofólio e grade dupla genérica
   for (const [fName, fx, fz] of [
-    ['fender_FL', -w * 0.51, -wheelZ],
-    ['fender_FR', w * 0.51, -wheelZ],
-    ['fender_RL', -w * 0.52, wheelZ],
-    ['fender_RR', w * 0.52, wheelZ],
+    ['fender_FL', -0.96, -wheelZ],
+    ['fender_FR', 0.96, -wheelZ],
+    ['fender_RL', -0.96, wheelZ],
+    ['fender_RR', 0.96, wheelZ],
   ] as const) {
-    part(fName, mBody, [fx, r + 0.22, fz], [0.22, 0.38, 1.12]);
+    part(fName, mCarbon, [fx, 0.52, fz], [0.22, 0.4, 1.08]);
   }
-
-  // Splitter dianteiro agressivo + para-choque + difusor traseiro
-  part('frontSplitter', mCarbon, [0, 0.2, -l * 0.52], [w + 0.18, 0.09, 0.48]);
-  part('frontLipNeon', mAccent, [0, 0.22, -l * 0.57], [w + 0.16, 0.04, 0.06]);
-  part('rearDiffuser', mCarbon, [0, 0.28, l * 0.5], [w + 0.04, 0.26, 0.26]);
-
-  // Saias laterais pronunciadas com friso luminoso
   for (const s of [-1, 1] as const) {
-    part(`sideSkirt_${s < 0 ? 'L' : 'R'}`, mCarbon, [s * (w * 0.52), 0.22, 0], [0.18, 0.16, 2.2]);
-    part(`sideSkirtTrim_${s < 0 ? 'L' : 'R'}`, mAccent, [s * (w * 0.56), 0.24, 0], [0.05, 0.05, 2.1]);
+    part(`hoodVent_${s < 0 ? 'L' : 'R'}`, mCarbon, [s * 0.36, 0.84, -1.38], [0.36, 0.05, 0.56]);
+    part(`sideSkirt_${s < 0 ? 'L' : 'R'}`, mCarbon, [s * 0.98, 0.2, -0.02], [0.16, 0.12, 1.98]);
+    part(`grille_${s < 0 ? 'L' : 'R'}`, mCarbon, [s * 0.21, 0.63, -2.2], [0.32, 0.16, 0.06]);
+    part(`headlightA_${s < 0 ? 'L' : 'R'}`, mHead, [s * 0.54, 0.64, -2.21], [0.14, 0.14, 0.06]);
+    part(`headlightB_${s < 0 ? 'L' : 'R'}`, mHead, [s * 0.72, 0.64, -2.21], [0.14, 0.14, 0.06]);
+    part(`taillight_${s < 0 ? 'L' : 'R'}`, mTail, [s * 0.68, 0.66, 2.19], [0.44, 0.17, 0.07]);
   }
-
-  // Aerofólio GT alto com suportes duplos e endplates
-  const wingY = 1.38;
-  const wingZ = l * 0.45;
-  part('spoilerBlade', mCarbon, [0, wingY, wingZ], [w + 0.24, 0.07, 0.4], [11, 0, 0]);
-  part('spoilerTrim', mAccent, [0, wingY + 0.02, wingZ + 0.18], [w + 0.22, 0.03, 0.05], [11, 0, 0]);
+  part('frontSplitter', mCarbon, [0, 0.19, -2.24], [2.06, 0.06, 0.34]);
+  part('spoilerBlade', mCarbon, [0, 1.18, 2.02], [1.88, 0.055, 0.32], [9, 0, 0]);
   for (const s of [-1, 1] as const) {
-    part(`spoilerPillar_${s < 0 ? 'L' : 'R'}`, mCarbon, [s * 0.54, wingY - 0.28, wingZ - 0.02], [0.08, 0.52, 0.24], [-10, 0, 0]);
-    part(`spoilerEnd_${s < 0 ? 'L' : 'R'}`, mBody, [s * (w * 0.5 + 0.12), wingY - 0.02, wingZ], [0.05, 0.34, 0.48]);
+    part(`spoilerPillar_${s < 0 ? 'L' : 'R'}`, mCarbon, [s * 0.56, 1.0, 1.99], [0.06, 0.34, 0.2], [-10, 0, 0]);
   }
-
-  // Faróis xenon + lanternas traseiras LED
-  for (const s of [-1, 1] as const) {
-    part(`headlight_${s < 0 ? 'L' : 'R'}`, mHead, [s * (w * 0.34), bodyY + 0.08, -l * 0.5], [0.42, 0.13, 0.08]);
-    part(`taillight_${s < 0 ? 'L' : 'R'}`, mTail, [s * (w * 0.34), bodyY + 0.1, l * 0.5], [0.44, 0.14, 0.08]);
-  }
-  part('taillightBar', mTail, [0, bodyY + 0.1, l * 0.505], [w * 0.72, 0.05, 0.04]);
 
   // Escapes duplos + chamas de nitro (ativadas por game.ts quando Shift está pressionado)
   const nitroGroup = new Entity('NitroFlames', app);
   nitroGroup.enabled = false;
   root.addChild(nitroGroup);
   for (const s of [-1, 1] as const) {
-    part(`exhaust_${s < 0 ? 'L' : 'R'}`, mRim, [s * 0.48, 0.26, l * 0.51], [0.16, 0.16, 0.24], [90, 0, 0], procedural, 'cylinder');
+    part(`exhaust_${s < 0 ? 'L' : 'R'}`, mChrome, [s * 0.46, 0.24, 2.25], [0.13, 0.13, 0.24], [90, 0, 0], procedural, 'cylinder');
     const flame = new Entity(`NitroFlame_${s < 0 ? 'L' : 'R'}`, app);
     flame.addComponent('render', { type: 'cone', material: mNitroFlame, castShadows: false, receiveShadows: false });
-    flame.setLocalScale(0.24, 1.35, 0.24);
-    flame.setLocalPosition(s * 0.48, 0.26, l * 0.52 + 0.72);
+    flame.setLocalScale(0.22, 1.25, 0.22);
+    flame.setLocalPosition(s * 0.46, 0.24, 2.86);
     flame.setLocalEulerAngles(90, 0, 0);
     nitroGroup.addChild(flame);
   }
 
-  // Halo neon projetado no chão (preso ao root para brilhar no asfalto mesmo após carregar o GLB)
-  const neonPool = new Entity('NeonGlowPool', app);
-  neonPool.addComponent('render', { type: 'plane', material: mNeonPool, castShadows: false, receiveShadows: false });
-  neonPool.setLocalScale(w + 1.35, 1, l + 1.15);
-  neonPool.setLocalPosition(0, 0.06, 0);
-  root.addChild(neonPool);
-
-  // Tubos de neon do fallback procedural
-  part('neonTube_L', mNeonTube, [-w * 0.48, 0.14, 0], [0.06, 0.05, 2.3]);
-  part('neonTube_R', mNeonTube, [w * 0.48, 0.14, 0], [0.06, 0.05, 2.3]);
-  part('neonTube_F', mNeonTube, [0, 0.14, -l * 0.46], [w * 0.82, 0.05, 0.06]);
-  part('neonTube_B', mNeonTube, [0, 0.14, l * 0.46], [w * 0.82, 0.05, 0.06]);
-
-  // 4 rodas grandes ("Roda_*") com aro dourado e pinça esportiva
+  // 4 rodas largas de aro cromado ("Roda_*")
   const wheelSpecs: ReadonlyArray<[string, number, number]> = [
     ['Roda_FL', -wheelX, -wheelZ],
     ['Roda_FR', wheelX, -wheelZ],
@@ -419,21 +395,21 @@ function buildTunedCar(app: AppBase, parent: Entity): VehicleModel {
     const wheel = new Entity(wName, app);
     wheel.setLocalPosition(wx, r, wz);
     procedural.addChild(wheel);
-    part(`${wName}_tire`, mCarbon, [0, 0, 0], [r * 2, 0.32, r * 2], [0, 0, 90], wheel, 'cylinder');
-    part(`${wName}_rim`, mRim, [0, 0, 0], [r * 1.36, 0.34, r * 1.36], [0, 0, 90], wheel, 'cylinder');
-    part(`${wName}_hub`, mCaliper, [0, 0, 0], [r * 0.52, 0.36, r * 0.52], [0, 0, 90], wheel, 'cylinder');
+    part(`${wName}_tire`, mCarbon, [0, 0, 0], [r * 2, 0.31, r * 2], [0, 0, 90], wheel, 'cylinder');
+    part(`${wName}_rim`, mChrome, [0, 0, 0], [r * 1.48, 0.33, r * 1.48], [0, 0, 90], wheel, 'cylinder');
+    part(`${wName}_hub`, mCaliper, [0, 0, 0], [r * 0.32, 0.35, r * 0.32], [0, 0, 90], wheel, 'cylinder');
     wheels.push(wheel);
   }
 
-  attachCarHeadlights(app, root, materials, w, bodyY + 0.08, -l * 0.5, [0.78, 0.95, 1.0]);
+  attachCarHeadlights(app, root, materials, w, 0.64, -2.21, [0.84, 0.95, 1.0]);
 
   const prop = new Entity('prop', app);
   root.addChild(prop);
 
   const tipL = new Entity('wingTipL', app);
   const tipR = new Entity('wingTipR', app);
-  tipL.setLocalPosition(-w * 0.55, h * 0.5, 0);
-  tipR.setLocalPosition(w * 0.55, h * 0.5, 0);
+  tipL.setLocalPosition(-w * 0.52, h * 0.5, 0);
+  tipR.setLocalPosition(w * 0.52, h * 0.5, 0);
   root.addChild(tipL);
   root.addChild(tipR);
 
@@ -546,6 +522,117 @@ function buildCharacter(app: AppBase, parent: Entity): VehicleModel {
   });
 
   return model;
+}
+
+/**
+ * Prédio histórico da Academia de Comércio / UniAcademia (Juiz de Fora).
+ * Pivô no centro da base (y = 0) e frente virada para -Z local (Parque Halfeld).
+ * Carrega `public/models/uniacademia.glb` (ou asset container no Editor) com fallback procedural.
+ */
+function buildUniAcademia(app: AppBase, parent: Entity): VehicleModel {
+  const mStone = makeMaterial(0.78, 0.7, 0.57, 0.25);
+  const mTrim = makeMaterial(0.68, 0.59, 0.45, 0.3);
+  const mBase = makeMaterial(0.62, 0.54, 0.42, 0.2);
+  const mRoof = makeMaterial(0.38, 0.24, 0.18, 0.22);
+  const mWin = makeMaterial(0.1, 0.12, 0.16, 0.85);
+  mWin.emissive = new Color(1.0, 0.78, 0.42);
+  mWin.emissiveIntensity = 0.85;
+  mWin.update();
+  const mPatio = makeMaterial(0.66, 0.62, 0.56, 0.16);
+  const mTree = makeMaterial(0.18, 0.4, 0.16, 0.18);
+  const mTrunk = makeMaterial(0.28, 0.19, 0.12, 0.1);
+  const materials: StandardMaterial[] = [mStone, mTrim, mBase, mRoof, mWin, mPatio, mTree, mTrunk];
+
+  const root = new Entity('UniAcademia', app);
+  parent.addChild(root);
+
+  const procedural = new Entity('Procedural_UniAcademia', app);
+  root.addChild(procedural);
+  const exterior: Entity[] = [];
+
+  const part = (
+    name: string,
+    m: StandardMaterial,
+    p: [number, number, number],
+    s: [number, number, number],
+    type: 'box' | 'cylinder' | 'sphere' = 'box',
+  ) => {
+    const e = new Entity(name, app);
+    e.addComponent('render', { type, material: m, castShadows: false, receiveShadows: false });
+    e.setLocalScale(...s);
+    e.setLocalPosition(...p);
+    procedural.addChild(e);
+    exterior.push(e);
+    return e;
+  };
+
+  // Frente = -Z local (coordenadas espelhadas em Z em relação ao +Y do Blender)
+  part('base', mBase, [0, 2.6, 3.7], [44, 5.2, 14.6]);
+  part('wings', mStone, [0, 10.2, 3.7], [43.8, 10.0, 14.4]);
+  part('corniceMain', mTrim, [0, 15.25, 3.5], [44.8, 0.58, 15.4]);
+  part('roofMain', mRoof, [0, 16.5, 3.7], [42.5, 2.0, 13.0]);
+
+  // Corpo central avançado + coroamento + pórtico com 4 colunas
+  part('centerBlock', mStone, [0, 9.0, -0.6], [11.4, 17.6, 10.0]);
+  part('centerCornice', mTrim, [0, 17.65, -5.9], [12.4, 0.68, 1.4]);
+  part('centerCrown', mTrim, [0, 19.6, -5.0], [5.4, 2.4, 2.0]);
+  part('porticoTop', mTrim, [0, 8.5, -7.45], [11.2, 1.0, 4.2]);
+  part('stairs', mBase, [0, 0.44, -7.6], [11.4, 0.88, 4.4]);
+  for (const cx of [-4.35, -2.05, 2.05, 4.35]) {
+    part(`col_${cx}`, mStone, [cx, 4.6, -8.85], [0.72, 6.2, 0.72], 'cylinder');
+  }
+  // Janelas iluminadas na fachada
+  for (const wx of [-14.2, -10.9, -7.7, 7.7, 10.9, 14.2]) {
+    for (const wy of [2.75, 7.75, 12.75]) {
+      part(`win_${wx}_${wy}`, mWin, [wx, wy, -3.65], [1.55, 2.6, 0.2]);
+    }
+  }
+  // Pátio frontal e árvores
+  part('patio', mPatio, [0, 0.04, -11.2], [44.0, 0.08, 16.0]);
+  for (const [tx, tz] of [
+    [-13.8, -12.2],
+    [13.8, -12.2],
+  ] as const) {
+    part(`trunk_${tx}`, mTrunk, [tx, 1.9, tz], [0.45, 3.8, 0.45], 'cylinder');
+    part(`crown_${tx}`, mTree, [tx, 4.8, tz], [4.2, 3.8, 4.2], 'sphere');
+  }
+
+  const prop = new Entity('prop', app);
+  root.addChild(prop);
+  const tipL = new Entity('wingTipL', app);
+  const tipR = new Entity('wingTipR', app);
+  tipL.setLocalPosition(-22, 8, 0);
+  tipR.setLocalPosition(22, 8, 0);
+  root.addChild(tipL);
+  root.addChild(tipR);
+
+  const hitbox: [number, number, number][] = [];
+  for (const x of [-22, 22]) {
+    for (const y of [0, 22]) {
+      for (const z of [-19, 11]) hitbox.push([x, y, z]);
+    }
+  }
+
+  const model: VehicleModel = { root, exterior, prop, wingTips: [tipL, tipR], materials, hitbox };
+
+  attachAsyncGlb({
+    app,
+    root,
+    procedural,
+    model,
+    filename: 'uniacademia.glb',
+  });
+
+  return model;
+}
+
+export function buildLandmark(
+  app: AppBase,
+  kind: LandmarkKind | string,
+  parent: Entity = app.root,
+): VehicleModel {
+  if (kind.toLowerCase() === 'uniacademia') return buildUniAcademia(app, parent);
+  return buildUniAcademia(app, parent);
 }
 
 export function buildVehicleModel(

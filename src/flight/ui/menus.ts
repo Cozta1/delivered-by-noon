@@ -31,44 +31,44 @@ export interface GameMenus {
 
 const STAGE_UNLOCK_COPY: Record<Stage, { title: string; subtitle: string; accent: string }> = {
   car: {
-    title: 'Carro da firma liberado!',
-    subtitle: 'Siga os marcadores luminosos pela cidade para entregar as encomendas.',
+    title: 'Hatch da GoPostal liberado!',
+    subtitle: 'Recado de Michael De Santa, o patrão: siga os marcadores luminosos pela cidade.',
     accent: 'car',
   },
   tuned: {
-    title: 'Carro tunado liberado!',
-    subtitle: 'Mais rápido e com nitro no Shift! Entre nele para as entregas expressas.',
+    title: 'Coupé Tunado liberado!',
+    subtitle: 'Recado de Michael De Santa, o patrão: mete o Shift no nitro e parte para as entregas malucas!',
     accent: 'tuned',
   },
   heli: {
     title: 'Helicóptero liberado!',
-    subtitle: 'Decole do heliponto e corte caminho por cima dos prédios da cidade.',
+    subtitle: 'Recado de Michael De Santa, o patrão: agora o trânsito ficou lá embaixo — suba nos telhados!',
     accent: 'heli',
   },
   a29: {
     title: 'Avião A-29 liberado!',
-    subtitle: 'Reta final aérea: sobrevoe os alvos e aperte Espaço para soltar as caixas!',
+    subtitle: 'Reta final da GoPostal! Sobrevoe os alvos e aperte Espaço para soltar as caixas!',
     accent: 'a29',
   },
 };
 
 const STAGE_LABEL: Record<Stage, string> = {
-  car: '1/4 · Carro',
-  tuned: '2/4 · Carro Tunado',
+  car: '1/4 · Hatch',
+  tuned: '2/4 · Coupé Tunado',
   heli: '3/4 · Helicóptero',
   a29: '4/4 · Avião A-29',
 };
 
 const CONTROLS_LIST: ReadonlyArray<[string, string]> = [
-  ['E', 'Entrar ou sair do veículo próximo (carro, carro tunado, helicóptero ou A-29)'],
-  ['W / A / S / D', 'Andar (a pé), dirigir (carros) ou pilotar (aeronaves)'],
-  ['Shift', 'Nitro no carro tunado · acelerar (+) em aeronaves'],
+  ['E', 'Entrar ou sair do veículo próximo (Hatch, Coupé Tunado, helicóptero ou A-29)'],
+  ['W / A / S / D', 'Andar (a pé), dirigir (carros) ou pilotar (helicóptero e A-29)'],
+  ['Shift', 'Nitro no Coupé Tunado · acelerador / coletivo (+) em aeronaves'],
   ['Ctrl', 'Reduzir acelerador / coletivo (−) em aeronaves'],
   ['Espaço', 'Freio de mão (carros), pular (a pé) ou soltar carga aérea (A-29)'],
-  ['Mouse', 'Gira a câmera (a pé/carros) ou move a mira (aeronaves)'],
-  ['Clique esquerdo', 'Trava o ponteiro para girar a câmera / mirar'],
+  ['Mouse', 'Gira a câmera (a pé, carros e helicóptero) ou move a mira de voo (somente A-29)'],
+  ['Clique esquerdo', 'Trava o ponteiro para girar a câmera / mirar no A-29'],
   ['Q / E', 'Leme / pedais em aeronaves'],
-  ['M', 'Alterna entre controle por Mouse e Teclado (aeronaves)'],
+  ['M', 'Alterna entre controle por Mouse e Teclado (somente A-29)'],
   ['F', 'Liga / desliga a fumaça branca na cauda do A-29'],
   ['C / V', 'Alterna câmeras disponíveis para o veículo atual'],
   ['R', 'Reinicia o veículo atual'],
@@ -112,8 +112,8 @@ export function createGameMenus(
   // Banner comemorativo de estágio liberado (aparece sobre o jogo sem travar o movimento)
   const stageBanner = node('div', 'stage-banner');
   stageBanner.hidden = true;
-  const stageBannerEyebrow = node('div', 'stage-banner-eyebrow', 'NOVO ESTÁGIO DESBLOQUEADO');
-  const stageBannerTitle = node('div', 'stage-banner-title', 'Carro tunado liberado!');
+  const stageBannerEyebrow = node('div', 'stage-banner-eyebrow', 'NOVO ESTÁGIO DESBLOQUEADO · GOPOSTAL');
+  const stageBannerTitle = node('div', 'stage-banner-title', 'Coupé Tunado liberado!');
   const stageBannerSub = node('div', 'stage-banner-sub', '');
   stageBanner.append(stageBannerEyebrow, stageBannerTitle, stageBannerSub);
   uiRoot.append(stageBanner);
@@ -121,7 +121,7 @@ export function createGameMenus(
   // --- Tela Principal (Título ou Pausa) ---
   const mainView = node('div', 'menu-view');
   const header = node('div', 'menu-header');
-  const eyebrow = node('div', 'menu-eyebrow', 'CORRIDA CONTRA O RELÓGIO · 00:00 → 24:00');
+  const eyebrow = node('div', 'menu-eyebrow', 'GOPOSTAL · CORRIDA CONTRA O RELÓGIO 00:00 → 24:00');
   const titleEl = node('h1', 'menu-title', 'DELIVERED BY MIDNIGHT');
   const subtitleEl = node('p', 'menu-subtitle', 'Entregue tudo antes da próxima meia-noite com veículos cada vez mais malucos');
   header.append(eyebrow, titleEl, subtitleEl);
@@ -129,7 +129,7 @@ export function createGameMenus(
   const actions = node('div', 'menu-actions');
   const btnPrimary = node('button', 'menu-btn menu-btn--primary', 'Jogar');
   btnPrimary.type = 'button';
-  const btnRestart = node('button', 'menu-btn', 'Reiniciar turno');
+  const btnRestart = node('button', 'menu-btn', 'Respawn no relógio!');
   btnRestart.type = 'button';
   const btnOptions = node('button', 'menu-btn', 'Opções');
   btnOptions.type = 'button';
@@ -146,25 +146,25 @@ export function createGameMenus(
   // --- Tela de História (antes de começar o turno) ---
   const storyView = node('div', 'menu-view menu-subview');
   storyView.hidden = true;
-  const storyEyebrow = node('div', 'menu-eyebrow', 'TURNO DA MEIA-NOITE · BRIEFING');
+  const storyEyebrow = node('div', 'menu-eyebrow', 'TURNO DA MEIA-NOITE · GOPOSTAL');
   const storyTitle = node('h2', 'menu-section-title', 'ENTREGUE TUDO ATÉ AS 24:00');
   const storyBody = node('div', 'menu-story-body');
   storyBody.append(
     node(
       'p',
       'menu-story-p',
-      'A Veloce Express fez uma promessa maluca na TV: cada encomenda pendente da cidade será entregue antes da próxima meia-noite — ou todos os pedidos saem de graça.',
+      'A GoPostal prometeu o impossível na cidade inteira: todas as encomendas serão entregues até a próxima meia-noite — sem atraso e sem desculpa.',
     ),
     node(
       'p',
       'menu-story-p',
-      'O problema? Só sobrou você no plantão das 00:00. Para cumprir o prazo antes do relógio bater 24:00, a frota vai ficando cada vez mais absurda a cada estágio concluído!',
+      'Michael De Santa, o patrão, deixou um recado no rádio das 00:00: só sobrou você no plantão. A cada etapa concluída, a garagem libera veículos ainda mais insanos para vencer o relógio!',
     ),
   );
   const storyLadder = node('div', 'menu-story-ladder');
   for (const [num, label] of [
-    ['1', 'Carro'],
-    ['2', 'Carro Tunado'],
+    ['1', 'Hatch'],
+    ['2', 'Coupé Tunado'],
     ['3', 'Helicóptero'],
     ['4', 'Avião A-29'],
   ] as const) {
@@ -175,7 +175,7 @@ export function createGameMenus(
   const storyTip = node(
     'p',
     'menu-story-tip',
-    'Siga as colunas luminosas e o minimapa. A última entrega de cada etapa leva direto ao próximo veículo!',
+    'Siga as colunas luminosas e a planta da cidade no minimapa. A última entrega de cada estágio leva direto ao próximo veículo!',
   );
   const storyFooter = node('div', 'menu-sub-footer');
   const btnStoryBack = node('button', 'menu-btn menu-btn--ghost', 'Voltar');
@@ -195,7 +195,7 @@ export function createGameMenus(
   const statTimeVal = node('span', 'menu-stat-value', '00:00');
   const statScoreVal = node('span', 'menu-stat-value', '0');
   const statDeliveriesVal = node('span', 'menu-stat-value', '0/0');
-  const statStageVal = node('span', 'menu-stat-value', '1/4 · Carro');
+  const statStageVal = node('span', 'menu-stat-value', '1/4 · Hatch');
 
   const makeStat = (label: string, valEl: HTMLElement) => {
     const box = node('div', 'menu-stat-box');
@@ -331,7 +331,7 @@ export function createGameMenus(
   const hudCtrl = makeToggleRow('Mostrar HUD', (v) => patchSettings({ showHud: v }));
 
   const controlModeCtrl = makeSegmentRow<'mouse' | 'keyboard'>(
-    'Modo de controle padrão',
+    'Modo de controle do A-29',
     [
       ['mouse', 'Mouse'],
       ['keyboard', 'Teclado'],
@@ -382,7 +382,8 @@ export function createGameMenus(
     ['Equipe', 'João Victor da Costa, Gabriel Monteiro, Rafael Lima Henriques, Lucas Tostes'],
     ['Física de voo', 'Física baseada no JSBSim (LGPL-2.1)'],
     ['Motor gráfico', 'PlayCanvas'],
-    ['Modelos 3D', 'Modelos originais feitos no Blender (A-29, helicóptero, carros, personagem e cenários)'],
+    ['Modelos 3D', 'Modelos feitos no Blender (A-29, helicóptero, Hatch, Coupé Tunado, carros e personagem)'],
+    ['Homenagens (texto)', 'GoPostal, Michael De Santa (o patrão) e entregas com nomes em homenagem a clássicos dos games'],
     ['Áudio e interface', 'Trilha dinâmica, efeitos procedurais, ciclo dia/noite e HUD em Web Audio API'],
   ];
   for (const [role, value] of creditEntries) {
@@ -433,7 +434,7 @@ export function createGameMenus(
     creditsView.hidden = screen !== 'credits';
 
     if (mode === 'title') {
-      eyebrow.textContent = 'CORRIDA CONTRA O RELÓGIO · 00:00 → 24:00';
+      eyebrow.textContent = 'GOPOSTAL · CORRIDA CONTRA O RELÓGIO 00:00 → 24:00';
       titleEl.textContent = 'DELIVERED BY MIDNIGHT';
       subtitleEl.textContent = 'Entregue tudo antes da próxima meia-noite com veículos cada vez mais malucos';
       subtitleEl.hidden = false;
@@ -442,11 +443,12 @@ export function createGameMenus(
       btnCredits.hidden = false;
       btnReturnTitle.hidden = true;
     } else if (mode === 'paused') {
-      eyebrow.textContent = 'DELIVERED BY MIDNIGHT';
+      eyebrow.textContent = 'DELIVERED BY MIDNIGHT · GOPOSTAL';
       titleEl.textContent = 'PAUSADO';
-      subtitleEl.textContent = 'Relógio congelado — pressione Esc ou P para continuar';
+      subtitleEl.textContent = 'Relógio congelado — pressione Esc ou P para voltar ao expediente';
       subtitleEl.hidden = false;
       btnPrimary.textContent = 'Continuar';
+      btnRestart.textContent = 'Respawn no relógio!';
       btnRestart.hidden = false;
       btnCredits.hidden = true;
       btnReturnTitle.hidden = false;
@@ -574,16 +576,16 @@ export function createGameMenus(
 
       resultView.className = `menu-view menu-subview menu-result--${outcome}`;
       if (outcome === 'won') {
-        resultEyebrow.textContent = 'DELIVERED BY MIDNIGHT · VITÓRIA';
-        resultTitle.textContent = 'ENTREGUE ANTES DA MEIA-NOITE!';
-        resultMsg.textContent = `Você entregou todas as ${mission.delivered} encomendas às ${formatClock(mission.clockMinutes)} e salvou a promessa da Veloce Express!`;
+        resultEyebrow.textContent = 'GOPOSTAL · MISSÃO CUMPRIDA!';
+        resultTitle.textContent = 'MISSÃO CUMPRIDA!';
+        resultMsg.textContent = `Michael De Santa, o patrão, aprovou o serviço: todas as ${mission.delivered} entregas da GoPostal chegaram às ${formatClock(mission.clockMinutes)}!`;
       } else {
-        resultEyebrow.textContent = 'DELIVERED BY MIDNIGHT · PRAZO ESGOTADO';
+        resultEyebrow.textContent = 'GOPOSTAL · RESPAWN NO RELÓGIO!';
         resultTitle.textContent = 'MEIA-NOITE!';
         resultMsg.textContent =
           remaining === 1
-            ? 'Meia-noite! Faltou 1 entrega para completar o turno.'
-            : `Meia-noite! Faltaram ${remaining} entregas para completar o turno.`;
+            ? 'Meia-noite! Faltou 1 entrega — Michael De Santa, o patrão, quer respawn no relógio!'
+            : `Meia-noite! Faltaram ${remaining} entregas — Michael De Santa, o patrão, quer respawn no relógio!`;
       }
 
       statTimeVal.textContent = formatClock(outcome === 'lost' ? 1440 : mission.clockMinutes);

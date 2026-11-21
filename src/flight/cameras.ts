@@ -108,8 +108,12 @@ export function createCameraRig({ app, world, plane, camera, state }: FlightCont
     return kind === 'car' || kind === 'tuned';
   }
 
+  function isMouseAimVehicle(kind: VehicleKind) {
+    return kind === 'a29';
+  }
+
   function allowsMouseLook() {
-    return state.vehicle === 'foot' || isCar(state.vehicle) || state.controlMode === 'mouse';
+    return !isMouseAimVehicle(state.vehicle) || state.controlMode === 'mouse';
   }
 
   function isPointerLocked() {
@@ -199,11 +203,11 @@ export function createCameraRig({ app, world, plane, camera, state }: FlightCont
     const { mouseSensitivity, invertY } = getRuntime(state).settings;
     const sens = Number.isFinite(mouseSensitivity) ? mouseSensitivity : MOUSE_SENSITIVITY;
     const ySign = invertY ? 1 : -1;
-    const pitchMin = state.vehicle === 'foot' ? -45 : isCar(state.vehicle) ? -25 : -85;
-    const pitchMax = state.vehicle === 'foot' ? 60 : isCar(state.vehicle) ? 35 : 85;
+    const pitchMin = state.vehicle === 'foot' ? -45 : isCar(state.vehicle) ? -25 : state.vehicle === 'heli' ? -40 : -85;
+    const pitchMax = state.vehicle === 'foot' ? 60 : isCar(state.vehicle) ? 35 : state.vehicle === 'heli' ? 55 : 85;
     aimYaw = ((aimYaw + e.movementX * sens) % 360 + 360) % 360;
     aimPitch = clamp(aimPitch + e.movementY * sens * ySign, pitchMin, pitchMax);
-    if (isCar(state.vehicle) && (Math.abs(e.movementX) > 0 || Math.abs(e.movementY) > 0)) {
+    if ((isCar(state.vehicle) || state.vehicle === 'heli') && (Math.abs(e.movementX) > 0 || Math.abs(e.movementY) > 0)) {
       carOrbitIdle = 0;
     }
   }
@@ -228,9 +232,9 @@ export function createCameraRig({ app, world, plane, camera, state }: FlightCont
   }
 
   function syncAimToVehicleForward() {
-    if (state.vehicle === 'foot' || isCar(state.vehicle)) {
+    if (state.vehicle === 'foot' || isCar(state.vehicle) || state.vehicle === 'heli') {
       aimYaw = ((state.heading % 360) + 360) % 360;
-      aimPitch = state.vehicle === 'foot' ? -6 : -4;
+      aimPitch = state.vehicle === 'foot' ? -6 : state.vehicle === 'heli' ? -10 : -4;
       const yawRad = aimYaw * DEG_TO_RAD;
       const pitchRad = aimPitch * DEG_TO_RAD;
       const cosPitch = Math.cos(pitchRad);
@@ -251,13 +255,14 @@ export function createCameraRig({ app, world, plane, camera, state }: FlightCont
   }
 
   function updateAimState(dt: number) {
-    if (isCar(state.vehicle)) {
+    if (isCar(state.vehicle) || state.vehicle === 'heli') {
       carOrbitIdle += dt;
-      // Quando o carro dirige sem mexer o mouse por ~1.4 s, a câmera realinha suavemente atrás do carro
-      if (!isPointerLocked() || (carOrbitIdle > 1.4 && Math.abs(state.speed) > 1.5)) {
+      // Quando o veículo segue sem mexer o mouse, a câmera realinha suavemente atrás do rumo
+      const defaultPitch = state.vehicle === 'heli' ? -10 : -4;
+      if (!isPointerLocked() || (carOrbitIdle > 1.5 && Math.abs(state.speed) > 1.5)) {
         const alpha = 1 - Math.exp(-4.5 * Math.max(dt, 0.001));
         aimYaw = ((aimYaw + shortestAngleDiff(aimYaw, state.heading) * alpha) % 360 + 360) % 360;
-        aimPitch += (-4 - aimPitch) * alpha;
+        aimPitch += (defaultPitch - aimPitch) * alpha;
       }
       const yawRad = aimYaw * DEG_TO_RAD;
       const pitchRad = aimPitch * DEG_TO_RAD;
@@ -411,8 +416,19 @@ export function createCameraRig({ app, world, plane, camera, state }: FlightCont
     const chaseHeight = isHeli ? HELI_CHASE_HEIGHT : A29_CHASE_HEIGHT;
     const chaseOffset = isHeli ? HELI_CHASE_OFFSET : A29_CHASE_OFFSET;
 
-    const useMouseAim = state.controlMode === 'mouse';
-    if (useMouseAim) {
+    const useMouseAim = isMouseAimVehicle(state.vehicle) && state.controlMode === 'mouse';
+    if (isHeli) {
+      // No helicóptero, o mouse apenas gira a câmera ao redor (sem mira de voo)
+      const yawRad = aimYaw * DEG_TO_RAD;
+      const pitchRad = aimPitch * DEG_TO_RAD;
+      const cosP = Math.cos(pitchRad);
+      desiredPos.set(
+        planePos.x - Math.sin(yawRad) * cosP * chaseDist,
+        planePos.y + chaseHeight - Math.sin(pitchRad) * chaseDist * 0.65,
+        planePos.z + Math.cos(yawRad) * cosP * chaseDist,
+      );
+      lookTarget.set(planePos.x, planePos.y + 1.4, planePos.z);
+    } else if (useMouseAim) {
       desiredPos.copy(aimDir).mulScalar(-chaseDist).add(planePos);
       desiredPos.y += chaseHeight;
       lookTarget.copy(aimDir).mulScalar(AIM_LOOK_AHEAD).add(planePos);
@@ -434,7 +450,7 @@ export function createCameraRig({ app, world, plane, camera, state }: FlightCont
       if (camPos.y < minCamY) camPos.y = minCamY;
     }
     camera.setPosition(camPos);
-    safeLookAt(lookTarget, useMouseAim ? aimYaw : state.heading);
+    safeLookAt(lookTarget, isHeli || useMouseAim ? aimYaw : state.heading);
   }
 
   function updateChase(dt: number, snap: boolean) {
@@ -474,7 +490,7 @@ export function createCameraRig({ app, world, plane, camera, state }: FlightCont
 
     let targetHeadYaw = 0;
     let targetHeadPitch = 0;
-    if (state.controlMode === 'mouse' && isPointerLocked()) {
+    if (allowsMouseLook() && isPointerLocked()) {
       invPlaneRot.copy(planeRot).invert();
       invPlaneRot.transformVector(aimDir, localAim);
       // Usa asin(localAim.x) para evitar o salto ±180° do atan2 quando a mira cruza atrás da cauda
@@ -569,7 +585,7 @@ export function createCameraRig({ app, world, plane, camera, state }: FlightCont
         modeSwitched = true;
       }
 
-      if (isAircraft(state.vehicle) && keyboard?.wasPressed(KEY_M)) {
+      if (isMouseAimVehicle(state.vehicle) && keyboard?.wasPressed(KEY_M)) {
         state.controlMode = state.controlMode === 'mouse' ? 'keyboard' : 'mouse';
       }
       if (state.controlMode !== activeControl) {

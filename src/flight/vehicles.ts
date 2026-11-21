@@ -3,15 +3,15 @@ import { buildVehicleModel, type VehicleModel } from './models';
 import { createCarController } from './car';
 import { createFootController } from './foot';
 import { createFlightController } from './flight';
-import { AIRPORT, WORKSHOP, cityData, createWorldPhysics } from './world-data';
+import { AIRPORT, WORKSHOP, carSpots, cityData, createWorldPhysics, terrainHeight } from './world-data';
 import { canEnterVehicle, onMissionRestart } from './mission';
 import type { FlightContext, FlightModule, VehicleKind, VehicleSpawn } from './types';
 
 export function vehicleSpawns(): VehicleSpawn[] {
   const {helipad}=cityData();
-  const cars:VehicleSpawn[]=[{id:'car-inicial',kind:'car',x:38,y:3,z:-622,heading:90,variant:0}];
-  for(let i=0;i<5;i++)cars.push({id:`car-${i+1}`,kind:'car',x:-900+86*(i*3+2)+78,y:3,z:-450+i*90,heading:0,variant:i%3});
-  return [...cars,{id:'tuned-oficina',kind:'tuned',x:WORKSHOP.x+3,y:WORKSHOP.y,z:WORKSHOP.z,heading:90,variant:2},{id:'a29-pista',kind:'a29',x:AIRPORT.x,y:AIRPORT.y,z:410,heading:0},
+  // Carros estacionados sobre vias reais do Centro de Juiz de Fora; o primeiro é onde o jogador começa.
+  const cars:VehicleSpawn[]=carSpots().map((p,i)=>({id:i?`car-${i}`:'car-inicial',kind:'car' as const,x:p.x,y:terrainHeight(p.x,p.z),z:p.z,heading:Math.round(p.heading),variant:i%3}));
+  return [...cars,{id:'tuned-oficina',kind:'tuned',x:WORKSHOP.x+3,y:WORKSHOP.y,z:WORKSHOP.z,heading:90,variant:2},{id:'a29-pista',kind:'a29',x:AIRPORT.x,y:AIRPORT.y,z:AIRPORT.z,heading:AIRPORT.heading},
     {id:'heli-centro',kind:'heli',x:helipad.x,y:helipad.y,z:helipad.z,heading:0}];
 }
 

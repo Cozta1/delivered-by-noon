@@ -8,11 +8,13 @@ import {
   StandardMaterial,
   Vec3,
   createCylinder,
+  createSphere,
 } from 'playcanvas';
-import type { DeliveryPoint, FlightContext, FlightModule, Stage } from './types';
+import type { DeliveryPoint, FlightContext, FlightModule, MissionState, Stage } from './types';
 import { getRuntime } from './ui/settings';
 
 const MAX_MARKERS = 16;
+const FINAL_PARTICLES = 18;
 
 interface MarkerSlot {
   root: Entity;
@@ -43,10 +45,16 @@ function formatDistance(meters: number): string {
   return `${Math.round(meters)} m`;
 }
 
+function isFinalDelivery(d: DeliveryPoint, mission: MissionState): boolean {
+  if (d.id === 'a29-4') return true;
+  if (/uniacademia|final|último carimbo|victory/i.test(d.name)) return true;
+  return mission.total > 0 && mission.delivered >= mission.total - 1;
+}
+
 /**
  * Marcadores 3D nas entregas pendentes do estágio atual (coluna de luz + anéis no chão,
- * visíveis de longe e à noite, com a próxima entrega destacada) + seta na borda da tela
- * quando a entrega ativa estiver fora do campo de visão.
+ * visíveis de longe e à noite, com a próxima entrega destacada; entrega final na UniAcademia
+ * em destaque dourado com aura dupla e partículas leves subindo) + seta na borda da tela.
  */
 export function createMarkers(ctx: FlightContext, uiRoot?: HTMLElement | null): FlightModule {
   const { app, camera, state } = ctx;
@@ -61,6 +69,10 @@ export function createMarkers(ctx: FlightContext, uiRoot?: HTMLElement | null): 
   const matAirRing = makeBeaconMaterial(0.45, 0.92, 1.0, 0.9, 3.1);
   const matLeadBeam = makeBeaconMaterial(1.0, 0.32, 0.78, 0.42, 2.6);
   const matLeadRing = makeBeaconMaterial(1.0, 0.56, 0.9, 0.9, 3.0);
+  // Entrega final (UniAcademia): ouro brilhante + aura + partículas leves
+  const matFinalCore = makeBeaconMaterial(1.0, 0.86, 0.22, 0.62, 3.5);
+  const matFinalAura = makeBeaconMaterial(1.0, 0.68, 0.1, 0.24, 2.4);
+  const matFinalSpark = makeBeaconMaterial(1.0, 0.92, 0.42, 0.92, 3.6);
 
   const allMaterials = [
     matNextBeam,
@@ -71,10 +83,16 @@ export function createMarkers(ctx: FlightContext, uiRoot?: HTMLElement | null): 
     matAirRing,
     matLeadBeam,
     matLeadRing,
+    matFinalCore,
+    matFinalAura,
+    matFinalSpark,
   ];
 
   const sharedCylinder: Mesh | null = app.graphicsDevice
     ? createCylinder(app.graphicsDevice, { radius: 0.5, height: 1, heightSegments: 1, capSegments: 14 })
+    : null;
+  const sharedSpark: Mesh | null = app.graphicsDevice
+    ? createSphere(app.graphicsDevice, { radius: 0.5, latitudeBands: 6, longitudeBands: 8 })
     : null;
 
   const markersRoot = new Entity('DeliveryMarkers', app);
@@ -129,6 +147,29 @@ export function createMarkers(ctx: FlightContext, uiRoot?: HTMLElement | null): 
     });
   }
 
+  // Destaque dourado extra para a entrega final (aura externa + 18 partículas leves em espiral)
+  const finalFxRoot = new Entity('FinalDeliveryFx', app);
+  finalFxRoot.enabled = false;
+  markersRoot.addChild(finalFxRoot);
+
+  const finalAura = makePart('finalAuraBeam', finalFxRoot, matFinalAura).entity;
+  const sparks: Entity[] = [];
+  const sparkMis: Array<MeshInstance | null> = [];
+  for (let i = 0; i < FINAL_PARTICLES; i++) {
+    const sp = new Entity(`finalSpark_${i}`, app);
+    let mi: MeshInstance | null = null;
+    if (sharedSpark) {
+      mi = new MeshInstance(sharedSpark, matFinalSpark);
+      sp.addComponent('render', { meshInstances: [mi], castShadows: false, receiveShadows: false });
+    } else {
+      sp.addComponent('render', { type: 'sphere', material: matFinalSpark, castShadows: false, receiveShadows: false });
+      mi = sp.render?.meshInstances?.[0] ?? null;
+    }
+    finalFxRoot.addChild(sp);
+    sparks.push(sp);
+    sparkMis.push(mi);
+  }
+
   // Seta na borda da tela quando a entrega destacada estiver fora da visão
   let edgeArrow: HTMLDivElement | null = null;
   let edgeChevron: HTMLDivElement | null = null;
@@ -165,6 +206,7 @@ export function createMarkers(ctx: FlightContext, uiRoot?: HTMLElement | null): 
     for (let i = 0; i < slots.length; i++) {
       slots[i].root.enabled = false;
     }
+    finalFxRoot.enabled = false;
     if (edgeArrow && lastArrowVisible) {
       lastArrowVisible = false;
       edgeArrow.hidden = true;
@@ -196,7 +238,6 @@ export function createMarkers(ctx: FlightContext, uiRoot?: HTMLElement | null): 
         ? allStagePending.filter((p) => !p.leadsToNext && p.id !== 'a29-4')
         : allStagePending;
 
-    // Se nextDeliveryId aponta para outro estágio ainda pendente, garanta visibilidade
     if (!next && mission.nextDeliveryId) {
       for (let i = 0; i < mission.deliveries.length; i++) {
         const d = mission.deliveries[i];
@@ -208,7 +249,6 @@ export function createMarkers(ctx: FlightContext, uiRoot?: HTMLElement | null): 
       }
     }
 
-    // Fallback: entrega pendente mais próxima
     if (!next && pending.length > 0) {
       let bestDistSq = Infinity;
       for (let i = 0; i < pending.length; i++) {
@@ -224,6 +264,34 @@ export function createMarkers(ctx: FlightContext, uiRoot?: HTMLElement | null): 
     }
 
     return { pending, next };
+  }
+
+  function updateFinalFx(finalPoint: DeliveryPoint | null) {
+    if (!finalPoint) {
+      finalFxRoot.enabled = false;
+      return;
+    }
+    finalFxRoot.enabled = true;
+    finalFxRoot.setPosition(finalPoint.x, finalPoint.y, finalPoint.z);
+
+    const pulse = 0.5 + 0.5 * Math.sin(pulseTime * 3.6);
+    const auraH = 260;
+    const auraW = 14 + pulse * 5;
+    finalAura.setLocalPosition(0, auraH * 0.5, 0);
+    finalAura.setLocalScale(auraW, auraH, auraW);
+
+    const baseR = Math.max(10, Math.min(finalPoint.radius || 24, 34));
+    for (let i = 0; i < FINAL_PARTICLES; i++) {
+      const phase = ((pulseTime * 0.24 + i / FINAL_PARTICLES) % 1 + 1) % 1;
+      const angle = pulseTime * 1.15 + i * ((Math.PI * 2) / FINAL_PARTICLES) + phase * 3.5;
+      const r = baseR * (0.45 + 0.55 * (1 - phase * 0.65));
+      const y = 3 + phase * 110;
+      const s = (1.6 + 1.8 * Math.sin(phase * Math.PI)) * (0.85 + 0.25 * pulse);
+      const sp = sparks[i];
+      sp.setLocalPosition(Math.cos(angle) * r, y, Math.sin(angle) * r);
+      sp.setLocalScale(s, s, s);
+      sparkMis[i]?.setParameter('material_opacity', Math.sin(phase * Math.PI) * 0.92);
+    }
   }
 
   function updateEdgeArrow(next: DeliveryPoint | null, showHud: boolean) {
@@ -299,7 +367,8 @@ export function createMarkers(ctx: FlightContext, uiRoot?: HTMLElement | null): 
       edgeLabel.textContent = labelText;
     }
 
-    edgeArrow.classList.toggle('hud-edge-arrow--airdrop', Boolean(next.airDrop));
+    const isFinal = Boolean(ctx.mission && isFinalDelivery(next, ctx.mission));
+    edgeArrow.classList.toggle('hud-edge-arrow--airdrop', Boolean(next.airDrop) && !isFinal);
     edgeArrow.style.transform = `translate3d(${Math.round(ex)}px, ${Math.round(ey)}px, 0) translate(-50%, -50%)`;
     edgeChevron.style.transform = `rotate(${angleDeg.toFixed(1)}deg)`;
 
@@ -313,7 +382,8 @@ export function createMarkers(ctx: FlightContext, uiRoot?: HTMLElement | null): 
     update(dt: number) {
       if (destroyed) return;
       const rt = getRuntime(state);
-      if (rt.mode !== 'playing' || !ctx.mission || ctx.mission.status !== 'playing') {
+      const mission = ctx.mission;
+      if (rt.mode !== 'playing' || !mission || mission.status !== 'playing') {
         hideAll();
         return;
       }
@@ -324,6 +394,7 @@ export function createMarkers(ctx: FlightContext, uiRoot?: HTMLElement | null): 
 
       const { pending, next } = selectActiveDeliveries();
       const isAir = state.vehicle === 'a29' || state.vehicle === 'heli';
+      let finalPoint: DeliveryPoint | null = null;
 
       for (let i = 0; i < slots.length; i++) {
         const slot = slots[i];
@@ -333,47 +404,55 @@ export function createMarkers(ctx: FlightContext, uiRoot?: HTMLElement | null): 
         }
 
         const d = pending[i];
-        const isNext = next !== null && d.id === next.id;
-        const pulse = 0.5 + 0.5 * Math.sin(pulseTime * (isNext ? 4.4 : 2.3) + i * 0.9);
+        const isFinal = isFinalDelivery(d, mission);
+        if (isFinal) finalPoint = d;
 
-        const beamMat = d.airDrop
-          ? matAirBeam
-          : d.leadsToNext
-            ? matLeadBeam
-            : isNext
-              ? matNextBeam
-              : matOtherBeam;
-        const ringMat = d.airDrop
-          ? matAirRing
-          : d.leadsToNext
-            ? matLeadRing
-            : isNext
-              ? matNextRing
-              : matOtherRing;
+        const isNext = next !== null && d.id === next.id;
+        const pulse = 0.5 + 0.5 * Math.sin(pulseTime * (isFinal ? 5.2 : isNext ? 4.4 : 2.3) + i * 0.9);
+
+        const beamMat = isFinal
+          ? matFinalCore
+          : d.airDrop
+            ? matAirBeam
+            : d.leadsToNext
+              ? matLeadBeam
+              : isNext
+                ? matNextBeam
+                : matOtherBeam;
+        const ringMat = isFinal
+          ? matFinalSpark
+          : d.airDrop
+            ? matAirRing
+            : d.leadsToNext
+              ? matLeadRing
+              : isNext
+                ? matNextRing
+                : matOtherRing;
 
         if (slot.beamMi && slot.beamMi.material !== beamMat) slot.beamMi.material = beamMat;
         if (slot.outerMi && slot.outerMi.material !== ringMat) slot.outerMi.material = ringMat;
         if (slot.innerMi && slot.innerMi.material !== ringMat) slot.innerMi.material = ringMat;
 
-        const baseRadius = Math.max(3.5, Math.min(d.radius || 8, 28));
-        const beamH = isNext ? (isAir || d.airDrop ? 190 : 120) : isAir ? 120 : 70;
-        const beamDiam = (isNext ? 3.2 : 1.9) * (0.9 + pulse * 0.25);
+        const baseRadius = Math.max(3.5, Math.min(d.radius || 8, isFinal ? 36 : 28));
+        const beamH = isFinal ? 280 : isNext ? (isAir || d.airDrop ? 190 : 120) : isAir ? 120 : 70;
+        const beamDiam = (isFinal ? 6.0 : isNext ? 3.2 : 1.9) * (0.9 + pulse * 0.25);
 
         slot.root.setPosition(d.x, d.y, d.z);
         slot.beam.setLocalPosition(0, beamH * 0.5, 0);
         slot.beam.setLocalScale(beamDiam, beamH, beamDiam);
 
-        const outerDiam = baseRadius * 2 * (0.96 + pulse * (isNext ? 0.14 : 0.06));
-        slot.ringOuter.setLocalPosition(0, 0.32, 0);
-        slot.ringOuter.setLocalScale(outerDiam, 0.35, outerDiam);
+        const outerDiam = baseRadius * 2 * (0.96 + pulse * (isFinal ? 0.18 : isNext ? 0.14 : 0.06));
+        slot.ringOuter.setLocalPosition(0, 0.35, 0);
+        slot.ringOuter.setLocalScale(outerDiam, isFinal ? 0.55 : 0.35, outerDiam);
 
-        const innerDiam = baseRadius * (0.72 + pulse * 0.42);
-        slot.ringInner.setLocalPosition(0, 0.55 + pulse * 0.4, 0);
-        slot.ringInner.setLocalScale(innerDiam, 0.22, innerDiam);
+        const innerDiam = baseRadius * (0.72 + pulse * 0.45);
+        slot.ringInner.setLocalPosition(0, 0.6 + pulse * (isFinal ? 0.85 : 0.4), 0);
+        slot.ringInner.setLocalScale(innerDiam, isFinal ? 0.32 : 0.22, innerDiam);
 
         slot.root.enabled = true;
       }
 
+      updateFinalFx(finalPoint);
       updateEdgeArrow(next, rt.settings.showHud);
     },
 
@@ -382,6 +461,7 @@ export function createMarkers(ctx: FlightContext, uiRoot?: HTMLElement | null): 
       destroyed = true;
       markersRoot.destroy();
       sharedCylinder?.destroy();
+      sharedSpark?.destroy();
       for (const m of allMaterials) m.destroy();
       edgeArrow?.remove();
     },

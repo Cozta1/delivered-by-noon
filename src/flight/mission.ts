@@ -1,6 +1,6 @@
 ﻿import { Color, Entity, KEY_SPACE, StandardMaterial } from 'playcanvas';
 import { createMissionState, STAGE_ORDER, type DeliveryPoint, type FlightContext, type FlightModule, type Stage, type VehicleKind } from './types';
-import { AIRPORT, CITY_Y, WORKSHOP, airportData, cityData, deliveryRampData, terrainHeight } from './world-data';
+import { AIRPORT, CRISTO_IMPERADOR, MARCOS, UNIACADEMIA, WORKSHOP, airportData, cityData, roadStop, terrainHeight } from './world-data';
 
 export const DAY_REAL_SECONDS = 30 * 60;
 export const CLOCK_MINUTES_PER_SECOND = 1440 / DAY_REAL_SECONDS;
@@ -15,35 +15,40 @@ export function onMissionRestart(ctx:FlightContext,handler:()=>void) {
 }
 
 export function deliveryPoints():DeliveryPoint[] {
-  const city=cityData(),access=airportData(city.helipad).access[0],ramps=deliveryRampData().ramps;
-  const roof=(x:number,z:number)=>[...city.boxes].sort((a,b)=>Math.hypot((a.x0+a.x1)/2-x,(a.z0+a.z1)/2-z)-Math.hypot((b.x0+b.x1)/2-x,(b.z0+b.z1)/2-z))[0];
-  const a=roof(350,-300),b=roof(-400,200);
-  let peak={x:-2000,z:-1600,y:0};
-  for(let x=-2400;x<=-1400;x+=100)for(let z=-2200;z<=-1000;z+=100) {
-    const y=terrainHeight(x,z);if(y>peak.y)peak={x,y,z};
-  }
-  let beachZ=500;
-  for(let z=500;z<=650;z+=5)if(terrainHeight(1050,z)>1&&terrainHeight(1050,z)<6){beachZ=z;break;}
+  // Juiz de Fora: cada entrega fica no lugar real (jf-mundo.json), na rua, na laje ou no ar sobre o alvo.
+  const city=cityData(),access=airportData(city.helipad).access[0];
+  const ground=(x:number,z:number)=>terrainHeight(x,z);
+  const roof=(name:keyof typeof MARCOS)=>{
+    const [x,z]=MARCOS[name];
+    return [...city.boxes].filter(b=>b!==city.tower&&b.top-ground((b.x0+b.x1)/2,(b.z0+b.z1)/2)>=7)
+      .sort((a,b)=>Math.hypot((a.x0+a.x1)/2-x,(a.z0+a.z1)/2-z)-Math.hypot((b.x0+b.x1)/2-x,(b.z0+b.z1)/2-z))[0];
+  };
   const points:DeliveryPoint[]=[];
   const add=(stage:Stage,name:string,x:number,y:number,z:number,radius:number,leadsToNext=false,airDrop=false)=>{
     points.push({id:`${stage}-${points.filter(p=>p.stage===stage).length+1}`,stage,name,x,y,z,radius,leadsToNext,airDrop,delivered:false});
   };
-  add('car','Dona Buzina — Padaria do Pneu',38,CITY_Y,-450,11);
-  add('car','Seu Mingau — Praça do Guarda-Chuva',-306,CITY_Y,-106,11);
-  add('car','Nina Cupom — Correio do Atraso',382,CITY_Y,238,11);
-  add('car','Beto Rosca — Oficina do Parafuso Perdido',WORKSHOP.x,WORKSHOP.y,WORKSHOP.z,11,true);
-  add('tuned','Téo Troco — Salto do Recibo',ramps[0].x1-3,ramps[0].y1-.5,ramps[0].z1,13);
-  add('tuned','Vó Faísca — Morro da Nota Fiscal',ramps[1].x1+3,ramps[1].y1,ramps[1].z1,15);
-  add('tuned','Lola Farofa — Praia do Frete Grátis',1050,Math.max(0,terrainHeight(1050,beachZ)),beachZ,20);
-  add('tuned','Ivo Elevador — Portaria do Quase Céu',access.x,access.y,access.z,12,true);
-  add('heli','Lia Antena — Cobertura Sem Sinal',(a.x0+a.x1)/2,a.top,(a.z0+a.z1)/2,14);
-  add('heli','Zeca Garoa — Varal das Nuvens',(b.x0+b.x1)/2,b.top,(b.z0+b.z1)/2,14);
-  add('heli','Doutora Eco — Pico do Café Frio',peak.x,peak.y,peak.z,24);
-  add('heli','Capitão Canhoto — Pista do Vento Entregador',AIRPORT.x-22,AIRPORT.y,410,12,true);
-  add('a29','Cida Maré — Guarda-Sol Solitário',2100,0,1500,80,false,true);
-  add('a29','Otto Pedregulho — Chalé do Cadê',-2400,Math.max(0,terrainHeight(-2400,300)),300,85,false,true);
-  add('a29','Bia Horizonte — Mirante do Fim do Mapa',2200,Math.max(0,terrainHeight(2200,-1800)),-1800,85,false,true);
-  add('a29','Dona Meia-Noite — Centro do Último Carimbo',0,CITY_Y,-110,85,false,true);
+  const street=(stage:Stage,name:string,place:keyof typeof MARCOS,radius:number,maxClass=3)=>{
+    const p=roadStop(place,maxClass);add(stage,name,p.x,ground(p.x,p.z),p.z,radius);
+  };
+  const a=roof('santaHelena'),b=roof('santaCecilia');
+  const cristo=CRISTO_IMPERADOR,cx=cristo.x,cz=cristo.z+18;
+  const air=(name:string,place:keyof typeof MARCOS,radius:number)=>{const [x,z]=MARCOS[place];add('a29',name,x,ground(x,z),z,radius,false,true);};
+  street('car','Mario, o Encanador','centro',11);
+  street('car','Pizzaria do Luigi','granbery',11);
+  street('car','CJ, na Grove Street','altoDosPassos',11);
+  add('car','Oficina do Lamar (onde está o carro tunado)',WORKSHOP.x,WORKSHOP.y,WORKSHOP.z,11,true);
+  street('tuned','Rancho do Arthur Morgan','salvaterra',13);
+  const mirante=roadStop('cristo');add('tuned','Mirante do Steve',mirante.x,ground(mirante.x,mirante.z),mirante.z,15);
+  street('tuned','Jonesy, no Ônibus de Batalha','estadio',20);
+  add('tuned','Torre do Ganon (base do heliponto)',access.x,access.y,access.z,12,true);
+  add('heli','Princesa Zelda, na cobertura',(a.x0+a.x1)/2,a.top,(a.z0+a.z1)/2,14);
+  add('heli','Capitão Price, na laje',(b.x0+b.x1)/2,b.top,(b.z0+b.z1)/2,14);
+  add('heli','Creeper no Pico (Cristo do Imperador)',cx,ground(cx,cz),cz,24);
+  add('heli','Hangar do Tommy Vercetti (no aeroporto)',AIRPORT.x-22,AIRPORT.y,AIRPORT.z,12,true);
+  air('Toad, na Ilha do Cogumelo','ufjf',85);
+  air('Trevor, em Sandy Shores','industrial',85);
+  air('Peely, fugindo da Tempestade','linhares',85);
+  add('a29','UniAcademia: entrega final, o próprio jogo',UNIACADEMIA.x,UNIACADEMIA.y,UNIACADEMIA.z,70,false,true);
   return points;
 }
 

@@ -289,7 +289,7 @@
   const VEHICLE_SLOTS = [
     { name: 'A29', slug: 'a29', position: [1400, 5.4, 410], rotation: [0, 0, 0] },
     { name: 'Heli', slug: 'helicoptero', position: [-5, 189.4, -63], rotation: [0, 0, 0] },
-    { name: 'Carro_Inicial', slug: 'carro-compacto', position: [38, 3, -622], rotation: [0, -90, 0] },
+    { name: 'Carro_Inicial', slug: 'carro', position: [38, 3, -622], rotation: [0, -90, 0] },
     { name: 'Carro_1', slug: 'carro-compacto', position: [-650, 3, -450], rotation: [0, 0, 0] },
     { name: 'Carro_2', slug: 'carro-picape', position: [-392, 3, -360], rotation: [0, 0, 0] },
     { name: 'Carro_3', slug: 'carro-esportivo', position: [-134, 3, -270], rotation: [0, 0, 0] },
@@ -297,6 +297,7 @@
     { name: 'Carro_5', slug: 'carro-picape', position: [382, 3, -90], rotation: [0, 0, 0] },
     { name: 'Carro_Tunado', slug: 'carro-tunado', position: [729, 3, 410], rotation: [0, -90, 0] },
     { name: 'Personagem', slug: 'personagem', position: [38, 3, -618.8], rotation: [0, 0, 0] },
+    { name: 'UniAcademia', slug: 'uniacademia', position: [0, 3, -110], rotation: [0, 0, 0] },
   ];
   const OUR_NAMES = new Set(['Jogo', 'Mundo', 'CameraJogo', 'Sol', ...VEHICLE_SLOTS.map((v) => v.name)]);
   const disabledNames = [];
@@ -443,7 +444,7 @@
     .filter((a) => {
       const n = String(getVal(a, 'name') || '');
       const f = assetFileName(a);
-      return /^(a29|helicoptero|carro-|personagem|mundo-)/i.test(n) || /^(a29|helicoptero|carro-|personagem|mundo-)/i.test(f);
+      return /^(a29|helicoptero|carro|personagem|uniacademia|mundo-)/i.test(n) || /^(a29|helicoptero|carro|personagem|uniacademia|mundo-)/i.test(f);
     })
     .map(describeAsset);
 

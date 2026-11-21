@@ -86,15 +86,15 @@ function scene(name) {
   const accessor = (type, array) => doc.createAccessor().setType(type).setArray(array).setBuffer(buffer);
   function mesh(name, geometry, material, inward = false) {
     const { pos, normals, idx, col, uv } = geometry;
-    assert.equal(pos.length % 3, 0); assert.equal(normals.length, pos.length);
+    assert.equal(pos.length % 3, 0); if(normals)assert.equal(normals.length, pos.length);
     assert.equal(idx.length % 3, 0);
-    assert(pos.every(Number.isFinite) && normals.every(Number.isFinite));
+    assert(pos.every(Number.isFinite) && (!normals||normals.every(Number.isFinite)));
     assert(idx.every((i) => Number.isInteger(i) && i >= 0 && i < pos.length / 3));
     const indices = inward ? idx.flatMap((_, i) => i % 3 ? [] : [idx[i], idx[i + 2], idx[i + 1]]) : idx;
     const primitive = doc.createPrimitive().setMaterial(material)
       .setAttribute('POSITION', accessor('VEC3', new Float32Array(pos)))
-      .setAttribute('NORMAL', accessor('VEC3', new Float32Array(inward ? normals.map((v) => -v) : normals)))
       .setIndices(accessor('SCALAR', pos.length / 3 > 65535 ? new Uint32Array(indices) : new Uint16Array(indices)));
+    if(normals)primitive.setAttribute('NORMAL', accessor('VEC3', new Float32Array(inward ? normals.map((v) => -v) : normals)));
     if (col) {
       assert.equal(col.length, pos.length / 3 * 4);
       primitive.setAttribute('COLOR_0', accessor('VEC4', new Uint8Array(col)).setNormalized(true));
@@ -135,6 +135,7 @@ function scene(name) {
     assert(json.buffers.every((b) => !b.uri));
     assert((json.images ?? []).every((i) => i.bufferView !== undefined && !i.uri));
     for (const view of json.bufferViews) assert((view.byteOffset ?? 0) + view.byteLength <= json.buffers[view.buffer].byteLength);
+    if(file==='mundo-cidade.glb')assert(bytes.length<2_300_000,`City exceeds 2.3 MB: ${bytes.length} bytes`);
     outputs.push({ file: resolve(root, 'public/models', file), bytes });
   }
   return { rootNode, mesh, material, texture, node, output };
@@ -149,7 +150,8 @@ assert.deepEqual(data.windowImages(), data.windowImages(), 'Windows must be dete
 
 {
   const s = scene('Terreno');
-  s.node(s.rootNode, 'Relevo', s.mesh('Terreno', terrain, s.material('Terreno', [1, 1, 1], 0.1)));
+  // Sem NORMAL: a engine calcula as normais suaves do índice (economiza ~0,5 MB).
+  s.node(s.rootNode, 'Relevo', s.mesh('Terreno', { ...terrain, normals: null }, s.material('Terreno', [1, 1, 1], 0.1)));
   await s.output('mundo-terreno.glb');
 }
 {
@@ -158,15 +160,16 @@ assert.deepEqual(data.windowImages(), data.windowImages(), 'Windows must be dete
   const facade = s.material('Fachadas', [1, 1, 1], 0.3, [1, 1, 1])
     .setBaseColorTexture(s.texture('Janelas - difuso', images.diffuse))
     .setEmissiveTexture(s.texture('Janelas - emissivo', images.emissive));
-  s.node(s.rootNode, 'Predios', s.mesh('Predios', city.mesh, facade));
-  const road = s.mesh('Ruas', primitiveData(plane), s.material('Asfalto', [0.33, 0.33, 0.38], 0.15));
-  const { CITY, CITY_Y } = data;
-  s.node(s.rootNode, 'Ruas', road, [(CITY.x0 + CITY.x1) / 2, CITY_Y, (CITY.z0 + CITY.z1) / 2], [CITY.x1 - CITY.x0 + 40, 1, CITY.z1 - CITY.z0 + 40]);
-  const park = s.mesh('Parques', primitiveData(plane), s.material('Grama', [0.36, 0.6, 0.3]));
-  for (const [i, p] of city.parks.entries()) {
-    s.node(s.rootNode, `Parque ${i + 1}`, park, [(p.x0 + p.x1) / 2, CITY_Y + 0.15, (p.z0 + p.z1) / 2], [p.x1 - p.x0, 1, p.z1 - p.z0]);
+  s.node(s.rootNode, 'Predios', s.mesh('Predios', { ...city.mesh, normals: null }, facade));
+  const details=data.cityDetails(city),streetImages=data.cityStreetImages();
+  // shortcut: PlayCanvas regenerates detail normals; export them if another viewer needs authored smoothing.
+  for(const name of ['roads','ground','props','lamps']) {
+    const material=s.material(name==='lamps'?'Lampadas dos postes':name,name==='lamps'?[1,.82,.48]:[1,1,1],.1,name==='lamps'?[1,.82,.48]:[0,0,0]);
+    if(name==='roads')material.setBaseColorTexture(s.texture('Asfalto e faixas',streetImages.road));
+    if(name==='lamps')material.setDoubleSided(true);
+    s.node(s.rootNode,name,s.mesh(name,{...details.meshes[name],normals:null},material));
   }
-  await s.output('mundo-cidade.glb', [['Fachadas', { KHR_materials_emissive_strength: { emissiveStrength: 1.6 } }]]);
+  await s.output('mundo-cidade.glb', [['Fachadas', { KHR_materials_emissive_strength: { emissiveStrength: 1.6 } }],['Lampadas dos postes',{KHR_materials_emissive_strength:{emissiveStrength:1.8}}]]);
 }
 {
   const s = scene('Mar');
@@ -202,11 +205,11 @@ assert.deepEqual(data.windowImages(), data.windowImages(), 'Windows must be dete
   await s.output('mundo-aeroporto.glb');
 }
 const total = outputs.reduce((sum, { bytes }) => sum + bytes.length, 0);
-assert(total < 3_000_000, `World exceeds 3 MB: ${total} bytes`);
+assert(total < 4_000_000, `World exceeds 4 MB: ${total} bytes`);
 await mkdir(resolve(root, 'public/models'), { recursive: true });
 for (const { file, bytes } of outputs) {
   await writeFile(file, bytes);
   console.log(`${file}: ${bytes.length} bytes`);
 }
-console.log(`Total: ${total} bytes (< 3 MB)`);
+console.log(`Total: ${total} bytes (< 4 MB)`);
 

@@ -1,7 +1,7 @@
 # Como publicar "Delivered by Midnight" no Editor online do PlayCanvas
 
 Este guia explica como levar o jogo **Delivered by Midnight** compilado em arquivo único (`dist-editor/flight-sim.mjs` e `dist-editor/flight-sim.js`) para um projeto no **PlayCanvas Editor** (`playcanvas.com`) usando engine **2.x**.
-O carro tunado (`public/models/carro-tunado.glb`, com fallback procedural), os marcadores 3D de entrega, o ciclo de dia/noite e o áudio dinâmico funcionam automaticamente no **Launch**.
+O Hatch inicial (`public/models/carro.glb`), o Coupé Tunado (`public/models/carro-tunado.glb`), o helicóptero leve (`public/models/helicoptero.glb`), a fachada da **UniAcademia** (`public/models/uniacademia.glb`, entrega final), os marcadores 3D de entrega, o ciclo de dia/noite e o áudio dinâmico funcionam automaticamente no **Launch**.
 
 ## 1. Gerar o arquivo do Editor (localmente)
 

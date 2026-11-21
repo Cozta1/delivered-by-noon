@@ -1,5 +1,5 @@
 ﻿import { expect, it, vi } from 'vitest';
-import { Vec3, Entity, KEY_W, KEY_R, KEY_SHIFT } from 'playcanvas';
+import { Vec3, Entity, KEY_W, KEY_R, KEY_SHIFT, KEY_D, KEY_Q } from 'playcanvas';
 import { HeliDynamics } from './heli';
 import { AircraftGround, RUNWAY_SPAWN, safeTouchdown } from './ground';
 import { FlightDynamics, FIXED_STEP } from './model';
@@ -87,14 +87,23 @@ it('starts at a parked aircraft pose but resets to its immutable runway/helipad 
   }
 });
 
-it('heli mouse waits for targets behind it and publishes collective',()=>{
-  const canvas={},pressed=new Set<number>(),state=createFlightState();state.vehicle='heli';state.aimZ=1;
-  const app={graphicsDevice:{canvas},keyboard:{isPressed:(key:number)=>pressed.has(key),wasPressed:()=>false}} as unknown as FlightContext['app'];
-  const ctx={app,state,world:createWorldPhysics([]),plane:{root:new Entity('heli',app),prop:new Entity('prop',app),hitbox:[[0,-1,0]]}} as unknown as FlightContext;
+it('heli ignores mouse mode/aim even with pointer lock and keeps full keyboard control',()=>{
+  const canvas={},pressed=new Set<number>();
+  const simulator=(mode:'mouse'|'keyboard')=>{
+    const state=createFlightState();state.vehicle='heli';state.controlMode=mode;state.aimX=1;state.aimY=.7;state.aimZ=1;
+    const app={graphicsDevice:{canvas},keyboard:{isPressed:(key:number)=>pressed.has(key),wasPressed:()=>false}} as unknown as FlightContext['app'];
+    const ctx={app,state,world:createWorldPhysics([]),plane:{root:new Entity('heli',app),prop:new Entity('prop',app),hitbox:[[0,-1,0]]}} as unknown as FlightContext;
+    return {state,module:createFlightController(ctx)};
+  };
   vi.stubGlobal('document',{pointerLockElement:canvas});
   try {
-    const module=createFlightController(ctx);module.update(.25);expect(state.speed).toBeCloseTo(0,6);expect(state.throttle).toBe(.5);
-    pressed.add(KEY_SHIFT);module.update(.25);expect(state.throttle).toBe(1);expect(state.verticalSpeed).toBeGreaterThan(0);
+    const mouse=simulator('mouse'),keyboard=simulator('keyboard');
+    for(let i=0;i<60;i++){mouse.module.update(1/60);keyboard.module.update(1/60);}
+    expect(mouse.state.speed).toBe(0);expect(mouse.state.heading).toBe(0);expect(mouse.state.throttle).toBe(.5);
+    for(const key of [KEY_W,KEY_D,KEY_Q,KEY_SHIFT])pressed.add(key);
+    for(let i=0;i<120;i++){mouse.state.aimY=Math.sin(i);mouse.module.update(1/60);keyboard.module.update(1/60);}
+    for(const field of ['x','y','z','heading','pitch','roll','speed','verticalSpeed','throttle'] as const)expect(mouse.state[field]).toBeCloseTo(keyboard.state[field],10);
+    expect(mouse.state.speed).toBeGreaterThan(20);expect(mouse.state.throttle).toBe(1);
   } finally {vi.unstubAllGlobals();}
 });
 

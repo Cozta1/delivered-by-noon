@@ -1,6 +1,6 @@
-﻿import { describe, expect, it, vi } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import { Entity, KEY_E, KEY_W, type AppBase } from 'playcanvas';
-import { createWorldPhysics, cityData, airportData, AIRPORT, terrainHeight } from './world-data';
+import { createWorldPhysics, cityData, airportData, AIRPORT, HANGAR, terrainHeight } from './world-data';
 import { CarDynamics } from './car';
 import { FootDynamics } from './foot';
 import { nearestVehicle, vehicleSpawns, createVehicleSystem } from './vehicles';
@@ -18,29 +18,29 @@ const tick=(seconds:number,step:()=>void)=>{for(let i=0;i<seconds*120;i++)step()
 describe('ground world and bodies',()=>{
   it('keeps runway flat, hangar doorway open, helipad supported and swept capsules outside walls',()=>{
     const city=cityData(),airport=airportData(city.helipad),world=createWorldPhysics([...city.boxes,...airport.boxes]);
-    for(const z of [-440,0,440])expect(world.groundAt(AIRPORT.x,z)).toBeCloseTo(AIRPORT.y,8);
-    expect(terrainHeight(AIRPORT.x,0)).toBeCloseTo(AIRPORT.y-.05,8);
+    for(const z of [10,200,AIRPORT.z,700])expect(world.groundAt(AIRPORT.x,z)).toBeCloseTo(AIRPORT.y,8);
+    expect(terrainHeight(AIRPORT.x,AIRPORT.z)).toBeCloseTo(AIRPORT.y-.05,8);
     expect(world.groundAt(city.helipad.x,city.helipad.z)).toBe(city.helipad.y);
-    expect(world.obstacleAt(1470,275,AIRPORT.y,.4,1.8)).toBeUndefined();
-    expect(world.obstacleAt(1450.5,250,AIRPORT.y,.4,1.8)).toBeDefined();
-    const wall=createWorldPhysics([obstacle]);
+    expect(world.obstacleAt((HANGAR.x0+HANGAR.x1)/2,HANGAR.z1-1,AIRPORT.y,.4,1.8)).toBeUndefined();
+    expect(world.obstacleAt(HANGAR.x0+.5,265,AIRPORT.y,.4,1.8)).toBeDefined();
+    const wall=createWorldPhysics([obstacle],3);
     const moved=wall.moveCapsule({x:0,y:3,z:0},100,0,.35,1.8);
     expect(moved.x).toBeLessThan(3.66);
     expect(wall.obstacleAt(5,0,31,.35,1.8)).toBeUndefined();
   });
   it('accelerates to arcade speed, brakes and reverses, and cannot tunnel through a building',()=>{
-    const empty=createWorldPhysics([]),car=new CarDynamics(empty);car.reset(0,3,0,90);
+    const empty=createWorldPhysics([],3),car=new CarDynamics(empty);car.reset(0,3,0,90);
     tick(5,()=>car.step({drive:1,steer:0,handbrake:false},1/120));
     expect(car.speed).toBeGreaterThan(44);expect(car.x).toBeGreaterThan(100);
     tick(1.3,()=>car.step({drive:-1,steer:0,handbrake:false},1/120));
     expect(car.speed).toBeLessThan(5);
     tick(2,()=>car.step({drive:-1,steer:0,handbrake:false},1/120));expect(car.speed).toBeLessThan(-10);
-    const blocked=new CarDynamics(createWorldPhysics([obstacle]));blocked.reset(0,3,0,90);
+    const blocked=new CarDynamics(createWorldPhysics([obstacle],3));blocked.reset(0,3,0,90);
     tick(5,()=>blocked.step({drive:1,steer:0,handbrake:false},1/120));expect(blocked.x).toBeLessThan(1.81);
     expect(blocked.roll).toBe(0);
   });
   it('walks/runs relative to camera, jumps once per press and slides against buildings',()=>{
-    const foot=new FootDynamics(createWorldPhysics([obstacle]));foot.reset(0,3,0,0);
+    const foot=new FootDynamics(createWorldPhysics([obstacle],3));foot.reset(0,3,0,0);
     const input={forward:1,right:0,run:false,jump:false,heading:0};
     tick(1,()=>foot.step(input,1/120));expect(foot.z).toBeCloseTo(-4,2);
     tick(1,()=>foot.step({...input,run:true},1/120));expect(foot.z).toBeCloseTo(-12,2);
@@ -65,8 +65,10 @@ it('spawns an initial car, five variants, A29 and roof heli, with three-dimensio
   const spawns=vehicleSpawns();expect(spawns.filter(s=>s.kind==='car')).toHaveLength(6);
   expect(new Set(spawns.map(s=>s.id)).size).toBe(9);
   expect(new Set(spawns.filter(s=>s.id!=='car-inicial'&&s.kind==='car').map(s=>s.variant))).toEqual(new Set([0,1,2]));
-  expect(nearestVehicle(spawns,38,3,-622)?.id).toBe('car-inicial');
-  expect(nearestVehicle(spawns,38,30,-622)).toBeUndefined();
+  const first=spawns[0];
+  expect(first.id).toBe('car-inicial');
+  expect(nearestVehicle(spawns,first.x,first.y,first.z)?.id).toBe('car-inicial');
+  expect(nearestVehicle(spawns,first.x,first.y+30,first.z)).toBeUndefined();
 });
 
 it('starts inside the car, exits/enters on E edge, refuses fast exit and retains a parked pose',()=>{
@@ -91,7 +93,7 @@ it('starts inside the car, exits/enters on E edge, refuses fast exit and retains
 
 
 it('reaches the roof helipad on foot by the exterior ramp',()=>{
-  const airport=airportData(),world=createWorldPhysics([...cityData().boxes,...airport.boxes]),foot=new FootDynamics(world);
+  const airport=airportData(),world=createWorldPhysics(),foot=new FootDynamics(world);
   const start=airport.access[0];foot.reset(start.x,start.y,start.z,0);
   for(const target of airport.access.slice(1)) {
     let frames=0;
@@ -106,7 +108,7 @@ it('reaches the roof helipad on foot by the exterior ramp',()=>{
 });
 
 it('keeps actual drift speed available while handbraking and contains ground bodies inside the map',()=>{
-  const world=createWorldPhysics([]),car=new CarDynamics(world);car.reset(0,3,0,0);
+  const world=createWorldPhysics([],3),car=new CarDynamics(world);car.reset(0,3,0,0);
   tick(5,()=>car.step({drive:1,steer:0,handbrake:false},1/120));
   tick(1.06,()=>car.step({drive:0,steer:1,handbrake:true},1/120));
   expect(car.speed).toBeLessThan(2);expect(car.movementSpeed).toBeGreaterThan(2);
@@ -123,8 +125,9 @@ it('mission restart resets the moving vehicle, parked poses and all mission prog
   const ctx={app,state,mission:createMissionState(),camera:new Entity('camera',app),world:createWorldPhysics(),plane:{root:plane,prop:plane,exterior:[],materials:[],hitbox:[],wingTips:[plane,plane]}} as unknown as FlightContext;
   const vehicles=createVehicleSystem(ctx),mission=createMissionSystem(ctx);startMission(ctx);
   keys.add(KEY_W);for(let i=0;i<60;i++)vehicles.update(1/60);keys.clear();
-  expect(state.x).toBeGreaterThan(38);ctx.mission!.score=999;ctx.mission!.clockMinutes=120;
-  startMission(ctx);expect(state.x).toBe(38);expect(state.z).toBe(-622);expect(state.speed).toBe(0);expect(state.vehicle).toBe('car');
+  const home=vehicleSpawns()[0];
+  expect(Math.hypot(state.x-home.x,state.z-home.z)).toBeGreaterThan(1);ctx.mission!.score=999;ctx.mission!.clockMinutes=120;
+  startMission(ctx);expect(state.x).toBeCloseTo(home.x,5);expect(state.z).toBeCloseTo(home.z,5);expect(state.speed).toBe(0);expect(state.vehicle).toBe('car');
   expect(ctx.mission!.score).toBe(0);expect(ctx.mission!.clockMinutes).toBe(0);expect(ctx.mission!.delivered).toBe(0);
   mission.destroy?.();vehicles.destroy?.();
 });

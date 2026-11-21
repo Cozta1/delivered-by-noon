@@ -13,7 +13,7 @@ const TARGET_ASSETS = [
     mime: 'model/gltf-binary',
     preferredTypes: ['container', 'scene', 'model'],
   })),
-  ...['a29', 'helicoptero', 'carro-compacto', 'carro-picape', 'carro-esportivo', 'carro-tunado', 'personagem'].map((slug) => ({
+  ...['a29', 'helicoptero', 'carro', 'carro-compacto', 'carro-picape', 'carro-esportivo', 'carro-tunado', 'personagem', 'uniacademia'].map((slug) => ({
     name: `${slug}.glb`,
     relPath: `public/models/${slug}.glb`,
     mime: 'model/gltf-binary',

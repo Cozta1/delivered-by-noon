@@ -229,14 +229,6 @@ function createHeliController({app,world,plane,state}:FlightContext,spawn?:Vehic
       right:Number(!!k?.isPressed(KEY_D))-Number(!!k?.isPressed(KEY_A)),
       yaw:Number(!!k?.isPressed(KEY_E))-Number(!!k?.isPressed(KEY_Q)),
       collective:Number(!!k?.isPressed(KEY_SHIFT))-Number(!!k?.isPressed(KEY_CONTROL))};
-    const canvas=app.graphicsDevice?.canvas;
-    if(state.controlMode==='mouse'&&typeof document!=='undefined'&&document.pointerLockElement===canvas) {
-      const target=Math.atan2(state.aimX,-state.aimZ)*180/Math.PI;
-      const error=((target-body.heading+540)%360)-180;
-      input.yaw=Math.max(-1,Math.min(1,error/45+input.yaw));
-      input.forward=Math.max(-1,Math.min(1,Math.max(0,1-Math.abs(error)/90)*Math.max(0,-state.aimY*3+.25)+input.forward));
-      input.collective=Math.max(-1,Math.min(1,input.collective+Math.max(0,state.aimY)*2));
-    }
     collective=input.collective;
     accumulator+=dt;
     while(accumulator>=FIXED_STEP) {

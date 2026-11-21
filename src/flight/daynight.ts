@@ -326,7 +326,7 @@ export function createDayNight(ctx: FlightContext, sun: Entity): FlightModule {
     }
   }
 
-  // Materiais emissivos da cidade (janelas brilham mais à noite)
+  // Materiais emissivos da cidade (janelas brilham mais à noite) e postes (`world.streetLightMaterial`)
   const cityMats: StandardMaterial[] = [];
   const savedCityEmissive = new Map<StandardMaterial, number>();
   findCityMaterials(app.root, cityMats);
@@ -335,6 +335,9 @@ export function createDayNight(ctx: FlightContext, sun: Entity): FlightModule {
       savedCityEmissive.set(mat, mat.emissiveIntensity);
     }
   }
+
+  const streetLightMat = (world as { streetLightMaterial?: StandardMaterial }).streetLightMaterial ?? null;
+  const savedStreetLightEmissive = streetLightMat ? streetLightMat.emissiveIntensity : null;
 
   const headlights: Entity[] = [];
   let headlightScanTimer = 0;
@@ -397,11 +400,15 @@ export function createDayNight(ctx: FlightContext, sun: Entity): FlightModule {
       camera.camera.clearColor.set(s.fog[0], s.fog[1], s.fog[2], 1);
     }
 
-    // 4) Janelas emissivas da cidade destacam-se à noite
+    // 4) Janelas emissivas da cidade e postes (`world.streetLightMaterial`) destacam-se à noite
     const cityGlow = lerp(0.45, 2.35, s.night);
     for (const mat of savedCityEmissive.keys()) {
       mat.emissiveIntensity = cityGlow;
       mat.update();
+    }
+    if (streetLightMat) {
+      streetLightMat.emissiveIntensity = lerp(0.12, 3.4, s.night);
+      streetLightMat.update();
     }
 
     // 5) Faróis nos carros à noite
@@ -448,6 +455,11 @@ export function createDayNight(ctx: FlightContext, sun: Entity): FlightModule {
         mat.update();
       }
       savedCityEmissive.clear();
+
+      if (streetLightMat && savedStreetLightEmissive !== null) {
+        streetLightMat.emissiveIntensity = savedStreetLightEmissive;
+        streetLightMat.update();
+      }
 
       if (sun.parent) {
         sun.setEulerAngles(prevSunEuler);
