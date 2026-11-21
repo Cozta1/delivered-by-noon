@@ -1,4 +1,16 @@
 import type { MissionState, Stage } from '../types';
+import {
+  clearRecords,
+  formatRecordClock,
+  formatRecordDate,
+  getBestRecord,
+  isRecordStorageAvailable,
+  loadRecords,
+  type RecordEntry,
+  sanitizeInitials,
+  saveRecord,
+  wouldMakeTopRecords,
+} from '../recordes';
 import { CITY_CREDITS } from '../world-data';
 import {
   DEFAULT_SETTINGS,
@@ -121,6 +133,53 @@ export function createGameMenus(
   let hiddenByLoading = false;
   let settings: GameSettings = { ...initialSettings };
   let stageBannerTimer: ReturnType<typeof setTimeout> | null = null;
+  let lastSavedInitials = 'GOP';
+  let pendingWinRecord: {
+    finishMinutes: number;
+    score: number;
+    delivered: number;
+    total: number;
+  } | null = null;
+
+  function createLeaderboardBox() {
+    const root = node('div', 'menu-leaderboard');
+    const lbHeader = node('div', 'menu-lb-header');
+    lbHeader.append(node('span', 'menu-lb-title', 'Melhores entregadores'), node('span', 'menu-lb-tag', 'TOP 5'));
+    const emptyEl = node(
+      'p',
+      'menu-lb-empty',
+      'Nenhum recorde ainda — conclua todas as entregas antes das 24:00!',
+    );
+    const listEl = node('div', 'menu-lb-list');
+    root.append(lbHeader, emptyEl, listEl);
+
+    return {
+      root,
+      render(records: readonly RecordEntry[], highlightId?: string | null) {
+        listEl.textContent = '';
+        emptyEl.hidden = records.length > 0;
+        listEl.hidden = records.length === 0;
+        for (let i = 0; i < records.length; i++) {
+          const entry = records[i];
+          const isNew = Boolean(highlightId && entry.id === highlightId);
+          const row = node('div', isNew ? 'menu-lb-row is-new' : 'menu-lb-row');
+          const meta = node('span', 'menu-lb-meta');
+          meta.append(document.createTextNode(`${entry.delivered}/${entry.total} · ${formatRecordDate(entry.dateIso)}`));
+          if (isNew) {
+            meta.append(node('span', 'menu-lb-new-badge', 'Novo recorde!'));
+          }
+          row.append(
+            node('span', 'menu-lb-rank', `#${i + 1}`),
+            node('span', 'menu-lb-initials', entry.initials),
+            node('span', 'menu-lb-clock', formatRecordClock(entry.finishMinutes)),
+            node('span', 'menu-lb-score', `${entry.score.toLocaleString('pt-BR')} pts`),
+            meta,
+          );
+          listEl.append(row);
+        }
+      },
+    };
+  }
 
   const overlay = node('div', 'menu-overlay menu-overlay--title');
   const card = node('div', 'menu-card');
@@ -163,7 +222,8 @@ export function createGameMenus(
   btnReturnTitle.type = 'button';
 
   actions.append(btnPrimary, btnPresentation, btnRestart, btnOptions, btnControls, btnCredits, btnReturnTitle);
-  mainView.append(header, actions);
+  const titleLeaderboard = createLeaderboardBox();
+  mainView.append(header, actions, titleLeaderboard.root);
 
   // --- Tela de História (antes de começar o turno) ---
   const storyView = node('div', 'menu-view menu-subview');
@@ -327,13 +387,50 @@ export function createGameMenus(
     makeStat('Estágio', statStageVal),
   );
 
+  const recordForm = node('div', 'menu-record-form');
+  recordForm.hidden = true;
+  const recordFormHead = node('div', 'menu-record-form-head', '★ Novo recorde! Digite suas 3 iniciais');
+  const recordFormRow = node('div', 'menu-record-form-row');
+  const initialsInput = document.createElement('input');
+  initialsInput.type = 'text';
+  initialsInput.className = 'menu-initials-input';
+  initialsInput.maxLength = 3;
+  initialsInput.placeholder = 'GOP';
+  initialsInput.setAttribute('aria-label', 'Iniciais do jogador (3 letras)');
+  const btnSaveRecord = node('button', 'menu-btn menu-btn--primary menu-record-save-btn', 'Salvar recorde');
+  btnSaveRecord.type = 'button';
+  recordFormRow.append(initialsInput, btnSaveRecord);
+  recordForm.append(recordFormHead, recordFormRow);
+
+  const recordNote = node('p', 'menu-record-note', '');
+  recordNote.hidden = true;
+
+  const lossGoalBox = node('div', 'menu-loss-goal');
+  lossGoalBox.hidden = true;
+  const lossGoalMissing = node('div', 'menu-loss-goal-missing', '');
+  const lossGoalTarget = node('div', 'menu-loss-goal-target', '');
+  lossGoalBox.append(lossGoalMissing, lossGoalTarget);
+
+  const resultLeaderboard = createLeaderboardBox();
+  resultLeaderboard.root.hidden = true;
+
   const resultActions = node('div', 'menu-actions');
   const btnPlayAgain = node('button', 'menu-btn menu-btn--primary', 'Jogar de novo');
   btnPlayAgain.type = 'button';
   const btnResultTitle = node('button', 'menu-btn menu-btn--ghost', 'Voltar ao início');
   btnResultTitle.type = 'button';
   resultActions.append(btnPlayAgain, btnResultTitle);
-  resultView.append(resultEyebrow, resultTitle, resultMsg, resultStats, resultActions);
+  resultView.append(
+    resultEyebrow,
+    resultTitle,
+    resultMsg,
+    resultStats,
+    recordForm,
+    recordNote,
+    lossGoalBox,
+    resultLeaderboard.root,
+    resultActions,
+  );
 
   // --- Subtela: Opções ---
   const optionsView = node('div', 'menu-view menu-subview');
@@ -472,13 +569,30 @@ export function createGameMenus(
     (v) => patchSettings({ quality: v }),
   );
 
+  const clearRecordsBox = node('div', 'menu-clear-records-box');
+  const btnClearRecords = node('button', 'menu-btn menu-btn--ghost', 'Apagar recordes');
+  btnClearRecords.type = 'button';
+  const clearConfirmBar = node('div', 'menu-confirm-bar');
+  clearConfirmBar.hidden = true;
+  const clearConfirmText = node('span', 'menu-confirm-text', 'Apagar todos os recordes salvos neste navegador?');
+  const clearConfirmActions = node('div', 'menu-confirm-actions');
+  const btnClearConfirm = node('button', 'menu-btn menu-btn--danger', 'Confirmar');
+  btnClearConfirm.type = 'button';
+  const btnClearCancel = node('button', 'menu-btn menu-btn--ghost', 'Cancelar');
+  btnClearCancel.type = 'button';
+  clearConfirmActions.append(btnClearConfirm, btnClearCancel);
+  clearConfirmBar.append(clearConfirmText, clearConfirmActions);
+  const clearFeedback = node('span', 'menu-clear-feedback', '');
+  clearFeedback.hidden = true;
+  clearRecordsBox.append(btnClearRecords, clearConfirmBar, clearFeedback);
+
   const optFooter = node('div', 'menu-sub-footer');
   const btnResetDefaults = node('button', 'menu-btn menu-btn--ghost', 'Restaurar padrões');
   btnResetDefaults.type = 'button';
   const btnOptBack = node('button', 'menu-btn menu-btn--primary', 'Voltar');
   btnOptBack.type = 'button';
   optFooter.append(btnResetDefaults, btnOptBack);
-  optionsView.append(optTitle, optList, optFooter);
+  optionsView.append(optTitle, optList, clearRecordsBox, optFooter);
 
   // --- Subtela: Controles ---
   const controlsView = node('div', 'menu-view menu-subview');
@@ -531,6 +645,43 @@ export function createGameMenus(
     stageBanner.hidden = true;
   }
 
+  function resetClearRecordsUi(hideFeedback = true) {
+    clearConfirmBar.hidden = true;
+    btnClearRecords.hidden = false;
+    if (hideFeedback) clearFeedback.hidden = true;
+  }
+
+  function refreshTitleLeaderboard() {
+    titleLeaderboard.render(loadRecords(), null);
+  }
+
+  function commitPendingRecord() {
+    if (!pendingWinRecord) return;
+    const raw = initialsInput.value;
+    const initials = sanitizeInitials(raw);
+    lastSavedInitials = initials;
+    const res = saveRecord({
+      initials,
+      finishMinutes: pendingWinRecord.finishMinutes,
+      score: pendingWinRecord.score,
+      delivered: pendingWinRecord.delivered,
+      total: pendingWinRecord.total,
+    });
+    pendingWinRecord = null;
+    recordForm.hidden = true;
+    resultLeaderboard.render(res.records, res.entry?.id ?? null);
+    refreshTitleLeaderboard();
+    if (!res.saved) {
+      recordNote.textContent = 'Armazenamento do navegador indisponível — resultado não salvo.';
+      recordNote.hidden = false;
+    } else if (res.rank === null) {
+      recordNote.textContent = 'Fora do top 5 — termine mais cedo para entrar nos Melhores entregadores!';
+      recordNote.hidden = false;
+    } else {
+      recordNote.hidden = true;
+    }
+  }
+
   function syncOptionInputs() {
     masterCtrl.setValue(settings.masterVolume);
     musicCtrl.setValue(settings.musicVolume);
@@ -572,6 +723,8 @@ export function createGameMenus(
       btnControls.textContent = 'Controles';
       btnCredits.hidden = false;
       btnReturnTitle.hidden = true;
+      titleLeaderboard.root.hidden = false;
+      if (screen === 'main') refreshTitleLeaderboard();
     } else if (mode === 'paused') {
       eyebrow.textContent = 'DELIVERED BY MIDNIGHT · GOPOSTAL';
       titleEl.textContent = 'PAUSADO';
@@ -584,8 +737,54 @@ export function createGameMenus(
       btnControls.textContent = 'Rever controles';
       btnCredits.hidden = true;
       btnReturnTitle.hidden = false;
+      titleLeaderboard.root.hidden = true;
     }
   }
+
+  initialsInput.addEventListener('input', () => {
+    const clean = initialsInput.value
+      .normalize('NFD')
+      .replace(/[\u0300-\u036f]/g, '')
+      .toUpperCase()
+      .replace(/[^A-Z0-9]/g, '')
+      .slice(0, 3);
+    if (initialsInput.value !== clean) initialsInput.value = clean;
+  });
+
+  initialsInput.addEventListener('keydown', (e) => {
+    e.stopPropagation();
+    if (e.key === 'Enter') {
+      e.preventDefault();
+      callbacks.onButtonClick(true);
+      commitPendingRecord();
+    }
+  });
+
+  btnSaveRecord.addEventListener('click', () => {
+    callbacks.onButtonClick(true);
+    commitPendingRecord();
+  });
+
+  btnClearRecords.addEventListener('click', () => {
+    callbacks.onButtonClick();
+    clearFeedback.hidden = true;
+    btnClearRecords.hidden = true;
+    clearConfirmBar.hidden = false;
+  });
+
+  btnClearCancel.addEventListener('click', () => {
+    callbacks.onButtonClick();
+    resetClearRecordsUi(true);
+  });
+
+  btnClearConfirm.addEventListener('click', () => {
+    callbacks.onButtonClick(true);
+    const ok = clearRecords();
+    resetClearRecordsUi(false);
+    clearFeedback.textContent = ok ? 'Recordes apagados.' : 'Armazenamento indisponível.';
+    clearFeedback.hidden = false;
+    refreshTitleLeaderboard();
+  });
 
   btnPrimary.addEventListener('click', () => {
     callbacks.onButtonClick(true);
@@ -637,6 +836,7 @@ export function createGameMenus(
 
   btnPlayAgain.addEventListener('click', () => {
     callbacks.onButtonClick(true);
+    commitPendingRecord();
     callbacks.onRestart();
   });
 
@@ -644,6 +844,7 @@ export function createGameMenus(
     callbacks.onButtonClick();
     screen = 'options';
     syncOptionInputs();
+    resetClearRecordsUi(true);
     renderView();
   });
 
@@ -666,6 +867,7 @@ export function createGameMenus(
 
   btnResultTitle.addEventListener('click', () => {
     callbacks.onButtonClick();
+    commitPendingRecord();
     callbacks.onReturnTitle();
   });
 
@@ -676,6 +878,7 @@ export function createGameMenus(
 
   const goMain = () => {
     callbacks.onButtonClick();
+    resetClearRecordsUi(true);
     screen = 'main';
     renderView();
   };
@@ -690,6 +893,8 @@ export function createGameMenus(
     setMode(nextMode: GameMode) {
       mode = nextMode;
       if (nextMode !== 'ended') {
+        pendingWinRecord = null;
+        resetClearRecordsUi(true);
         screen = 'main';
       }
       renderView();
@@ -703,6 +908,7 @@ export function createGameMenus(
     },
     back() {
       if (screen !== 'main' && screen !== 'result') {
+        resetClearRecordsUi(true);
         screen = 'main';
         renderView();
         return true;
@@ -732,8 +938,13 @@ export function createGameMenus(
       clearStageBanner();
       mode = 'ended';
       screen = 'result';
+      pendingWinRecord = null;
+      recordForm.hidden = true;
+      recordNote.hidden = true;
+      lossGoalBox.hidden = true;
+      resultLeaderboard.root.hidden = true;
+
       const remaining = Math.max(0, mission.total - mission.delivered);
-      const recordNote = presentationMode ? ' (Modo apresentação: sem registro de recorde.)' : '';
 
       resultView.className = `menu-view menu-subview menu-result--${outcome}`;
       if (outcome === 'won') {
@@ -741,7 +952,40 @@ export function createGameMenus(
           ? 'MODO APRESENTAÇÃO · MISSÃO CUMPRIDA!'
           : 'GOPOSTAL · MISSÃO CUMPRIDA!';
         resultTitle.textContent = 'MISSÃO CUMPRIDA!';
-        resultMsg.textContent = `Michael De Santa, o patrão, aprovou o serviço: todas as ${mission.delivered} entregas da GoPostal chegaram às ${formatClock(mission.clockMinutes)}!${recordNote}`;
+        resultMsg.textContent = `Michael De Santa, o patrão, aprovou o serviço: todas as ${mission.delivered} entregas da GoPostal chegaram às ${formatClock(mission.clockMinutes)}!`;
+
+        const currentRecords = loadRecords();
+        resultLeaderboard.root.hidden = false;
+        resultLeaderboard.render(currentRecords, null);
+
+        if (presentationMode) {
+          recordNote.textContent = 'Modo apresentação: este resultado não grava recordes.';
+          recordNote.hidden = false;
+        } else if (!isRecordStorageAvailable()) {
+          recordNote.textContent = 'Armazenamento do navegador indisponível — o jogo continua sem recorde.';
+          recordNote.hidden = false;
+        } else {
+          const finishMinutes = Math.max(0, Math.min(1440, Math.floor(mission.clockMinutes)));
+          if (wouldMakeTopRecords({ finishMinutes, score: mission.score, delivered: mission.delivered }, currentRecords)) {
+            pendingWinRecord = {
+              finishMinutes,
+              score: mission.score,
+              delivered: mission.delivered,
+              total: mission.total,
+            };
+            initialsInput.value = lastSavedInitials;
+            recordForm.hidden = false;
+            setTimeout(() => {
+              if (!recordForm.hidden) {
+                initialsInput.focus();
+                initialsInput.select();
+              }
+            }, 0);
+          } else {
+            recordNote.textContent = 'Fora do top 5 — termine mais cedo para entrar nos Melhores entregadores!';
+            recordNote.hidden = false;
+          }
+        }
       } else {
         resultEyebrow.textContent = presentationMode
           ? 'MODO APRESENTAÇÃO · MEIA-NOITE!'
@@ -749,8 +993,23 @@ export function createGameMenus(
         resultTitle.textContent = 'MEIA-NOITE!';
         resultMsg.textContent =
           remaining === 1
-            ? `Meia-noite! Faltou 1 entrega — Michael De Santa, o patrão, quer respawn no relógio!${recordNote}`
-            : `Meia-noite! Faltaram ${remaining} entregas — Michael De Santa, o patrão, quer respawn no relógio!${recordNote}`;
+            ? 'Meia-noite! Faltou 1 entrega — Michael De Santa, o patrão, quer respawn no relógio!'
+            : `Meia-noite! Faltaram ${remaining} entregas — Michael De Santa, o patrão, quer respawn no relógio!`;
+
+        lossGoalMissing.textContent =
+          remaining === 1
+            ? 'Faltou apenas 1 entrega para fechar o turno.'
+            : `Faltaram ${remaining} entregas para fechar o turno.`;
+        const best = getBestRecord();
+        lossGoalTarget.textContent = best
+          ? `Meta — Melhor resultado até agora: ${best.initials} · ${formatRecordClock(best.finishMinutes)} · ${best.score.toLocaleString('pt-BR')} pts (${best.delivered}/${best.total})`
+          : `Meta: entregue todas as ${mission.total} encomendas antes das 24:00 para inaugurar o placar!`;
+        lossGoalBox.hidden = false;
+
+        if (presentationMode) {
+          recordNote.textContent = 'Modo apresentação: este modo não grava recordes.';
+          recordNote.hidden = false;
+        }
       }
 
       statTimeVal.textContent = formatClock(outcome === 'lost' ? 1440 : mission.clockMinutes);
