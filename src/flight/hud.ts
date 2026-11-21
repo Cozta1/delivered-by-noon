@@ -13,7 +13,7 @@ import {
   type VehicleKind,
 } from './types';
 import { getRuntime } from './ui/settings';
-import { AIRPORT, CITY, WORLD_SIZE, cityLayout, terrainHeight } from './world-data';
+import { AIRPORT, cityLayout, terrainHeight } from './world-data';
 
 type AlertState = 'none' | 'stall' | 'crashed';
 
@@ -68,20 +68,73 @@ const FOOTER_BY_VEHICLE: Record<VehicleKind, string> = {
 
 const PROJECTION_DIST = 500;
 
-// Dimensões da planta pré-renderizada do minimapa (uma única vez por sessão)
-const MAP_WORLD_MIN_X = -WORLD_SIZE * 0.5;
-const MAP_WORLD_MIN_Z = -WORLD_SIZE * 0.5;
-const MAP_WORLD_SPAN = WORLD_SIZE;
+// Dimensões da planta pré-renderizada do minimapa de Juiz de Fora (uma única vez por sessão)
 const MAP_CANVAS_PX = 1024;
-const MAP_PX_PER_M = MAP_CANVAS_PX / MAP_WORLD_SPAN;
+
+interface MinimapLandmark {
+  name: string;
+  x: number;
+  z: number;
+  highlight?: boolean;
+}
 
 interface MinimapBlueprint {
   canvas: HTMLCanvasElement;
+  minX: number;
+  minZ: number;
+  spanX: number;
+  spanZ: number;
+  pxPerMX: number;
+  pxPerMZ: number;
   helipad: { x: number; z: number };
   workshop: { x: number; z: number };
+  runwayCenter: { x: number; z: number };
+  landmarks: MinimapLandmark[];
 }
 
 let cachedBlueprint: MinimapBlueprint | null = null;
+
+function traceFlatPolygon(
+  g: CanvasRenderingContext2D,
+  pts: ReadonlyArray<number>,
+  wx: (x: number) => number,
+  wz: (z: number) => number,
+): boolean {
+  if (pts.length < 6) return false;
+  g.beginPath();
+  g.moveTo(wx(pts[0]), wz(pts[1]));
+  for (let i = 2; i + 1 < pts.length; i += 2) {
+    g.lineTo(wx(pts[i]), wz(pts[i + 1]));
+  }
+  g.closePath();
+  return true;
+}
+
+function strokeFlatLines(
+  g: CanvasRenderingContext2D,
+  lines: ReadonlyArray<ReadonlyArray<number>>,
+  wx: (x: number) => number,
+  wz: (z: number) => number,
+): void {
+  g.beginPath();
+  for (let i = 0; i < lines.length; i++) {
+    const line = lines[i];
+    if (line.length < 4) continue;
+    g.moveTo(wx(line[0]), wz(line[1]));
+    for (let j = 2; j + 1 < line.length; j += 2) {
+      g.lineTo(wx(line[j]), wz(line[j + 1]));
+    }
+  }
+  g.stroke();
+}
+
+const ROAD_STYLE: Record<string, { color: string; casing?: string; minPx: number; scale: number }> = {
+  tertiary: { color: '#455466', minPx: 1.0, scale: 0.72 },
+  secondary: { color: '#697a8e', minPx: 1.5, scale: 0.8 },
+  primary: { color: '#99aab9', casing: 'rgba(12, 18, 26, 0.75)', minPx: 2.1, scale: 0.86 },
+  trunk: { color: '#cfa96b', casing: 'rgba(14, 18, 24, 0.85)', minPx: 2.7, scale: 0.92 },
+  motorway: { color: '#ebb054', casing: 'rgba(16, 18, 24, 0.92)', minPx: 3.3, scale: 0.98 },
+};
 
 function buildMinimapBlueprint(): MinimapBlueprint | null {
   if (cachedBlueprint) return cachedBlueprint;
@@ -94,135 +147,160 @@ function buildMinimapBlueprint(): MinimapBlueprint | null {
   if (!g) return null;
 
   const layout = cityLayout();
-  const wx = (x: number) => (x - MAP_WORLD_MIN_X) * MAP_PX_PER_M;
-  const wz = (z: number) => (z - MAP_WORLD_MIN_Z) * MAP_PX_PER_M;
-  const ws = (m: number) => m * MAP_PX_PER_M;
+  const minX = layout.bounds.x0;
+  const minZ = layout.bounds.z0;
+  const spanX = Math.max(1, layout.bounds.x1 - layout.bounds.x0);
+  const spanZ = Math.max(1, layout.bounds.z1 - layout.bounds.z0);
+  const pxPerMX = MAP_CANVAS_PX / spanX;
+  const pxPerMZ = MAP_CANVAS_PX / spanZ;
+  const pxPerM = (pxPerMX + pxPerMZ) * 0.5;
+  const wx = (x: number) => (x - minX) * pxPerMX;
+  const wz = (z: number) => (z - minZ) * pxPerMZ;
+  const ws = (m: number) => m * pxPerM;
 
-  // 1) Mar de fundo
-  g.fillStyle = '#0c2336';
+  // 1) Fundo de terreno de Juiz de Fora (sem mar) com sombreamento topográfico suave
+  g.fillStyle = '#14201b';
   g.fillRect(0, 0, MAP_CANVAS_PX, MAP_CANVAS_PX);
 
-  // 2) Continente recortado pela linha costeira real (`layout.coastline`)
-  if (layout.coastline.length > 1) {
-    g.beginPath();
-    g.moveTo(wx(layout.coastline[0].x), 0);
-    for (let i = 0; i < layout.coastline.length; i++) {
-      g.lineTo(wx(layout.coastline[i].x), wz(layout.coastline[i].z));
-    }
-    g.lineTo(wx(layout.coastline[layout.coastline.length - 1].x), 0);
-    g.closePath();
-    g.fillStyle = '#142622';
-    g.fill();
-
-    // Faixa sutil de praia ao longo da costa
-    g.strokeStyle = 'rgba(214, 190, 140, 0.45)';
-    g.lineWidth = 3.2;
-    g.beginPath();
-    for (let i = 0; i < layout.coastline.length; i++) {
-      const px = wx(layout.coastline[i].x);
-      const pz = wz(layout.coastline[i].z);
-      if (i === 0) g.moveTo(px, pz);
-      else g.lineTo(px, pz);
-    }
-    g.stroke();
-  } else {
-    g.fillStyle = '#142622';
-    g.fillRect(0, 0, MAP_CANVAS_PX, wz(540));
-  }
-
-  // Relevo suave de montanhas ao norte/oeste (amostragem grossa, executada 1 única vez)
-  const step = 120;
-  for (let z = MAP_WORLD_MIN_Z; z < 500; z += step) {
-    for (let x = MAP_WORLD_MIN_X; x < MAP_WORLD_MIN_X + MAP_WORLD_SPAN; x += step) {
-      if (x > CITY.x0 - 40 && x < CITY.x1 + 40 && z > CITY.z0 - 40 && z < CITY.z1 + 40) continue;
-      const h = terrainHeight(x, z);
-      if (h > 26) {
-        const a = Math.min(0.24, (h - 26) / 380);
-        g.fillStyle = `rgba(116, 152, 134, ${a.toFixed(3)})`;
-        g.fillRect(wx(x), wz(z), ws(step) + 1, ws(step) + 1);
+  const reliefStep = 90;
+  const cellW = reliefStep * pxPerMX + 1;
+  const cellH = reliefStep * pxPerMZ + 1;
+  for (let z = minZ; z < layout.bounds.z1; z += reliefStep) {
+    for (let x = minX; x < layout.bounds.x1; x += reliefStep) {
+      const h = terrainHeight(x + reliefStep * 0.5, z + reliefStep * 0.5);
+      if (h > 35) {
+        const a = Math.min(0.28, (h - 35) / 360);
+        g.fillStyle = h > 135 ? `rgba(148, 160, 146, ${a.toFixed(3)})` : `rgba(88, 128, 102, ${a.toFixed(3)})`;
+        g.fillRect(wx(x), wz(z), cellW, cellH);
       }
     }
   }
 
-  // 3) Base de asfalto e grade real de ruas (`layout.asphalt` e `layout.roads`)
-  g.fillStyle = '#202630';
-  g.fillRect(
-    wx(layout.asphalt.x0),
-    wz(layout.asphalt.z0),
-    ws(layout.asphalt.x1 - layout.asphalt.x0),
-    ws(layout.asphalt.z1 - layout.asphalt.z0),
-  );
-
-  // Quarteirões (calçadas)
-  g.fillStyle = '#2c3542';
-  for (let i = 0; i < layout.blocks.length; i++) {
-    const b = layout.blocks[i];
-    g.fillRect(wx(b.x0), wz(b.z0), ws(b.x1 - b.x0), ws(b.z1 - b.z0));
+  // 2) Polígonos reais: aeroporto, universidades (UFJF), praças/parques e estádios
+  if (traceFlatPolygon(g, layout.airportPolygon, wx, wz)) {
+    g.fillStyle = '#252f38';
+    g.fill();
+    g.strokeStyle = 'rgba(162, 188, 212, 0.35)';
+    g.lineWidth = 1.2;
+    g.stroke();
   }
 
-  // Ruas principais e faixa tracejada central
-  g.fillStyle = '#181e27';
-  for (let i = 0; i < layout.roads.length; i++) {
-    const r = layout.roads[i];
-    g.fillRect(wx(r.x0), wz(r.z0), ws(r.x1 - r.x0), ws(r.z1 - r.z0));
-  }
-  g.strokeStyle = 'rgba(225, 198, 120, 0.22)';
-  g.lineWidth = 0.7;
-  g.beginPath();
-  for (let i = 0; i < layout.roads.length; i++) {
-    const r = layout.roads[i];
-    if (r.axis === 'z') {
-      const mx = wx((r.x0 + r.x1) * 0.5);
-      g.moveTo(mx, wz(r.z0));
-      g.lineTo(mx, wz(r.z1));
-    } else {
-      const mz = wz((r.z0 + r.z1) * 0.5);
-      g.moveTo(wx(r.x0), mz);
-      g.lineTo(wx(r.x1), mz);
+  g.fillStyle = '#1b473e';
+  g.strokeStyle = 'rgba(110, 214, 186, 0.45)';
+  g.lineWidth = 1.1;
+  for (let i = 0; i < layout.universityPolygons.length; i++) {
+    if (traceFlatPolygon(g, layout.universityPolygons[i].pts, wx, wz)) {
+      g.fill();
+      g.stroke();
     }
   }
-  g.stroke();
 
-  // 4) Parques
-  g.fillStyle = '#1e5038';
-  g.strokeStyle = 'rgba(96, 206, 146, 0.35)';
-  g.lineWidth = 0.9;
-  for (let i = 0; i < layout.parks.length; i++) {
-    const p = layout.parks[i];
-    const px = wx(p.x0);
-    const pz = wz(p.z0);
-    const pw = ws(p.x1 - p.x0);
-    const ph = ws(p.z1 - p.z0);
-    g.fillRect(px, pz, pw, ph);
-    g.strokeRect(px, pz, pw, ph);
+  g.fillStyle = '#1c5636';
+  g.strokeStyle = 'rgba(98, 212, 142, 0.48)';
+  g.lineWidth = 1.0;
+  for (let i = 0; i < layout.parkPolygons.length; i++) {
+    if (traceFlatPolygon(g, layout.parkPolygons[i].pts, wx, wz)) {
+      g.fill();
+      g.stroke();
+    }
   }
 
-  // 5) Planta real de cada prédio (`layout.buildings`), sombreada por altura
+  g.fillStyle = '#245e3b';
+  g.strokeStyle = 'rgba(222, 232, 238, 0.72)';
+  g.lineWidth = 1.5;
+  for (let i = 0; i < layout.stadiumPolygons.length; i++) {
+    if (traceFlatPolygon(g, layout.stadiumPolygons[i].pts, wx, wz)) {
+      g.fill();
+      g.stroke();
+    }
+  }
+
+  // 3) Planta dos prédios (desenhada abaixo das vias para manter a malha viária nítida)
   for (let i = 0; i < layout.buildings.length; i++) {
     const b = layout.buildings[i];
-    const hNorm = Math.max(0, Math.min(1, (b.top - 10) / 180));
-    const lum = Math.round(74 + hNorm * 64);
-    g.fillStyle = `rgb(${lum - 8}, ${lum}, ${lum + 14})`;
-    g.fillRect(wx(b.x0), wz(b.z0), Math.max(1.2, ws(b.x1 - b.x0)), Math.max(1.2, ws(b.z1 - b.z0)));
+    const hNorm = Math.max(0, Math.min(1, (b.top - 10) / 140));
+    const lum = Math.round(62 + hNorm * 58);
+    g.fillStyle = `rgba(${lum - 6}, ${lum + 2}, ${lum + 14}, 0.72)`;
+    g.fillRect(wx(b.x0), wz(b.z0), Math.max(1.1, (b.x1 - b.x0) * pxPerMX), Math.max(1.1, (b.z1 - b.z0) * pxPerMZ));
   }
 
-  // 6) Pista do aeroporto (`layout.runway`)
-  const rwX = wx(layout.runway.x0);
-  const rwZ = wz(layout.runway.z0);
-  const rwW = Math.max(4, ws(layout.runway.x1 - layout.runway.x0));
-  const rwH = Math.max(14, ws(layout.runway.z1 - layout.runway.z0));
-  g.fillStyle = '#475160';
-  g.fillRect(rwX, rwZ, rwW, rwH);
+  // 4) Rio Paraibuna (`layout.river`)
+  if (layout.river.lines.length > 0) {
+    g.lineCap = 'round';
+    g.lineJoin = 'round';
+    const riverW = Math.max(2.8, ws(layout.river.width));
+    g.strokeStyle = 'rgba(42, 138, 184, 0.34)';
+    g.lineWidth = riverW + 2.4;
+    strokeFlatLines(g, layout.river.lines, wx, wz);
+    g.strokeStyle = '#32a8d2';
+    g.lineWidth = riverW;
+    strokeFlatLines(g, layout.river.lines, wx, wz);
+  }
+
+  // 5) Malha viária real por categoria (`layout.roadLines`, da menor à maior)
+  g.lineCap = 'round';
+  g.lineJoin = 'round';
+  for (let i = layout.roadLines.length - 1; i >= 0; i--) {
+    const group = layout.roadLines[i];
+    if (group.lines.length === 0) continue;
+    const style = ROAD_STYLE[group.category] ?? ROAD_STYLE.tertiary;
+    const widthPx = Math.max(style.minPx, ws(group.width * style.scale));
+    if (style.casing) {
+      g.strokeStyle = style.casing;
+      g.lineWidth = widthPx + 1.5;
+      strokeFlatLines(g, group.lines, wx, wz);
+    }
+    g.strokeStyle = style.color;
+    g.lineWidth = widthPx;
+    strokeFlatLines(g, group.lines, wx, wz);
+  }
+
+  // 6) Pista real do Aeroporto da Serrinha (`layout.runwayLine`, orientada pelo rumo real)
+  const { a: rA, b: rB, width: rwWidthM } = layout.runwayLine;
+  const rAx = wx(rA.x);
+  const rAz = wz(rA.z);
+  const rBx = wx(rB.x);
+  const rBz = wz(rB.z);
+  const rwPx = Math.max(4.6, ws(rwWidthM));
+  g.lineCap = 'butt';
+  g.strokeStyle = '#111822';
+  g.lineWidth = rwPx + 2;
+  g.beginPath();
+  g.moveTo(rAx, rAz);
+  g.lineTo(rBx, rBz);
+  g.stroke();
+  g.strokeStyle = '#5c697b';
+  g.lineWidth = rwPx;
+  g.beginPath();
+  g.moveTo(rAx, rAz);
+  g.lineTo(rBx, rBz);
+  g.stroke();
   g.strokeStyle = '#ffd58a';
   g.lineWidth = 1.2;
   g.setLineDash([4, 3]);
   g.beginPath();
-  g.moveTo(rwX + rwW * 0.5, rwZ + 4);
-  g.lineTo(rwX + rwW * 0.5, rwZ + rwH - 4);
+  g.moveTo(rAx, rAz);
+  g.lineTo(rBx, rBz);
   g.stroke();
   g.setLineDash([]);
 
-  // 7) Oficina do Coupé Tunado (`layout.workshop`)
+  // 7) Lote da UniAcademia em destaque dourado na planta (`layout.landmarks.uniacademia`)
+  const uni = layout.landmarks.uniacademia;
+  g.save();
+  g.translate(wx(uni.x), wz(uni.z));
+  g.rotate((uni.heading * Math.PI) / 180);
+  const uniW = Math.max(7, uni.width * pxPerMX);
+  const uniD = Math.max(5.5, uni.depth * pxPerMZ);
+  g.fillStyle = 'rgba(255, 210, 74, 0.32)';
+  g.fillRect(-uniW * 0.5 - 3, -uniD * 0.5 - 3, uniW + 6, uniD + 6);
+  g.fillStyle = '#f5c542';
+  g.strokeStyle = '#fff6c2';
+  g.lineWidth = 1.5;
+  g.fillRect(-uniW * 0.5, -uniD * 0.5, uniW, uniD);
+  g.strokeRect(-uniW * 0.5, -uniD * 0.5, uniW, uniD);
+  g.restore();
+
+  // 8) Oficina do Coupé Tunado (`layout.workshop`)
   const wkX = wx(layout.workshop.x);
   const wkZ = wz(layout.workshop.z);
   g.fillStyle = 'rgba(42, 26, 12, 0.9)';
@@ -231,7 +309,7 @@ function buildMinimapBlueprint(): MinimapBlueprint | null {
   g.fillRect(wkX - 5, wkZ - 5, 10, 10);
   g.strokeRect(wkX - 5, wkZ - 5, 10, 10);
 
-  // 8) Heliponto (`layout.helipad`)
+  // 9) Heliponto (`layout.helipad`)
   const hpX = wx(layout.helipad.x);
   const hpZ = wz(layout.helipad.z);
   g.beginPath();
@@ -242,10 +320,28 @@ function buildMinimapBlueprint(): MinimapBlueprint | null {
   g.lineWidth = 1.4;
   g.stroke();
 
+  const runwayCenter = { x: (rA.x + rB.x) * 0.5, z: (rA.z + rB.z) * 0.5 };
+  const landmarks: MinimapLandmark[] = [
+    { name: 'Centro', x: layout.landmarks.centro.x, z: layout.landmarks.centro.z },
+    { name: 'UFJF', x: layout.landmarks.ufjf.x, z: layout.landmarks.ufjf.z },
+    { name: 'Cristo', x: layout.landmarks.cristo.x, z: layout.landmarks.cristo.z },
+    { name: 'Estádio', x: layout.landmarks.estadio.x, z: layout.landmarks.estadio.z },
+    { name: 'Aeroporto', x: runwayCenter.x, z: runwayCenter.z },
+    { name: 'UniAcademia', x: uni.x, z: uni.z, highlight: true },
+  ];
+
   cachedBlueprint = {
     canvas,
+    minX,
+    minZ,
+    spanX,
+    spanZ,
+    pxPerMX,
+    pxPerMZ,
     helipad: { x: layout.helipad.x, z: layout.helipad.z },
     workshop: { x: layout.workshop.x, z: layout.workshop.z },
+    runwayCenter,
+    landmarks,
   };
   return cachedBlueprint;
 }
@@ -457,7 +553,7 @@ export function createHud(ctx: FlightContext, uiRoot?: HTMLElement | null): Flig
   minimapCanvas.className = 'hud-minimap-canvas';
   minimapCanvas.width = 176;
   minimapCanvas.height = 176;
-  const minimapTag = el('div', 'hud-minimap-tag', 'MAPA');
+  const minimapTag = el('div', 'hud-minimap-tag', 'JUIZ DE FORA');
   minimapWrap.append(minimapCanvas, minimapTag);
   const mapCtx = minimapCanvas.getContext('2d');
 
@@ -575,7 +671,11 @@ export function createHud(ctx: FlightContext, uiRoot?: HTMLElement | null): Flig
     }
     if (nextStage === 'tuned' && blueprint) return { stage: nextStage, x: blueprint.workshop.x, z: blueprint.workshop.z };
     if (nextStage === 'heli' && blueprint) return { stage: nextStage, x: blueprint.helipad.x, z: blueprint.helipad.z };
-    if (nextStage === 'a29') return { stage: nextStage, x: AIRPORT.x, z: 410 };
+    if (nextStage === 'a29') {
+      return blueprint
+        ? { stage: nextStage, x: blueprint.runwayCenter.x, z: blueprint.runwayCenter.z }
+        : { stage: nextStage, x: AIRPORT.x, z: AIRPORT.z };
+    }
     return null;
   }
 
@@ -632,20 +732,74 @@ export function createHud(ctx: FlightContext, uiRoot?: HTMLElement | null): Flig
     const cosH = Math.cos(hRad);
     const sinH = Math.sin(hRad);
 
-    // Fundo marinho caso o recorte gire além das bordas
-    mapCtx.fillStyle = '#0c2336';
+    // Fundo de relevo caso o recorte gire além das bordas
+    mapCtx.fillStyle = '#14201b';
     mapCtx.fillRect(0, 0, size, size);
 
-    // 1) Planta pré-renderizada da cidade girando e centralizando no jogador
+    // 1) Planta pré-renderizada de Juiz de Fora girando e centralizando no jogador
     if (blueprint) {
       mapCtx.save();
       mapCtx.translate(half, half);
       mapCtx.rotate(-hRad);
-      const drawScale = scale / MAP_PX_PER_M;
-      const ox = -((state.x - MAP_WORLD_MIN_X) * MAP_PX_PER_M) * drawScale;
-      const oz = -((state.z - MAP_WORLD_MIN_Z) * MAP_PX_PER_M) * drawScale;
-      const drawSize = MAP_CANVAS_PX * drawScale;
-      mapCtx.drawImage(blueprint.canvas, ox, oz, drawSize, drawSize);
+      const drawW = blueprint.spanX * scale;
+      const drawH = blueprint.spanZ * scale;
+      const ox = -(state.x - blueprint.minX) * scale;
+      const oz = -(state.z - blueprint.minZ) * scale;
+      mapCtx.drawImage(blueprint.canvas, ox, oz, drawW, drawH);
+      mapCtx.restore();
+
+      // 1b) Marcos de Juiz de Fora em texto sempre horizontal (com UniAcademia destacada)
+      const uniPulse = 0.5 + 0.5 * Math.sin(animPhase * 4.2);
+      mapCtx.save();
+      mapCtx.textAlign = 'center';
+      mapCtx.textBaseline = 'bottom';
+      mapCtx.lineJoin = 'round';
+      for (let i = 0; i < blueprint.landmarks.length; i++) {
+        const lm = blueprint.landmarks[i];
+        const p = worldToRotatedMap(lm.x, lm.z, scale, cosH, sinH, half);
+        if (p.x < 10 || p.x > size - 10 || p.y < 14 || p.y > size - 10) continue;
+
+        if (lm.highlight) {
+          // UniAcademia: estrela/losango dourado pulsante + rótulo dourado em destaque
+          mapCtx.beginPath();
+          mapCtx.arc(p.x, p.y, 4.8 + uniPulse * 2.2, 0, Math.PI * 2);
+          mapCtx.strokeStyle = 'rgba(255, 224, 96, 0.85)';
+          mapCtx.lineWidth = 1.3;
+          mapCtx.stroke();
+
+          mapCtx.save();
+          mapCtx.translate(p.x, p.y);
+          mapCtx.rotate(Math.PI / 4);
+          mapCtx.fillStyle = '#ffd84d';
+          mapCtx.strokeStyle = '#1a1204';
+          mapCtx.lineWidth = 1.1;
+          mapCtx.fillRect(-3.4, -3.4, 6.8, 6.8);
+          mapCtx.strokeRect(-3.4, -3.4, 6.8, 6.8);
+          mapCtx.restore();
+
+          mapCtx.font = '800 8.5px system-ui, sans-serif';
+          mapCtx.strokeStyle = 'rgba(8, 12, 18, 0.92)';
+          mapCtx.lineWidth = 2.8;
+          mapCtx.strokeText(lm.name, p.x, p.y - 6);
+          mapCtx.fillStyle = '#ffe26a';
+          mapCtx.fillText(lm.name, p.x, p.y - 6);
+        } else {
+          mapCtx.beginPath();
+          mapCtx.arc(p.x, p.y, 2.2, 0, Math.PI * 2);
+          mapCtx.fillStyle = '#d6e4f0';
+          mapCtx.fill();
+          mapCtx.strokeStyle = '#0b121c';
+          mapCtx.lineWidth = 0.8;
+          mapCtx.stroke();
+
+          mapCtx.font = '700 7.5px system-ui, sans-serif';
+          mapCtx.strokeStyle = 'rgba(8, 12, 18, 0.86)';
+          mapCtx.lineWidth = 2.4;
+          mapCtx.strokeText(lm.name, p.x, p.y - 4);
+          mapCtx.fillStyle = 'rgba(232, 240, 248, 0.92)';
+          mapCtx.fillText(lm.name, p.x, p.y - 4);
+        }
+      }
       mapCtx.restore();
     }
 

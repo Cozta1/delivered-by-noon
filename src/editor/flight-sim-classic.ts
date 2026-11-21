@@ -1,25 +1,129 @@
 // Versão CLÁSSICA (pc.createScript) do script do Editor. O Editor do projeto do usuário
-// não listou o script ESM (.mjs) no componente Script; o formato clássico é lido por ele.
-// Mesmo comportamento de src/editor/flight-sim.ts, incluindo ciclo de vida enable/disable/destroy.
+// lista diretamente o formato clássico (`simuladorVoo`) no componente Script.
+// Mesmo comportamento e atributos de src/editor/flight-sim.ts, com atualização ao vivo (`attr`).
 import type { AppBase } from 'playcanvas';
 import cssText from '../flight.css?inline';
-import { startFlightSim } from '../flight/game';
+import {
+  startFlightSim,
+  type DifficultyLevel,
+  type FlightSimHandle,
+  type FlightSimOptions,
+} from '../flight/game';
 
 type ClassicScript = {
   app: AppBase;
   enabled: boolean;
+  dayDurationMinutes: number;
+  difficulty: DifficultyLevel;
+  mouseSensitivity: number;
+  musicVolume: number;
+  sfxVolume: number;
+  showMinimap: boolean;
+  showFps: boolean;
   on(event: string, fn: () => void, scope?: unknown): void;
   off(event: string, fn: () => void, scope?: unknown): void;
   once(event: string, fn: () => void, scope?: unknown): void;
 };
-declare const pc: { createScript(name: string): { prototype: Record<string, unknown> } };
+
+type ClassicScriptClass = {
+  attributes: {
+    add(name: string, schema: Record<string, unknown>): void;
+  };
+  prototype: Record<string, unknown>;
+};
+
+declare const pc: { createScript(name: string): ClassicScriptClass };
 
 const SimuladorVoo = pc.createScript('simuladorVoo');
+
+SimuladorVoo.attributes.add('dayDurationMinutes', {
+  type: 'number',
+  title: 'Duração do dia (min)',
+  description: 'Quantos minutos reais dura o ciclo completo de 00:00 a 24:00 (padrão: 30).',
+  default: 30,
+  min: 2,
+  max: 60,
+  precision: 0,
+  step: 1,
+});
+
+SimuladorVoo.attributes.add('difficulty', {
+  type: 'string',
+  title: 'Dificuldade',
+  description: 'Ajusta o raio de aceitação das entregas e o tempo disponível até meia-noite.',
+  default: 'normal',
+  enum: [
+    { 'Fácil (+35% raio, +25% tempo)': 'facil' },
+    { 'Normal (padrão)': 'normal' },
+    { 'Difícil (-28% raio, -25% tempo)': 'dificil' },
+  ],
+});
+
+SimuladorVoo.attributes.add('mouseSensitivity', {
+  type: 'number',
+  title: 'Sensibilidade do mouse (A-29)',
+  description: 'Sensibilidade do mouse para a mira de voo do A-29 e rotação de câmera.',
+  default: 0.15,
+  min: 0.05,
+  max: 0.4,
+  precision: 2,
+  step: 0.01,
+});
+
+SimuladorVoo.attributes.add('musicVolume', {
+  type: 'number',
+  title: 'Volume da música',
+  description: 'Volume inicial da trilha sonora dinâmica (0 = mudo, 1 = máximo).',
+  default: 0.45,
+  min: 0,
+  max: 1,
+  precision: 2,
+  step: 0.05,
+});
+
+SimuladorVoo.attributes.add('sfxVolume', {
+  type: 'number',
+  title: 'Volume dos efeitos',
+  description: 'Volume inicial dos efeitos sonoros e motores (0 = mudo, 1 = máximo).',
+  default: 0.8,
+  min: 0,
+  max: 1,
+  precision: 2,
+  step: 0.05,
+});
+
+SimuladorVoo.attributes.add('showMinimap', {
+  type: 'boolean',
+  title: 'Mostrar minimapa',
+  description: 'Exibe ou oculta o minimapa de Juiz de Fora no canto superior direito.',
+  default: true,
+});
+
+SimuladorVoo.attributes.add('showFps', {
+  type: 'boolean',
+  title: 'Mostrar FPS',
+  description: 'Exibe um contador leve de quadros por segundo (FPS) no canto da tela.',
+  default: false,
+});
 
 SimuladorVoo.prototype.initialize = function (this: ClassicScript) {
   let styleEl: HTMLStyleElement | null = null;
   let uiEl: HTMLDivElement | null = null;
-  let sim: { destroy(): void } | null = null;
+  let sim: FlightSimHandle | null = null;
+
+  const readOptions = (): FlightSimOptions => ({
+    dayDurationMinutes: this.dayDurationMinutes,
+    difficulty: this.difficulty,
+    mouseSensitivity: this.mouseSensitivity,
+    musicVolume: this.musicVolume,
+    sfxVolume: this.sfxVolume,
+    showMinimap: this.showMinimap,
+    showFps: this.showFps,
+  });
+
+  const syncOptions = () => {
+    sim?.applyOptions(readOptions());
+  };
 
   const unmount = () => {
     sim?.destroy();
@@ -57,14 +161,16 @@ SimuladorVoo.prototype.initialize = function (this: ClassicScript) {
       return;
     }
 
-    sim = startFlightSim(this.app, ui);
+    sim = startFlightSim(this.app, ui, readOptions());
   };
 
   this.on('disable', unmount);
   this.on('enable', mount);
+  this.on('attr', syncOptions);
   this.once('destroy', () => {
     this.off('disable', unmount);
     this.off('enable', mount);
+    this.off('attr', syncOptions);
     unmount();
   });
 

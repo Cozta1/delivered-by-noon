@@ -108,7 +108,7 @@ function buildCity(
   textures: Texture[],
 ) {
   const city=cityData();
-  const { mesh, boxes: buildings } = city;
+  const { mesh, houses, boxes: buildings } = city;
   const details=cityDetails(city);
   boxes.push(...buildings,...details.boxes);
   const { diffuse, emissive } = windowTextures(app);
@@ -123,6 +123,15 @@ function buildCity(
   m.update();
   materials.push(m);
   meshEntity(parent, 'City', buildMesh(app, mesh), m);
+  const houseMaterial = new StandardMaterial();
+  houseMaterial.diffuseVertexColor = true;
+  houseMaterial.gloss = 0.15;
+  houseMaterial.update();
+  materials.push(houseMaterial);
+  if (houses.pos.length) meshEntity(parent, 'Casas', buildMesh(app, houses), houseMaterial);
+  // Edificação dos bairros (módulo opcional bairros.ts): uma malha com cores de vértice
+  const bairros = Object.values(import.meta.glob<{ bairrosData: () => MeshData }>('./bairros.ts', { eager: true }))[0];
+  if (bairros) meshEntity(parent, 'Bairros', buildMesh(app, bairros.bairrosData()), houseMaterial);
 
   const images=cityStreetImages();
   const makeTexture=(data:ImageData)=>{

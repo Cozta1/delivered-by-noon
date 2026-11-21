@@ -1,6 +1,6 @@
 import { afterEach, expect, it, vi } from 'vitest';
 import { calculateNormals, Entity } from 'playcanvas';
-import { AIRPORT, CITY, CITY_CREDITS, HANGAR, ROAD_CLASSES, UNIACADEMIA, WORKSHOP, airportData, cityData, cityDetails, cityLayout, cityStreetImages, createWorldPhysics, landmarkBoxes, nearestRoad, terrainData, terrainHeight } from './world-data';
+import { AIRPORT, CITY, CITY_CREDITS, HANGAR, ROAD_CLASSES, UNIACADEMIA, WORKSHOP, airportData, cityData, cityDetails, cityLayout, cityStreetImages, createWorldPhysics, deliveryRampData, landmarkBoxes, roadHeightAt, nearestRoad, terrainData, terrainHeight } from './world-data';
 import { buildWorld } from './world';
 import type { FlightContext } from './types';
 
@@ -23,7 +23,7 @@ afterEach(()=>vi.unstubAllGlobals());
 it('builds Juiz de Fora from real data: relief, road categories, river, parks, landmarks and runway',()=>{
   const city=cityData(),layout=cityLayout(),details=cityDetails(city);
   expect(layout.buildings).toEqual(city.boxes);expect(layout.blocks).toEqual(city.blocks);
-  expect(city.boxes.length).toBeGreaterThan(300);expect(city.boxes.length).toBeLessThan(3000);
+  expect(city.boxes.length).toBeGreaterThan(300);expect(city.boxes.length).toBeLessThan(6000);
   expect(layout.roadLines.map(r=>r.category)).toEqual([...ROAD_CLASSES]);
   for(const road of layout.roadLines)expect(road.lines.length).toBeGreaterThan(0);
   expect(layout.river.lines.length).toBeGreaterThan(0);expect(layout.parkPolygons.length).toBeGreaterThan(10);
@@ -91,4 +91,13 @@ it('exposes the actual batched emissive street material without creating dynamic
   expect((lamp.render!.meshInstances[0] as unknown as {material:unknown}).material).toBe(world.streetLightMaterial);
   expect(root.findComponents('light')).toHaveLength(0);
   expect(root.children.filter(c=>c.name.startsWith('Cidade - '))).toHaveLength(3);
+});
+
+it('lays roads at the shared physics height and aligns the three tuned ramps with axes and relief',()=>{
+  const world=createWorldPhysics(),road=nearestRoad(0,-1300,3)!;
+  expect(roadHeightAt(road.x,road.z)).toBeGreaterThanOrEqual(terrainHeight(road.x,road.z));
+  expect(world.groundAt(road.x,road.z)).toBeCloseTo(roadHeightAt(road.x,road.z),8);
+  for(const w of cityDetails().meshes.roads.pos.slice(0,300).filter((_,i)=>i%3===0)) expect(Number.isFinite(w)).toBe(true);
+  const ramps=deliveryRampData();expect(ramps.ramps).toHaveLength(3);expect(ramps.boxes.every(b=>b.ramp&&b.top>b.bottom!)).toBe(true);
+  for(const r of ramps.ramps){expect(r.x0===r.x1||r.z0===r.z1).toBe(true);expect(r.y1).toBeGreaterThan(r.y0+3.9);}
 });

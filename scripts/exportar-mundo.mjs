@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict';
+import { existsSync } from 'node:fs';
 import { mkdir, writeFile } from 'node:fs/promises';
 import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -135,7 +136,7 @@ function scene(name) {
     assert(json.buffers.every((b) => !b.uri));
     assert((json.images ?? []).every((i) => i.bufferView !== undefined && !i.uri));
     for (const view of json.bufferViews) assert((view.byteOffset ?? 0) + view.byteLength <= json.buffers[view.buffer].byteLength);
-    if(file==='mundo-cidade.glb')assert(bytes.length<2_300_000,`City exceeds 2.3 MB: ${bytes.length} bytes`);
+    if(file==='mundo-cidade.glb')assert(bytes.length<2_750_000,`City exceeds 2.75 MB: ${bytes.length} bytes`);
     outputs.push({ file: resolve(root, 'public/models', file), bytes });
   }
   return { rootNode, mesh, material, texture, node, output };
@@ -161,6 +162,7 @@ assert.deepEqual(data.windowImages(), data.windowImages(), 'Windows must be dete
     .setBaseColorTexture(s.texture('Janelas - difuso', images.diffuse))
     .setEmissiveTexture(s.texture('Janelas - emissivo', images.emissive));
   s.node(s.rootNode, 'Predios', s.mesh('Predios', { ...city.mesh, normals: null }, facade));
+  if (city.houses.pos.length) s.node(s.rootNode, 'Casas', s.mesh('Casas', { ...city.houses, normals: null }, s.material('Casas', [1, 1, 1], 0.15)));
   const details=data.cityDetails(city),streetImages=data.cityStreetImages();
   // shortcut: PlayCanvas regenerates detail normals; export them if another viewer needs authored smoothing.
   for(const name of ['roads','ground','props','lamps']) {
@@ -170,6 +172,15 @@ assert.deepEqual(data.windowImages(), data.windowImages(), 'Windows must be dete
     s.node(s.rootNode,name,s.mesh(name,{...details.meshes[name],normals:null},material));
   }
   await s.output('mundo-cidade.glb', [['Fachadas', { KHR_materials_emissive_strength: { emissiveStrength: 1.6 } }],['Lampadas dos postes',{KHR_materials_emissive_strength:{emissiveStrength:1.8}}]]);
+}
+// Módulo opcional dos bairros (Gemini): exporta bairrosData() como mundo-bairros.glb quando o arquivo existir
+const bairrosFile = resolve(root, 'src/flight/bairros.ts');
+if (existsSync(bairrosFile)) {
+  const b = await build({ configFile: false, logLevel: 'silent', root, build: { write: false, lib: { entry: bairrosFile, formats: ['es'] }, minify: false } });
+  const bairros = await import(`data:text/javascript;base64,${Buffer.from((Array.isArray(b) ? b[0] : b).output[0].code).toString('base64')}`);
+  const s = scene('Bairros');
+  s.node(s.rootNode, 'Bairros', s.mesh('Bairros', { ...bairros.bairrosData(), normals: null }, s.material('Bairros', [1, 1, 1], 0.15)));
+  await s.output('mundo-bairros.glb');
 }
 {
   const s = scene('Mar');

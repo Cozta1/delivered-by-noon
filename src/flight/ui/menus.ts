@@ -1,4 +1,5 @@
 import type { MissionState, Stage } from '../types';
+import { CITY_CREDITS } from '../world-data';
 import {
   DEFAULT_SETTINGS,
   type GameMode,
@@ -380,9 +381,10 @@ export function createGameMenus(
   const credBody = node('div', 'menu-credits-body');
   const creditEntries: ReadonlyArray<[string, string]> = [
     ['Equipe', 'João Victor da Costa, Gabriel Monteiro, Rafael Lima Henriques, Lucas Tostes'],
+    ['Mapa e relevo (Juiz de Fora)', CITY_CREDITS],
     ['Física de voo', 'Física baseada no JSBSim (LGPL-2.1)'],
     ['Motor gráfico', 'PlayCanvas'],
-    ['Modelos 3D', 'Modelos feitos no Blender (A-29, helicóptero, Hatch, Coupé Tunado, carros e personagem)'],
+    ['Modelos 3D', 'Modelos feitos no Blender (A-29, helicóptero, Hatch, Coupé Tunado, carros, UniAcademia e personagem)'],
     ['Homenagens (texto)', 'GoPostal, Michael De Santa (o patrão) e entregas com nomes em homenagem a clássicos dos games'],
     ['Áudio e interface', 'Trilha dinâmica, efeitos procedurais, ciclo dia/noite e HUD em Web Audio API'],
   ];

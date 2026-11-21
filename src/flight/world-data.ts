@@ -130,6 +130,20 @@ export function nearestRoad(x: number, z: number, maxClass = 3, minDistance = 0)
   return undefined;
 }
 
+/** Via (não o rio) mais próxima dentro de `maxD` m do eixo; usado para aplainar o terreno sob as ruas. */
+function roadNear(x: number, z: number, maxD: number) {
+  const gx = Math.floor(x / HASH), gz = Math.floor(z / HASH);
+  let best: { d: number; px: number; pz: number; half: number } | undefined;
+  for (let a = -1; a <= 1; a++) for (let b = -1; b <= 1; b++) {
+    for (const sg of segmentGrid.get(hashKey(gx + a, gz + b)) ?? []) {
+      if (sg.cls === RIVER_CLS) continue;
+      const { d, t } = distToSegment(sg, x, z);
+      if (d < maxD && (!best || d < best.d)) best = { d, px: sg.x0 + (sg.x1 - sg.x0) * t, pz: sg.z0 + (sg.z1 - sg.z0) * t, half: sg.half };
+    }
+  }
+  return best;
+}
+
 // ---------------------------------------------------------------------------
 // Pista, marcos e lotes planos
 // ---------------------------------------------------------------------------
@@ -198,6 +212,9 @@ const heightGrid = (() => {
   for (let j = 0; j < GRID_N; j++) for (let i = 0; i < GRID_N; i++) {
     const x = -GRID_HALF + i * GRID_STEP, z = -GRID_HALF + j * GRID_STEP;
     let h = g[j * GRID_N + i];
+    // ruas: o terreno sob a via e ao lado dela assume a altura do eixo (corte/aterro suave nas bordas)
+    const rn = roadNear(x, z, 60);
+    if (rn) { const cw = 1 - smoothstep(rn.half, rn.half + 26, rn.d); h = h * (1 - cw) + rawHeight(rn.px, rn.pz) * cw; }
     // pista: faixa plana de 150 m de largura, com transição suave nas bordas
     const { s, l } = runwayFrame(x, z);
     const ds = Math.max(-50 - s, 0, s - RWY_LEN - 50), dl = Math.max(Math.abs(l) - 75, 0), d = Math.hypot(ds, dl);
@@ -289,15 +306,111 @@ const inAnyArea = (x: number, z: number) => allAreas.some((p) => inside(p, x, z)
 // ---------------------------------------------------------------------------
 // Prédios: lotes procedurais ao longo das vias, mais altos no Centro
 // ---------------------------------------------------------------------------
+// ---------------------------------------------------------------------------
+// Ruas encostadas no relevo: nível por estação (centro e bordas) e altura da superfície para a física
+// ---------------------------------------------------------------------------
+const MAX_STEP = 8, BEVEL = 1.5;
+interface Station { x: number; z: number; s: number; h: number }
+interface RoadWay { cls: number; half: number; st: Station[] }
+interface RoadSegH { x0: number; z0: number; h0: number; x1: number; z1: number; h1: number; half: number }
+let netCache: { ways: RoadWay[]; grid: Map<number, RoadSegH[]> } | undefined;
+function roadNet() {
+  if (netCache) return netCache;
+  const ways: RoadWay[] = [], grid = new Map<number, RoadSegH[]>();
+  for (let c = 0; c < ROAD_CLASSES.length; c++) (jf.vias[ROAD_CLASSES[c]] as number[][]).forEach((way, wi) => {
+    const half = stripWidth(c) / 2, pts: { x: number; z: number; s: number }[] = []; let acc = 0;
+    for (let i = 0; i + 3 < way.length; i += 2) {
+      const ax = way[i], az = way[i + 1], bx = way[i + 2], bz = way[i + 3], len = Math.hypot(bx - ax, bz - az), n = Math.max(1, Math.ceil(len / (c === 4 ? 12 : MAX_STEP)));
+      for (let k = i ? 1 : 0; k <= n; k++) pts.push({ x: ax + (bx - ax) * k / n, z: az + (bz - az) * k / n, s: acc + len * k / n });
+      acc += len;
+    }
+    if (pts.length < 2) return;
+    const raw = pts.map((p, i) => {
+      const a = pts[Math.max(0, i - 1)], b = pts[Math.min(pts.length - 1, i + 1)], len = Math.hypot(b.x - a.x, b.z - a.z) || 1;
+      const nx = -(b.z - a.z) / len * half, nz = (b.x - a.x) / len * half;
+      return Math.max(terrainHeight(p.x, p.z), terrainHeight(p.x + nx, p.z + nz), terrainHeight(p.x - nx, p.z - nz));
+    });
+    const st = pts.map((p, i) => ({ ...p, h: Math.max(raw[Math.max(0, i - 1)], raw[i], raw[Math.min(pts.length - 1, i + 1)]) + LIFT[c] + (wi % 4) * .006 }));
+    ways.push({ cls: c, half, st });
+    const reach = half + BEVEL;
+    for (let i = 0; i + 1 < st.length; i++) {
+      const sg: RoadSegH = { x0: st[i].x, z0: st[i].z, h0: st[i].h, x1: st[i + 1].x, z1: st[i + 1].z, h1: st[i + 1].h, half };
+      for (let gx = Math.floor((Math.min(sg.x0, sg.x1) - reach) / HASH); gx <= Math.floor((Math.max(sg.x0, sg.x1) + reach) / HASH); gx++) {
+        for (let gz = Math.floor((Math.min(sg.z0, sg.z1) - reach) / HASH); gz <= Math.floor((Math.max(sg.z0, sg.z1) + reach) / HASH); gz++) {
+          const k = hashKey(gx, gz); let l = grid.get(k); if (!l) grid.set(k, l = []); l.push(sg);
+        }
+      }
+    }
+  });
+  return netCache = { ways, grid };
+}
+/** Altura do asfalto em (x, z) para a física (com chanfro de 1,5 m nas bordas); -Infinity fora das ruas. */
+export function roadHeightAt(x: number, z: number) {
+  let best = -Infinity;
+  const list = roadNet().grid.get(hashKey(Math.floor(x / HASH), Math.floor(z / HASH)));
+  if (!list) return best;
+  const terrain = terrainHeight(x, z);
+  for (const sg of list) {
+    const dx = sg.x1 - sg.x0, dz = sg.z1 - sg.z0, len2 = dx * dx + dz * dz;
+    const t = len2 ? Math.max(0, Math.min(1, ((x - sg.x0) * dx + (z - sg.z0) * dz) / len2)) : 0;
+    const d = Math.hypot(x - sg.x0 - dx * t, z - sg.z0 - dz * t);
+    if (d > sg.half + BEVEL) continue;
+    const h = sg.h0 + (sg.h1 - sg.h0) * t;
+    if (h <= terrain) continue;
+    best = Math.max(best, terrain + (h - terrain) * (d <= sg.half ? 1 : 1 - (d - sg.half) / BEVEL));
+  }
+  return best;
+}
+
+// ---------------------------------------------------------------------------
+// Rampas do carro tunado: perto das entregas do estágio "tuned", alinhadas aos eixos e ao relevo
+// ---------------------------------------------------------------------------
+export interface RampDef { name: string; x0: number; z0: number; x1: number; z1: number; y0: number; y1: number }
+let rampCache: RampDef[] | undefined;
+function rampSites(): RampDef[] {
+  return rampCache ??= ([['salvaterra', 'Rampa do Salvaterra'], ['cristo', 'Rampa do Mirante'], ['estadio', 'Rampa do Estádio']] as const).map(([place, name]) => {
+    const stop = nearestRoad(jf.marcos[place][0], jf.marcos[place][1], 3)!;
+    let best: RoadPoint | undefined, bestD = Infinity;
+    for (let r = 0; r <= 260; r += 12) {
+      for (let k = 0, n = Math.max(1, Math.round(r / 12) * 6); k < n; k++) {
+        const a = k / n * Math.PI * 2, rp = nearestRoad(stop.x + Math.cos(a) * r, stop.z + Math.sin(a) * r, 3);
+        if (!rp || rp.distance > 3) continue;
+        const m = rp.heading % 90, off = Math.min(m, 90 - m);
+        if (off > 9 || gapToRoads(rp.x, rp.z) > -1) continue;
+        const d = Math.hypot(rp.x - stop.x, rp.z - stop.z);
+        if (d < bestD && Math.abs(terrainHeight(rp.x, rp.z) - terrainHeight(rp.x + 22, rp.z)) < 3 && Math.abs(terrainHeight(rp.x, rp.z) - terrainHeight(rp.x, rp.z + 22)) < 3) { best = rp; bestD = d; }
+      }
+    }
+    const p = best ?? stop;
+    const axis = Math.round(p.heading / 90) % 4, dirs = [[0, -1], [1, 0], [0, 1], [-1, 0]];
+    let [dx, dz] = dirs[axis];
+    if (terrainHeight(p.x + dx * 40, p.z + dz * 40) > terrainHeight(p.x - dx * 40, p.z - dz * 40)) { dx = -dx; dz = -dz; }
+    const x1 = p.x + dx * 22, z1 = p.z + dz * 22, y0 = Math.max(terrainHeight(p.x, p.z), roadHeightAt(p.x, p.z));
+    return { name, x0: p.x, z0: p.z, x1, z1, y0, y1: Math.max(y0 + 4, terrainHeight(x1, z1) + 2) };
+  });
+}
+
+// ---------------------------------------------------------------------------
+// Prédios e casas: lotes procedurais ao longo das vias, mais densos e altos perto do Centro
+// ---------------------------------------------------------------------------
 export type CityData = ReturnType<typeof buildCity>;
 let cityCache: CityData | undefined;
 /** Resultado memorizado (determinístico): quem recebe não deve alterá-lo. */
 export function cityData(): CityData { return cityCache ??= buildCity(); }
 
+const WALLS = ['#f1e7d3', '#e6d3b3', '#d9c8a9', '#f4f0e6', '#c9b79a', '#e8c9a0', '#b9c4b0', '#cfd8dc', '#e5d0d0', '#d6b98c'].map(hex);
+const ROOFS = ['#b4452f', '#a63d2a', '#c25a3a', '#933a2b', '#b8502f'].map(hex);
+const SLAB = hex('#8e9399');
+/** Se `src/flight/bairros.ts` (bairrosData(): MeshData) existir, ele desenha as casas dos bairros e as casas procedurais daqui ficam desligadas. */
+export const HAS_BAIRROS = Object.keys(import.meta.glob('./bairros.ts')).length > 0;
+/** Fator de ocupação dos lotes: mantém o GLB da cidade perto de 2,5 MB. */
+const HOUSE_DENSITY = 2.2;
+
 function buildCity() {
   const boxes: Box[] = [];
   const r = rng(2024);
   const pos: number[] = [], col: number[] = [], uv: number[] = [], idx: number[] = [];
+  const hp: number[] = [], hc: number[] = [], hi: number[] = [];
   const ROOF_UV = 0.5 / TEX_WINDOWS;
   const hash = new Map<number, Box[]>();
   const put = (b: Box) => {
@@ -312,9 +425,10 @@ function buildCity() {
     }
     return false;
   };
+  const corners = (x0: number, x1: number, z0: number, z1: number) => [terrainHeight(x0, z0), terrainHeight(x1, z0), terrainHeight(x0, z1), terrainHeight(x1, z1)];
   const addBuilding = (x: number, z: number, w: number, d: number, h: number, c: number[]) => {
     const x0 = x - w / 2, x1 = x + w / 2, z0 = z - d / 2, z1 = z + d / 2;
-    const heights = [terrainHeight(x0, z0), terrainHeight(x1, z0), terrainHeight(x0, z1), terrainHeight(x1, z1)];
+    const heights = corners(x0, x1, z0, z1);
     const y0 = Math.min(...heights) - 1, y1 = Math.max(...heights) + h;
     const shade = 0.85 + r() * 0.3;
     const [cr, cg, cb] = c.map((v) => Math.min(255, v * shade));
@@ -337,6 +451,22 @@ function buildCity() {
     put(box);
     return box;
   };
+  /** Casa leve: 13 vértices (base, beiral de parede, beiral de telhado, cumeeira); laje plana quando `flat`. */
+  const addHouse = (x: number, z: number, w: number, d: number, floors: number, wall: number[], roof: number[], flat: boolean) => {
+    const x0 = x - w / 2, x1 = x + w / 2, z0 = z - d / 2, z1 = z + d / 2;
+    const heights = corners(x0, x1, z0, z1);
+    const y0 = Math.min(...heights) - .8, eave = Math.max(...heights) + floors * 3.2, apex = flat ? eave + .3 : eave + Math.min(w, d) * .28;
+    const ring = [[x0, z1], [x1, z1], [x1, z0], [x0, z0]], base = hp.length / 3;
+    for (const [px, pz] of ring) { hp.push(px, y0, pz); hc.push(wall[0], wall[1], wall[2], 255); }
+    for (const [px, pz] of ring) { hp.push(px, eave, pz); hc.push(wall[0], wall[1], wall[2], 255); }
+    for (const [px, pz] of ring) { hp.push(px, eave, pz); hc.push(roof[0], roof[1], roof[2], 255); }
+    hp.push(x, apex, z); hc.push(roof[0], roof[1], roof[2], 255);
+    for (let i = 0; i < 4; i++) {
+      const j = (i + 1) % 4;
+      hi.push(base + i, base + j, base + 4 + j, base + i, base + 4 + j, base + 4 + i, base + 8 + i, base + 8 + j, base + 12);
+    }
+    put({ x0, x1, z0, z1, top: apex, bottom: y0 });
+  };
 
   // Torre do heliponto: prédio alto do Centro, com rampa externa até a laje
   const tower = addBuilding(TOWER_SPOT.x, TOWER_SPOT.z, 26, 26, 46, hex('#9aa3b5'));
@@ -345,28 +475,37 @@ function buildCity() {
   const RESERVED = [
     { x: UNI_LOT.x, z: UNI_LOT.z, r: 62 }, { x: WORKSHOP_SPOT.x, z: WORKSHOP_SPOT.z, r: 26 }, { x: CRISTO.x, z: CRISTO.z, r: 34 },
   ];
-  const PITCH = 34;
+  const ramps = rampSites().map((q) => ({ x0: Math.min(q.x0, q.x1) - 10, x1: Math.max(q.x0, q.x1) + 10, z0: Math.min(q.z0, q.z1) - 10, z1: Math.max(q.z0, q.z1) + 10 }));
+  let houses = 0;
+  const PITCH = 20;
   for (let gz = -2900; gz <= 2900; gz += PITCH) {
     for (let gx = -2900; gx <= 2900; gx += PITCH) {
-      const cx = gx + (r() - 0.5) * 14, cz = gz + (r() - 0.5) * 14;
-      const roll = r(), sizeRoll = r(), heightRoll = r(), facade = Math.floor(r() * FACADES.length);
+      const cx = gx + (r() - 0.5) * 8, cz = gz + (r() - 0.5) * 8;
+      const roll = r(), kindRoll = r(), sizeRoll = r(), sizeRoll2 = r(), heightRoll = r(), colorRoll = r(), roofRoll = r(), flatRoll = r();
       const gap = gapToRoads(cx, cz);
-      if (gap < 7 || gap > 44) continue;
-      const dc = dcCentro(cx, cz);
-      if (roll > 0.14 + 0.78 * Math.exp(-((dc / 1500) ** 2))) continue;
-      if (inAnyArea(cx, cz) || RESERVED.some((q) => Math.hypot(cx - q.x, cz - q.z) < q.r)) continue;
+      if (gap < 5.5 || (gap > 58 && !(gap === Infinity && dcCentro(cx, cz) < 1100))) continue; // miolo dos quarteirões do Centro
+      const dc = dcCentro(cx, cz), elev = terrainHeight(cx, cz);
+      const density = (0.14 + 0.95 * Math.exp(-((dc / 1500) ** 2))) * (1 - 0.85 * smoothstep(70, 200, elev)) * HOUSE_DENSITY;
+      if (roll > density) continue;
+      if (inAnyArea(cx, cz) || RESERVED.some((q) => Math.hypot(cx - q.x, cz - q.z) < q.r) || ramps.some((q) => cx > q.x0 && cx < q.x1 && cz > q.z0 && cz < q.z1)) continue;
       const { s, l } = runwayFrame(cx, cz);
       if (s > -120 && s < RWY_LEN + 120 && Math.abs(l) < 140) continue;
-      const downtown = dc < 650, mid = dc < 1400, tall = Math.exp(-((dc / 380) ** 2));
-      const w = downtown ? 18 + sizeRoll * 10 : mid ? 12 + sizeRoll * 8 : 9 + sizeRoll * 5;
-      const d = downtown ? 18 + ((sizeRoll * 7) % 1) * 10 : mid ? 12 + ((sizeRoll * 7) % 1) * 8 : 9 + ((sizeRoll * 7) % 1) * 5;
-      const h = downtown ? 14 + heightRoll * 20 + tall * (20 + heightRoll * 40) : mid ? 8 + heightRoll * 10 : 4.5 + heightRoll * 3.5;
+      const isTower = dc < 1250 && kindRoll < (dc < 650 ? 0.55 : 0.2);
+      if (HAS_BAIRROS && !isTower) continue;
+      const w = isTower ? (dc < 650 ? 16 + sizeRoll * 12 : 14 + sizeRoll * 8) : 11 + sizeRoll * 8;
+      const d = isTower ? (dc < 650 ? 16 + sizeRoll2 * 12 : 14 + sizeRoll2 * 8) : 11 + sizeRoll2 * 8;
       const x0 = cx - w / 2, x1 = cx + w / 2, z0 = cz - d / 2, z1 = cz + d / 2;
       if (overlaps(x0, x1, z0, z1)) continue;
       if ([[x0, z0], [x1, z0], [x0, z1], [x1, z1]].some(([px, pz]) => gapToRoads(px, pz) < 2.5)) continue;
-      const hs = [terrainHeight(x0, z0), terrainHeight(x1, z0), terrainHeight(x0, z1), terrainHeight(x1, z1)];
-      if (Math.max(...hs) - Math.min(...hs) > 3.6) continue;
-      addBuilding(cx, cz, w, d, h, FACADES[facade]);
+      const hs = corners(x0, x1, z0, z1);
+      if (Math.max(...hs) - Math.min(...hs) > 3.2) continue;
+      if (isTower) {
+        const tall = Math.exp(-((dc / 380) ** 2));
+        addBuilding(cx, cz, w, d, dc < 650 ? 14 + heightRoll * 20 + tall * (20 + heightRoll * 40) : 9 + heightRoll * 11, FACADES[Math.floor(colorRoll * FACADES.length)]);
+      } else {
+        addHouse(cx, cz, w, d, 1 + Math.floor(heightRoll * (dc < 900 ? 3.99 : 2.99)), WALLS[Math.floor(colorRoll * WALLS.length)], flatRoll < 0.28 ? SLAB : ROOFS[Math.floor(roofRoll * ROOFS.length)], flatRoll < 0.28);
+        houses++;
+      }
     }
   }
 
@@ -379,7 +518,7 @@ function buildCity() {
     if (!c) cells.set(k, { x0: b.x0, x1: b.x1, z0: b.z0, z1: b.z1, top: b.top });
     else { c.x0 = Math.min(c.x0, b.x0); c.x1 = Math.max(c.x1, b.x1); c.z0 = Math.min(c.z0, b.z0); c.z1 = Math.max(c.z1, b.z1); c.top = Math.max(c.top, b.top); }
   }
-  return { mesh: geometry(pos, idx, col, uv), boxes, parks, blocks: [...cells.values()], helipad, tower };
+  return { mesh: geometry(pos, idx, col, uv), houses: geometry(hp, hi, hc), houseCount: houses, boxes, parks, blocks: [...cells.values()], helipad, tower };
 }
 
 export function windowImages() {
@@ -550,6 +689,7 @@ export function createWorldPhysics(boxes?: Box[], flatGround?: number) {
   }
   function surfaceAt(x: number, z: number, ceiling = Infinity) {
     let h = Math.max(flatGround ?? terrainHeight(x, z), 0);
+    if (flatGround === undefined) h = Math.max(h, roadHeightAt(x, z));
     if (isRunway(x, z) || (x >= HANGAR.x0 && x <= HANGAR.x1 && z >= HANGAR.z0 && z <= HANGAR.z1)) h = Math.max(h, AIRPORT.y);
     for (const b of nearby(x, z)) if (insideBox(b, x, z) && boxTop(b, x, z) <= ceiling) h = Math.max(h, boxTop(b, x, z));
     return h;
@@ -631,12 +771,20 @@ export function roadStop(name: keyof typeof jf.marcos, maxClass = 3) {
 export const MARCOS = jf.marcos;
 export const CITY_CREDITS = jf.creditos;
 
-/** Pad da oficina (decoração e área livre); sem rampas na versão Juiz de Fora. */
+/** Pad da oficina e as rampas de salto do carro tunado (perto das entregas "tuned", alinhadas ao relevo). */
 export function deliveryRampData() {
   const { x, y, z } = WORKSHOP;
   const parts: WorldPart[] = [{ name: 'Oficina do Parafuso Perdido', mesh: geometry([x-7,y+.04,z+7,x+7,y+.04,z+7,x+7,y+.04,z-7,x-7,y+.04,z-7],
     [0,1,2,0,2,3], Array.from({ length: 4 }, () => [235,165,65,255]).flat()) }];
-  return { ramps: [] as { name: string; x0: number; z0: number; x1: number; z1: number; y0: number; y1: number }[], boxes: [] as Box[], parts };
+  const ramps = rampSites(), boxes: Box[] = [];
+  for (const q of ramps) {
+    const dx = q.x1 - q.x0, dz = q.z1 - q.z0, len = Math.hypot(dx, dz), px = dz / len * 6, pz = -dx / len * 6;
+    parts.push({ name: q.name, mesh: geometry([q.x0+px,q.y0,q.z0+pz,q.x0-px,q.y0,q.z0-pz,q.x1-px,q.y1,q.z1-pz,q.x1+px,q.y1,q.z1+pz],
+      [0,1,2,0,2,3], Array.from({ length: 4 }, () => [230,145,45,255]).flat()) });
+    boxes.push({ x0: Math.min(q.x0, q.x1) - Math.abs(px), x1: Math.max(q.x0, q.x1) + Math.abs(px), z0: Math.min(q.z0, q.z1) - Math.abs(pz), z1: Math.max(q.z0, q.z1) + Math.abs(pz),
+      top: q.y1, bottom: q.y0 - .12, ramp: q });
+  }
+  return { ramps, boxes, parts };
 }
 
 export type StreetRect = Box & { axis: 'x' | 'z' };
@@ -712,11 +860,10 @@ export function cityDetails(city = cityData()) {
     boxes.push({ x0: x - r, x1: x + r, z0: z - r, z1: z + r, top, bottom, radius: r, x, z });
   }
 
-  // Faixa de via (asfalto + calçadas) colada ao relevo, com estações a cada <= 8 m
-  const MAX_STEP = 8;
-  interface Station { x: number; z: number; s: number }
+  // Rio: faixa colada ao relevo (as ruas usam roadNet(), com nível por estação)
+  interface RStation { x: number; z: number; s: number }
   function stations(way: number[]) {
-    const out: Station[] = []; let s = 0;
+    const out: RStation[] = []; let s = 0;
     for (let i = 0; i + 3 < way.length; i += 2) {
       const ax = way[i], az = way[i + 1], bx = way[i + 2], bz = way[i + 3], len = Math.hypot(bx - ax, bz - az), n = Math.max(1, Math.ceil(len / MAX_STEP));
       for (let k = i ? 1 : 0; k <= n; k++) out.push({ x: ax + (bx - ax) * k / n, z: az + (bz - az) * k / n, s: s + len * k / n });
@@ -737,9 +884,19 @@ export function cityDetails(city = cityData()) {
     for (let i = 0; i + 1 < st.length; i++) { const l0 = i * 2, r0 = l0 + 1, l1 = l0 + 2, r1 = l0 + 3; idx.push(l0, l1, r0, r0, l1, r1); }
     shape(batchName, pos, idx, color, textured ? uv : undefined);
   }
-  // categorias menores primeiro; as maiores ficam por cima (altura levemente maior)
-  for (let c = ROAD_CLASSES.length - 1; c >= 0; c--) {
-    (jf.vias[ROAD_CLASSES[c]] as number[][]).forEach((way, i) => ribbon('roads', way, stripWidth(c), LIFT[c] + (i % 4) * .006, [255, 255, 255], true));
+  // categorias menores primeiro; faixa plana na lateral, com o nível calculado por estação (nunca abaixo do terreno)
+  const net = roadNet();
+  for (let c = ROAD_CLASSES.length - 1; c >= 0; c--) for (const w of net.ways) {
+    if (w.cls !== c) continue;
+    const pos: number[] = [], uv: number[] = [], idx: number[] = [];
+    for (let i = 0; i < w.st.length; i++) {
+      const a = w.st[Math.max(0, i - 1)], b = w.st[Math.min(w.st.length - 1, i + 1)], len = Math.hypot(b.x - a.x, b.z - a.z) || 1;
+      const nx = -(b.z - a.z) / len * w.half, nz = (b.x - a.x) / len * w.half, p = w.st[i];
+      pos.push(p.x + nx, p.h, p.z + nz, p.x - nx, p.h, p.z - nz);
+      uv.push(0, p.s / 32, 1, p.s / 32);
+    }
+    for (let i = 0; i + 1 < w.st.length; i++) { const l0 = i * 2; idx.push(l0, l0 + 2, l0 + 1, l0 + 1, l0 + 2, l0 + 3); }
+    shape('roads', pos, idx, [255, 255, 255], uv);
   }
   for (const piece of jf.rio as number[][]) ribbon('ground', piece, RIVER_WIDTH, .06, [58, 150, 170], false);
 
@@ -770,18 +927,17 @@ export function cityDetails(city = cityData()) {
   for (const p of universityPolys) fill(p, (x, z) => ((Math.floor(x / CELL) + Math.floor(z / CELL)) % 7 === 0 ? [176, 168, 150] : [112, 162, 92]), .1);
 
   // Postes: nas vias de categoria secundária ou maior, alternando os lados a cada ~55 m
-  for (let c = 0; c <= 3; c++) (jf.vias[ROAD_CLASSES[c]] as number[][]).forEach((way, wi) => {
+  net.ways.filter((w) => w.cls <= 3).forEach((w, wi) => {
     let side = wi % 2 ? 1 : -1, next = 20;
-    const st = stations(way);
-    for (let k = 0; k < st.length; k++) {
-      const s = st[k];
-      if (s.s < next) continue;
-      next = s.s + 55; side *= -1;
-      const a = st[Math.max(0, k - 1)], b = st[Math.min(st.length - 1, k + 1)];
-      const len = Math.hypot(b.x - a.x, b.z - a.z) || 1, off = stripWidth(c) / 2 + .9;
-      const px = s.x - (b.z - a.z) / len * off * side, pz = s.z + (b.x - a.x) / len * off * side;
-      if (dcCentro(px, pz) > 2300 || gapToRoads(px, pz) < -stripWidth(c) / 2 + .2) continue;
-      const y = terrainHeight(px, pz);
+    for (let k = 0; k < w.st.length; k++) {
+      const p = w.st[k];
+      if (p.s < next) continue;
+      next = p.s + 55; side *= -1;
+      const a = w.st[Math.max(0, k - 1)], b = w.st[Math.min(w.st.length - 1, k + 1)];
+      const len = Math.hypot(b.x - a.x, b.z - a.z) || 1, off = w.half + .9;
+      const px = p.x - (b.z - a.z) / len * off * side, pz = p.z + (b.x - a.x) / len * off * side;
+      if (dcCentro(px, pz) > 2300 || gapToRoads(px, pz) < -w.half + .2) continue;
+      const y = Math.max(terrainHeight(px, pz), roadHeightAt(px, pz));
       cone(px, y, pz, .18, 7, [65, 72, 79]); cylinder(px, pz, .18, y, y + 7.15);
       shape('lamps', [px, y + 7.15, pz, px + 1.3, y + 7.15, pz + .32, px + 1.3, y + 7.15, pz - .32], [0, 1, 2], [255, 255, 255]);
     }

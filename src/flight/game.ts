@@ -46,6 +46,45 @@ import { createVehicleSystem } from './vehicles';
 import { SKY_HORIZON, buildWorld, type World } from './world';
 import { createWorldPhysics } from './world-data';
 
+export type DifficultyLevel = 'facil' | 'normal' | 'dificil';
+
+export interface FlightSimOptions {
+  /** Duração do ciclo 00:00 → 24:00 em minutos reais (padrão: 30). */
+  dayDurationMinutes?: number;
+  /** Dificuldade: ajusta raio das entregas e tempo disponível. */
+  difficulty?: DifficultyLevel;
+  /** Sensibilidade inicial do mouse para mira do A-29 e câmera (0.05..0.4). */
+  mouseSensitivity?: number;
+  /** Volume inicial da música (0..1). */
+  musicVolume?: number;
+  /** Volume inicial dos efeitos sonoros (0..1). */
+  sfxVolume?: number;
+  /** Exibe ou oculta o minimapa no canto superior direito. */
+  showMinimap?: boolean;
+  /** Exibe um contador leve de FPS no canto da tela. */
+  showFps?: boolean;
+}
+
+export interface FlightSimHandle {
+  destroy(): void;
+  applyOptions(next: FlightSimOptions): void;
+}
+
+const DIFFICULTY_PRESETS: Record<DifficultyLevel, { radiusScale: number; timeScale: number }> = {
+  facil: { radiusScale: 1.35, timeScale: 1.25 },
+  normal: { radiusScale: 1.0, timeScale: 1.0 },
+  dificil: { radiusScale: 0.72, timeScale: 0.75 },
+};
+
+function clampNum(v: unknown, fallback: number, min: number, max: number): number {
+  if (typeof v !== 'number' || !Number.isFinite(v)) return fallback;
+  return v < min ? min : v > max ? max : v;
+}
+
+function normalizeDifficulty(v: unknown): DifficultyLevel {
+  return v === 'facil' || v === 'normal' || v === 'dificil' ? v : 'normal';
+}
+
 const QUALITY_CONFIG: Record<QualityLevel, { pixelRatio: number; fogStart: number; fogEnd: number; clouds: number }> = {
   low: { pixelRatio: 0.75, fogStart: 600, fogEnd: 2300, clouds: 0 },
   medium: { pixelRatio: 1.25, fogStart: 800, fogEnd: 3300, clouds: 0.5 },
@@ -155,7 +194,11 @@ function buildSkyDome(
   return sky;
 }
 
-export function startFlightSim(app: AppBase, uiRoot: HTMLElement): { destroy(): void } {
+export function startFlightSim(
+  app: AppBase,
+  uiRoot: HTMLElement,
+  initialOptions?: FlightSimOptions,
+): FlightSimHandle {
   // Preserva luz ambiente, névoa e pixel ratio originais para restaurar no destroy()
   const prevAmbient = app.scene.ambientLight.clone();
   const prevFog = {
@@ -337,7 +380,22 @@ export function startFlightSim(app: AppBase, uiRoot: HTMLElement): { destroy(): 
   const materials = new Set([...world.materials, ...plane.materials]);
   const textures = new Set(world.textures);
 
-  let settings: GameSettings = loadSettings();
+  let simOptions: Required<FlightSimOptions> = {
+    dayDurationMinutes: clampNum(initialOptions?.dayDurationMinutes, 30, 2, 60),
+    difficulty: normalizeDifficulty(initialOptions?.difficulty),
+    mouseSensitivity: clampNum(initialOptions?.mouseSensitivity, loadSettings().mouseSensitivity, 0.05, 0.4),
+    musicVolume: clampNum(initialOptions?.musicVolume, loadSettings().musicVolume, 0, 1),
+    sfxVolume: clampNum(initialOptions?.sfxVolume, loadSettings().sfxVolume, 0, 1),
+    showMinimap: typeof initialOptions?.showMinimap === 'boolean' ? initialOptions.showMinimap : true,
+    showFps: typeof initialOptions?.showFps === 'boolean' ? initialOptions.showFps : false,
+  };
+
+  let settings: GameSettings = {
+    ...loadSettings(),
+    ...(initialOptions?.mouseSensitivity !== undefined ? { mouseSensitivity: simOptions.mouseSensitivity } : {}),
+    ...(initialOptions?.musicVolume !== undefined ? { musicVolume: simOptions.musicVolume } : {}),
+    ...(initialOptions?.sfxVolume !== undefined ? { sfxVolume: simOptions.sfxVolume } : {}),
+  };
   const state = createFlightState();
   state.controlMode = settings.defaultControlMode;
   initRuntime(state, settings, 'title');
@@ -354,6 +412,47 @@ export function startFlightSim(app: AppBase, uiRoot: HTMLElement): { destroy(): 
   const cockpitModule = createCockpit(ctx, uiRoot);
   const hudModule = createHud(ctx, uiRoot);
   const smokeModule = createSmoke(ctx);
+
+  // Guarda os raios originais das entregas para poder reajustar a dificuldade ao vivo pelo Editor
+  const baseDeliveryRadii = new Map<string, number>();
+  function syncDeliveryDifficulty() {
+    const { radiusScale } = DIFFICULTY_PRESETS[simOptions.difficulty];
+    for (let i = 0; i < mission.deliveries.length; i++) {
+      const d = mission.deliveries[i];
+      if (!baseDeliveryRadii.has(d.id)) {
+        baseDeliveryRadii.set(d.id, d.radius);
+      }
+      const baseR = baseDeliveryRadii.get(d.id) ?? d.radius;
+      d.radius = Math.max(4, Math.round(baseR * radiusScale * 10) / 10);
+    }
+  }
+  syncDeliveryDifficulty();
+
+  // Visibilidade do minimapa controlada por atributo do Editor
+  const minimapEl = typeof uiRoot.querySelector === 'function'
+    ? (uiRoot.querySelector('.hud-minimap') as HTMLElement | null)
+    : null;
+  function applyMinimapVisibility() {
+    if (minimapEl) minimapEl.style.display = simOptions.showMinimap ? '' : 'none';
+  }
+  applyMinimapVisibility();
+
+  // Contador leve de FPS (controlado pelo atributo showFps do Editor)
+  let fpsEl: HTMLDivElement | null = null;
+  let fpsFrames = 0;
+  let fpsElapsed = 0;
+  if (typeof document !== 'undefined') {
+    fpsEl = document.createElement('div');
+    fpsEl.className = 'hud-fps-counter';
+    fpsEl.style.cssText =
+      'position:fixed;right:16px;bottom:44px;z-index:120;padding:4px 9px;border-radius:6px;' +
+      'background:rgba(10,14,24,0.78);color:#8ff5c6;border:1px solid rgba(143,245,198,0.35);' +
+      'font:700 11px/1.2 ui-monospace,SFMono-Regular,Consolas,monospace;letter-spacing:0.04em;' +
+      'pointer-events:none;user-select:none;';
+    fpsEl.textContent = '-- FPS';
+    fpsEl.hidden = !simOptions.showFps;
+    uiRoot.appendChild(fpsEl);
+  }
 
   const audio = createFlightAudio(settings);
 
@@ -454,6 +553,8 @@ export function startFlightSim(app: AppBase, uiRoot: HTMLElement): { destroy(): 
   function beginMissionPlay() {
     audio.unlock();
     startMission(ctx);
+    baseDeliveryRadii.clear();
+    syncDeliveryDifficulty();
     clearSmoke(state);
     state.controlMode = settings.defaultControlMode;
     state.camera = 'chase';
@@ -496,6 +597,8 @@ export function startFlightSim(app: AppBase, uiRoot: HTMLElement): { destroy(): 
 
   function returnToTitle() {
     startMission(ctx);
+    baseDeliveryRadii.clear();
+    syncDeliveryDifficulty();
     mission.status = 'intro';
     clearSmoke(state);
     state.controlMode = settings.defaultControlMode;
@@ -632,14 +735,45 @@ export function startFlightSim(app: AppBase, uiRoot: HTMLElement): { destroy(): 
   cockpitModule.update(0);
   hudModule.update(0);
 
-  const onUpdate = (dt: number) => {
-    dt = Math.min(dt, 0.05);
+  const onUpdate = (rawDt: number) => {
+    if (fpsEl && simOptions.showFps && Number.isFinite(rawDt) && rawDt > 0) {
+      fpsFrames++;
+      fpsElapsed += rawDt;
+      if (fpsElapsed >= 0.35) {
+        const fps = Math.round(fpsFrames / fpsElapsed);
+        fpsEl.textContent = `${fps} FPS`;
+        fpsFrames = 0;
+        fpsElapsed = 0;
+      }
+    }
+    const dt = Math.min(rawDt, 0.05);
 
     if (mode === 'title') {
       updateTitleCamera(dt);
     } else if (mode === 'playing') {
       flightModule.update(dt);
+      const clockBefore = mission.clockMinutes;
       missionModule?.update(dt);
+
+      // Aplica duração configurada do dia e escala de tempo da dificuldade sem alterar mission.ts
+      if (mission.status === 'playing' && mission.clockMinutes > clockBefore) {
+        const { timeScale } = DIFFICULTY_PRESETS[simOptions.difficulty];
+        const effectiveDayMin = Math.max(1.5, simOptions.dayDurationMinutes * timeScale);
+        const clockScale = 30 / effectiveDayMin;
+        if (Math.abs(clockScale - 1) > 1e-4) {
+          const scaled = clockBefore + (mission.clockMinutes - clockBefore) * clockScale;
+          if (scaled >= 1440) {
+            mission.clockMinutes = 1440;
+            mission.status = 'lost';
+            mission.carrying = null;
+            mission.nextDeliveryId = null;
+            mission.message = 'Meia-noite! O frete virou abóbora.';
+            mission.messageTimer = 4;
+          } else {
+            mission.clockMinutes = scaled;
+          }
+        }
+      }
 
       // Reage a eventos escritos em ctx.mission pelo mission.ts
       if (mission.delivered > prevDelivered) {
@@ -723,11 +857,44 @@ export function startFlightSim(app: AppBase, uiRoot: HTMLElement): { destroy(): 
 
   let destroyed = false;
   return {
+    applyOptions(next: FlightSimOptions) {
+      if (destroyed) return;
+      simOptions = {
+        dayDurationMinutes: clampNum(next.dayDurationMinutes, simOptions.dayDurationMinutes, 2, 60),
+        difficulty: next.difficulty !== undefined ? normalizeDifficulty(next.difficulty) : simOptions.difficulty,
+        mouseSensitivity: clampNum(next.mouseSensitivity, simOptions.mouseSensitivity, 0.05, 0.4),
+        musicVolume: clampNum(next.musicVolume, simOptions.musicVolume, 0, 1),
+        sfxVolume: clampNum(next.sfxVolume, simOptions.sfxVolume, 0, 1),
+        showMinimap: typeof next.showMinimap === 'boolean' ? next.showMinimap : simOptions.showMinimap,
+        showFps: typeof next.showFps === 'boolean' ? next.showFps : simOptions.showFps,
+      };
+      syncDeliveryDifficulty();
+      applyMinimapVisibility();
+      if (fpsEl) {
+        fpsEl.hidden = !simOptions.showFps;
+        if (simOptions.showFps) {
+          fpsFrames = 0;
+          fpsElapsed = 0;
+        }
+      }
+      settings = {
+        ...settings,
+        mouseSensitivity: simOptions.mouseSensitivity,
+        musicVolume: simOptions.musicVolume,
+        sfxVolume: simOptions.sfxVolume,
+      };
+      setRuntimeSettings(state, settings);
+      menus.syncSettings(settings);
+      audio.applySettings(settings);
+      hudModule.update(0);
+    },
     destroy() {
       if (destroyed) return;
       destroyed = true;
 
       app.off('update', onUpdate);
+      fpsEl?.remove();
+      fpsEl = null;
       if (typeof window !== 'undefined') {
         window.removeEventListener('pointerdown', onPointerDown);
         window.removeEventListener('keydown', onKeyDown);

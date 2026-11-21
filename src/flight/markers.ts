@@ -361,13 +361,13 @@ export function createMarkers(ctx: FlightContext, uiRoot?: HTMLElement | null): 
     const angleDeg = (Math.atan2(dy, dx) * 180) / Math.PI;
 
     const dist = Math.hypot(next.x - state.x, next.z - state.z);
-    const labelText = formatDistance(dist);
+    const isFinal = Boolean(ctx.mission && isFinalDelivery(next, ctx.mission));
+    const labelText = isFinal ? `UniAcademia · ${formatDistance(dist)}` : formatDistance(dist);
     if (labelText !== lastArrowText) {
       lastArrowText = labelText;
       edgeLabel.textContent = labelText;
     }
 
-    const isFinal = Boolean(ctx.mission && isFinalDelivery(next, ctx.mission));
     edgeArrow.classList.toggle('hud-edge-arrow--airdrop', Boolean(next.airDrop) && !isFinal);
     edgeArrow.style.transform = `translate3d(${Math.round(ex)}px, ${Math.round(ey)}px, 0) translate(-50%, -50%)`;
     edgeChevron.style.transform = `rotate(${angleDeg.toFixed(1)}deg)`;
