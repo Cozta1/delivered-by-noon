@@ -2,6 +2,7 @@ import type { FlightState } from '../types';
 
 export type GameMode = 'title' | 'playing' | 'paused' | 'ended';
 export type QualityLevel = 'low' | 'medium' | 'high';
+export type TrafficLevel = 'off' | 'low' | 'normal';
 
 export interface GameSettings {
   masterVolume: number;
@@ -11,6 +12,7 @@ export interface GameSettings {
   invertY: boolean;
   defaultControlMode: 'mouse' | 'keyboard';
   quality: QualityLevel;
+  traffic: TrafficLevel;
   showHud: boolean;
   showFps: boolean;
 }
@@ -23,6 +25,7 @@ export const DEFAULT_SETTINGS: Readonly<GameSettings> = {
   invertY: false,
   defaultControlMode: 'mouse',
   quality: 'high',
+  traffic: 'normal',
   showHud: true,
   showFps: false,
 };
@@ -39,6 +42,8 @@ export function sanitizeSettings(raw: Partial<GameSettings> | null | undefined):
     typeof val === 'number' && Number.isFinite(val) ? clamp(val, min, max) : def;
   const quality: QualityLevel =
     s.quality === 'low' || s.quality === 'medium' || s.quality === 'high' ? s.quality : DEFAULT_SETTINGS.quality;
+  const traffic: TrafficLevel =
+    s.traffic === 'off' || s.traffic === 'low' || s.traffic === 'normal' ? s.traffic : DEFAULT_SETTINGS.traffic;
   const defaultControlMode: 'mouse' | 'keyboard' =
     s.defaultControlMode === 'keyboard' || s.defaultControlMode === 'mouse'
       ? s.defaultControlMode
@@ -52,6 +57,7 @@ export function sanitizeSettings(raw: Partial<GameSettings> | null | undefined):
     invertY: typeof s.invertY === 'boolean' ? s.invertY : DEFAULT_SETTINGS.invertY,
     defaultControlMode,
     quality,
+    traffic,
     showHud: typeof s.showHud === 'boolean' ? s.showHud : DEFAULT_SETTINGS.showHud,
     showFps: typeof s.showFps === 'boolean' ? s.showFps : DEFAULT_SETTINGS.showFps,
   };

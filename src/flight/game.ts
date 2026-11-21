@@ -22,6 +22,7 @@ import { createMarkers } from './markers';
 import { createMissionSystem, startMission } from './mission';
 import { enableFrustumCulling } from './models/glb';
 import { clearSmoke, createSmoke } from './smoke';
+import { createTraffic } from './trafego';
 import {
   STAGE_ORDER,
   createFlightState,
@@ -45,6 +46,7 @@ import {
   type GameMode,
   type GameSettings,
   type QualityLevel,
+  type TrafficLevel,
 } from './ui/settings';
 import { createVehicleSystem } from './vehicles';
 import { SKY_HORIZON, buildWorld, type World } from './world';
@@ -533,6 +535,7 @@ export function startFlightSim(
   const flightModule: VehicleSystemJumpable = createVehicleSystem(ctx);
   loadingScreen.setStage('vehicles', 'Veículos e fachada da UniAcademia prontos', true);
   const missionModule: FlightModule = createMissionSystem(ctx);
+  const trafficModule: FlightModule = createTraffic(ctx);
   const dayNightModule = createDayNight(ctx, sun);
   const cameraRig = createCameraRig(ctx);
   const markersModule = createMarkers(ctx, uiRoot);
@@ -884,6 +887,7 @@ export function startFlightSim(
     setRuntimeSettings(state, settings);
     audio.applySettings(settings);
     applyQuality(settings.quality);
+    syncTrafficControl?.(settings.traffic);
     if (controlChanged) {
       state.controlMode = settings.defaultControlMode;
       if (state.controlMode === 'keyboard') releasePointerLock();
@@ -913,6 +917,46 @@ export function startFlightSim(
     },
   });
   menus.setHiddenByLoading(true);
+
+  // Opção "Tráfego: Desligado / Pouco / Normal" injetada na lista de opções (sem alterar ui/menus.ts)
+  let syncTrafficControl: ((level: TrafficLevel) => void) | null = null;
+  if (typeof document !== 'undefined' && typeof uiRoot.querySelector === 'function') {
+    const optList = uiRoot.querySelector('.menu-options-list');
+    if (optList) {
+      const row = document.createElement('div');
+      row.className = 'menu-opt-row';
+      const lbl = document.createElement('span');
+      lbl.className = 'menu-opt-label';
+      lbl.textContent = 'Tráfego';
+      const group = document.createElement('div');
+      group.className = 'menu-segments';
+      const btns = new Map<TrafficLevel, HTMLButtonElement>();
+      for (const [val, text] of [
+        ['off', 'Desligado'],
+        ['low', 'Pouco'],
+        ['normal', 'Normal'],
+      ] as const) {
+        const b = document.createElement('button');
+        b.type = 'button';
+        b.className = 'menu-seg-btn';
+        b.textContent = text;
+        b.addEventListener('click', () => {
+          audio.unlock();
+          audio.playClick();
+          applyUpdatedSettings({ ...settings, traffic: val });
+          menus.syncSettings(settings);
+        });
+        btns.set(val, b);
+        group.appendChild(b);
+      }
+      row.append(lbl, group);
+      optList.appendChild(row);
+      syncTrafficControl = (level) => {
+        for (const [v, b] of btns) b.classList.toggle('is-active', v === level);
+      };
+      syncTrafficControl(settings.traffic);
+    }
+  }
 
   function onPointerDown() {
     audio.unlock();
@@ -1088,6 +1132,7 @@ export function startFlightSim(
       updateTitleCamera(dt);
     } else if (mode === 'playing') {
       flightModule.update(dt);
+      trafficModule.update(dt);
       const clockBefore = mission.clockMinutes;
       missionModule?.update(dt);
 
@@ -1260,6 +1305,7 @@ export function startFlightSim(
       audio.destroy();
       menus.destroy();
       missionModule?.destroy?.();
+      trafficModule.destroy?.();
       flightModule.destroy?.();
       dayNightModule.destroy?.();
       cameraRig.destroy?.();

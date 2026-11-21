@@ -348,6 +348,7 @@ export function createDayNight(ctx: FlightContext, sun: Entity): FlightModule {
   function refreshHeadlights(forceOn: boolean) {
     headlights.length = 0;
     collectByName(app.root, 'CarHeadlights', headlights);
+    collectByName(app.root, 'TrafficLights', headlights);
     for (let i = 0; i < headlights.length; i++) {
       headlights[i].enabled = forceOn;
     }
