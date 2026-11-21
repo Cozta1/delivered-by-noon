@@ -212,7 +212,8 @@ interface Flat { x: number; z: number; inner: number; outer: number; y?: number 
 const flats: Flat[] = [
   { x: UNI_LOT.x, z: UNI_LOT.z, inner: 38, outer: 80 },
   { x: WORKSHOP_SPOT.x, z: WORKSHOP_SPOT.z, inner: 14, outer: 40 },
-  { x: CRISTO.x, z: CRISTO.z, inner: 12, outer: 36 },
+  // Include the landing site and its 30 m grid-cell corners, so the loaded heli rests level.
+  { x: CRISTO.x, z: CRISTO.z, inner: 60, outer: 90 },
   { x: TOWER_SPOT.x, z: TOWER_SPOT.z, inner: 22, outer: 50 },
 ];
 
@@ -795,7 +796,7 @@ export interface CapsulePosition { x: number; y: number; z: number }
 export function createWorldPhysics(boxes?: Box[], flatGround?: number) {
   if (!boxes) {
     const city = cityData(), details = cityDetails(city);
-    boxes = [...city.boxes, ...details.boxes, ...airportData(city.helipad).boxes, ...landmarkBoxes()];
+    boxes = [...city.boxes, ...details.boxes, ...airportData(city.helipad).boxes, ...deliveryRampData().boxes, ...landmarkBoxes()];
   }
   const grid = new Map<string, Box[]>();
   for (const b of boxes) for (let gx = Math.floor(b.x0 / 100); gx <= Math.floor(b.x1 / 100); gx++) {
