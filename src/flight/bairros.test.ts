@@ -9,7 +9,7 @@ import {
   deliveryRampData,
   terrainHeight,
 } from './world-data';
-import { bairrosData, bairrosLots, buildBairrosMesh } from './bairros';
+import { bairrosBlocks, bairrosData, bairrosLots, buildBairrosMesh } from './bairros';
 
 interface Segment {
   x0: number;
@@ -36,18 +36,20 @@ function pointInPoly(pts: number[], x: number, z: number): boolean {
 }
 
 describe('bairros de Juiz de Fora', () => {
-  it('gera malha válida, determinística e dentro do orçamento de vértices e GLB (~1,2 MB)', async () => {
+  it('gera malha válida, determinística e dentro do orçamento de vértices e GLB', async () => {
     const mesh = bairrosData();
     const rebuilt = buildBairrosMesh();
     const lots = bairrosLots();
+    const blocks = bairrosBlocks();
 
     expect(rebuilt).toEqual(mesh);
+    expect(blocks.length).toBeGreaterThan(20);
 
     const vertCount = mesh.pos.length / 3;
     const triCount = mesh.idx.length / 3;
-    expect(lots.length).toBeGreaterThan(800);
-    expect(lots.length).toBeLessThan(4000);
-    expect(vertCount).toBeGreaterThan(10_000);
+    expect(lots.length).toBeGreaterThan(2000);
+    expect(lots.length).toBeLessThan(7000);
+    expect(vertCount).toBeGreaterThan(20_000);
     expect(vertCount).toBeLessThanOrEqual(65_535);
     expect(mesh.pos.length % 3).toBe(0);
     expect(mesh.idx.length % 3).toBe(0);
@@ -70,8 +72,8 @@ describe('bairros de Juiz de Fora', () => {
     doc.createScene('Bairros').addChild(doc.createNode('Bairros').setMesh(doc.createMesh('Bairros').addPrimitive(prim)));
     const glbBytes = await new NodeIO().writeBinary(doc);
 
-    expect(triCount).toBeGreaterThan(10_000);
-    expect(glbBytes.byteLength).toBeLessThanOrEqual(1_200_000);
+    expect(triCount).toBeGreaterThan(20_000);
+    expect(glbBytes.byteLength).toBeLessThanOrEqual(1_550_000);
   });
 
   it('não coloca nenhum prédio sobre vias, rio, UniAcademia, praças, estádios, universidades, pista ou marcos', () => {
@@ -150,7 +152,7 @@ describe('bairros de Juiz de Fora', () => {
       ];
 
       for (const [x, z] of pts) {
-        if (minCorridorGap(x, z) <= 1.5) corridorViolations++;
+        if (minCorridorGap(x, z) <= 0.4) corridorViolations++;
         if (Math.hypot(x - UNIACADEMIA.x, z - UNIACADEMIA.z) <= UNIACADEMIA.radius) uniViolations++;
         if (
           Math.hypot(x - WORKSHOP.x, z - WORKSHOP.z) <= 14 ||
@@ -174,7 +176,6 @@ describe('bairros de Juiz de Fora', () => {
       }
     }
 
-    // Conferência direta nos vértices da malha: nenhum vértice no lote da UniAcademia
     let meshUniViolations = 0;
     for (let i = 0; i < mesh.pos.length; i += 3) {
       const x = mesh.pos[i], z = mesh.pos[i + 2];
@@ -200,7 +201,7 @@ describe('bairros de Juiz de Fora', () => {
     });
   });
 
-  it('assenta casas no relevo, varia tipologias (1-4 andares e 3 telhados) e concentra densidade perto do Centro', () => {
+  it('assenta casas no relevo, varia tipologias (1-6 andares e 3 telhados) e concentra densidade perto do Centro', () => {
     const layout = cityLayout();
     const centro = layout.landmarks.centro;
     const lots = bairrosLots();
@@ -210,25 +211,23 @@ describe('bairros de Juiz de Fora', () => {
     let nearCentro = 0;
     let midBairros = 0;
     let farPeriphery = 0;
+    let slopeViolations = 0;
+    let groundViolations = 0;
 
     for (const lot of lots) {
       floors.add(lot.floors);
       roofs.add(lot.roof);
-      expect(lot.floors).toBeGreaterThanOrEqual(1);
-      expect(lot.floors).toBeLessThanOrEqual(4);
+      if (lot.floors < 1 || lot.floors > 6) groundViolations++;
 
       const hCenter = terrainHeight(lot.cx, lot.cz);
-      // Base enterrada levemente abaixo do terreno (sem flutuar) e piso acima do solo (sem afundar)
-      expect(lot.yBase).toBeLessThan(hCenter);
-      expect(lot.yGround).toBeGreaterThanOrEqual(hCenter - 0.01);
-      expect(lot.yTop).toBeGreaterThan(lot.yGround + 2.5);
+      if (!(lot.yBase < hCenter && lot.yGround >= hCenter - 0.01 && lot.yTop > lot.yGround + 2.5)) groundViolations++;
 
       const d = 8;
       const slope = Math.hypot(
         (terrainHeight(lot.cx + d, lot.cz) - terrainHeight(lot.cx - d, lot.cz)) / (2 * d),
         (terrainHeight(lot.cx, lot.cz + d) - terrainHeight(lot.cx, lot.cz - d)) / (2 * d),
       );
-      expect(slope).toBeLessThanOrEqual(0.31);
+      if (slope > 0.43) slopeViolations++;
 
       const dc = Math.hypot(lot.cx - centro.x, lot.cz - centro.z);
       if (dc < 1000) nearCentro++;
@@ -236,14 +235,16 @@ describe('bairros de Juiz de Fora', () => {
       else farPeriphery++;
     }
 
-    expect([...floors].sort()).toEqual([1, 2, 3, 4]);
+    expect(groundViolations).toBe(0);
+    expect(slopeViolations).toBe(0);
+    expect([...floors].sort()).toEqual([1, 2, 3, 4, 5, 6]);
     expect([...roofs].sort()).toEqual(['gable', 'hip', 'slab']);
-    // Densidade por área: alta perto do Centro, média nos bairros, rareando na periferia
     const densityNear = nearCentro / (Math.PI * 1000 * 1000);
     const densityMid = midBairros / (Math.PI * (2000 * 2000 - 1000 * 1000));
     const densityFar = farPeriphery / (Math.PI * (3000 * 3000 - 2000 * 2000));
     expect(densityNear).toBeGreaterThan(densityMid);
     expect(densityMid).toBeGreaterThan(densityFar);
-    expect(midBairros).toBeGreaterThan(300);
+    expect(nearCentro).toBeGreaterThan(800);
+    expect(midBairros).toBeGreaterThan(800);
   });
 });

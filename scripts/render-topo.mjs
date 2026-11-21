@@ -1,5 +1,6 @@
 // Render de cima (ortográfico, z-buffer em software) do mundo gerado por world-data.ts, para conferência.
 // Uso: node scripts/render-topo.mjs [saida.png] [cx cz meia-largura pixels]
+import { existsSync } from 'node:fs';
 import { mkdir, writeFile } from 'node:fs/promises';
 import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -51,6 +52,14 @@ draw(details.meshes.ground, null, 0);
 draw(details.meshes.roads, roadColor, 0);
 draw(city.mesh, null);
 draw(city.houses, null);
+const bairrosFile = resolve(root, 'src/flight/bairros.ts');
+let bairrosCount = 0;
+if (existsSync(bairrosFile)) {
+  const b = await build({ configFile: false, logLevel: 'silent', root, build: { write: false, lib: { entry: bairrosFile, formats: ['es'] }, minify: false } });
+  const bairros = await import(`data:text/javascript;base64,${Buffer.from((Array.isArray(b) ? b[0] : b).output[0].code).toString('base64')}`);
+  draw(bairros.bairrosData(), null);
+  bairrosCount = bairros.bairrosLots ? bairros.bairrosLots().length : 0;
+}
 draw(details.meshes.props, null);
 for (const part of data.airportData(city.helipad).parts) draw(part.mesh, null);
 for (const part of data.deliveryRampData().parts) draw(part.mesh, null);
@@ -70,4 +79,4 @@ function png(w, h, rgb) {
 }
 await mkdir(dirname(out), { recursive: true });
 await writeFile(out, png(size, size, color));
-console.log(`render: ${out} (${size}x${size}, ${(2 * half / size).toFixed(2)} m/px); casas ${city.houseCount}, prédios ${city.boxes.length - city.houseCount}`);
+console.log(`render: ${out} (${size}x${size}, ${(2 * half / size).toFixed(2)} m/px); casas ${city.houseCount + bairrosCount}, prédios ${city.boxes.length - city.houseCount}`);

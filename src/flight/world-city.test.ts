@@ -101,3 +101,21 @@ it('lays roads at the shared physics height and aligns the three tuned ramps wit
   const ramps=deliveryRampData();expect(ramps.ramps).toHaveLength(3);expect(ramps.boxes.every(b=>b.ramp&&b.top>b.bottom!)).toBe(true);
   for(const r of ramps.ramps){expect(r.x0===r.x1||r.z0===r.z1).toBe(true);expect(r.y1).toBeGreaterThan(r.y0+3.9);}
 });
+
+it('keeps every road triangle face-up and continuously above the terrain without dipping under slopes',()=>{
+  const roads=cityDetails().meshes.roads;
+  let upsideDown=0,belowTerrain=0;
+  for(let t=0;t<roads.idx.length;t+=3){
+    const i0=roads.idx[t]*3,i1=roads.idx[t+1]*3,i2=roads.idx[t+2]*3;
+    const ax=roads.pos[i0],ay=roads.pos[i0+1],az=roads.pos[i0+2];
+    const bx=roads.pos[i1],by=roads.pos[i1+1],bz=roads.pos[i1+2];
+    const cx=roads.pos[i2],cy=roads.pos[i2+1],cz=roads.pos[i2+2];
+    if((bz-az)*(cx-ax)-(bx-ax)*(cz-az)<=0) upsideDown++;
+    for(const [u,v] of [[0,0],[1,0],[0,1],[.5,0],[0,.5],[.5,.5],[.33,.33]]){
+      const w=1-u-v,x=ax*w+bx*u+cx*v,y=ay*w+by*u+cy*v,z=az*w+bz*u+cz*v;
+      if(y<terrainHeight(x,z)+.12) belowTerrain++;
+    }
+  }
+  expect(upsideDown).toBe(0);
+  expect(belowTerrain).toBe(0);
+});

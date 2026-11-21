@@ -69,7 +69,7 @@ export type RoadClass = typeof ROAD_CLASSES[number];
 /** Largura do asfalto por categoria (m). A faixa desenhada inclui as calçadas (14% de cada lado). */
 const ASPHALT = [15, 13, 11, 9, 7.5];
 const stripWidth = (cls: number) => ASPHALT[cls] / 0.72;
-const LIFT = [.16, .15, .14, .13, .12];
+const LIFT = [.40, .37, .34, .31, .28];
 const RIVER_WIDTH = 12;
 
 interface Segment { x0: number; z0: number; x1: number; z1: number; half: number; cls: number }
@@ -130,18 +130,27 @@ export function nearestRoad(x: number, z: number, maxClass = 3, minDistance = 0)
   return undefined;
 }
 
-/** Via (não o rio) mais próxima dentro de `maxD` m do eixo; usado para aplainar o terreno sob as ruas. */
-function roadNear(x: number, z: number, maxD: number) {
+/** Aplainamento suave do terreno sob as vias (rua + calçada + transição suave de ~5 m até o talude). */
+function roadBedBlend(x: number, z: number) {
   const gx = Math.floor(x / HASH), gz = Math.floor(z / HASH);
-  let best: { d: number; px: number; pz: number; half: number } | undefined;
+  let sumW = 0, sumH = 0, maxW = 0;
   for (let a = -1; a <= 1; a++) for (let b = -1; b <= 1; b++) {
     for (const sg of segmentGrid.get(hashKey(gx + a, gz + b)) ?? []) {
       if (sg.cls === RIVER_CLS) continue;
       const { d, t } = distToSegment(sg, x, z);
-      if (d < maxD && (!best || d < best.d)) best = { d, px: sg.x0 + (sg.x1 - sg.x0) * t, pz: sg.z0 + (sg.z1 - sg.z0) * t, half: sg.half };
+      const inner = sg.half + 5;
+      const outer = sg.half + 24;
+      if (d >= outer) continue;
+      const w = 1 - smoothstep(inner, outer, d);
+      if (w <= 0) continue;
+      const px = sg.x0 + (sg.x1 - sg.x0) * t, pz = sg.z0 + (sg.z1 - sg.z0) * t;
+      const w2 = w * w;
+      sumW += w2;
+      sumH += rawHeight(px, pz) * w2;
+      if (w > maxW) maxW = w;
     }
   }
-  return best;
+  return sumW > 0 ? { h: sumH / sumW, w: maxW } : undefined;
 }
 
 // ---------------------------------------------------------------------------
@@ -212,9 +221,9 @@ const heightGrid = (() => {
   for (let j = 0; j < GRID_N; j++) for (let i = 0; i < GRID_N; i++) {
     const x = -GRID_HALF + i * GRID_STEP, z = -GRID_HALF + j * GRID_STEP;
     let h = g[j * GRID_N + i];
-    // ruas: o terreno sob a via e ao lado dela assume a altura do eixo (corte/aterro suave nas bordas)
-    const rn = roadNear(x, z, 60);
-    if (rn) { const cw = 1 - smoothstep(rn.half, rn.half + 26, rn.d); h = h * (1 - cw) + rawHeight(rn.px, rn.pz) * cw; }
+    // ruas: o terreno sob a via + calçada + transição suave assume a altura do eixo (sem recortes bruscos)
+    const rb = roadBedBlend(x, z);
+    if (rb) h = h * (1 - rb.w) + rb.h * rb.w;
     // pista: faixa plana de 150 m de largura, com transição suave nas bordas
     const { s, l } = runwayFrame(x, z);
     const ds = Math.max(-50 - s, 0, s - RWY_LEN - 50), dl = Math.max(Math.abs(l) - 75, 0), d = Math.hypot(ds, dl);
@@ -249,6 +258,7 @@ const LUSH = hex('#4d8a4b');
 const DRY = hex('#b4a35a');
 const SOIL = hex('#a9835a');
 const ROCK = hex('#8d8896');
+const URBAN_GROUND = hex('#afa798');
 
 export function terrainData() {
   const pos: number[] = [], col: number[] = [], idx: number[] = [];
@@ -261,6 +271,13 @@ export function terrainData() {
       const slope = Math.hypot(hx, hz) / (2 * GRID_STEP);
       const patch = fbm(x / 140, z / 140, 3, 21);
       let c = mix(GRASS, patch > 0.55 ? DRY : LUSH, smoothstep(0.38, 0.62, patch));
+      // Solo urbano (pátios/calçadas/lotes) nas regiões com malha viária densa, preservando parques e morros verdes
+      const gap = gapToRoads(x, z);
+      if (gap < 48 && slope < 0.34 && !inAnyArea(x, z)) {
+        const dc = dcCentro(x, z);
+        const urban = (1 - smoothstep(0, 48, Math.max(0, gap))) * (0.28 + 0.52 * Math.exp(-((dc / 1600) ** 2))) * (1 - smoothstep(0.18, 0.34, slope));
+        c = mix(c, URBAN_GROUND, urban);
+      }
       c = mix(c, SOIL, smoothstep(0.35, 0.6, slope) * 0.8);
       c = mix(c, ROCK, smoothstep(0.55, 0.95, slope) + smoothstep(170, 230, h) * 0.35);
       col.push(c[0], c[1], c[2], 255);
@@ -307,44 +324,145 @@ const inAnyArea = (x: number, z: number) => allAreas.some((p) => inside(p, x, z)
 // Prédios: lotes procedurais ao longo das vias, mais altos no Centro
 // ---------------------------------------------------------------------------
 // ---------------------------------------------------------------------------
-// Ruas encostadas no relevo: nível por estação (centro e bordas) e altura da superfície para a física
+// Ruas encostadas no relevo: segmentos <= 8 m, cotas em centro + bordas e garantia no interior de cada quad
 // ---------------------------------------------------------------------------
-const MAX_STEP = 8, BEVEL = 1.5;
-interface Station { x: number; z: number; s: number; h: number }
+const MAX_STEP = 8, BEVEL = 2.5;
+interface Station { x: number; z: number; s: number; lx: number; lz: number; rx: number; rz: number; hl: number; hr: number }
 interface RoadWay { cls: number; half: number; st: Station[] }
-interface RoadSegH { x0: number; z0: number; h0: number; x1: number; z1: number; h1: number; half: number }
+interface RoadSegH { x0: number; z0: number; hl0: number; hr0: number; x1: number; z1: number; hl1: number; hr1: number; half: number }
 let netCache: { ways: RoadWay[]; grid: Map<number, RoadSegH[]> } | undefined;
+function liftRibbonOverTerrain(st: Station[], minLift: number) {
+  // Verifica 15 amostras baricêntricas por triângulo de cada quad para garantir que a malha do terreno nunca ultrapasse o asfalto
+  const checkTri = (
+    ax: number, az: number, bx: number, bz: number, cx: number, cz: number,
+    getY: () => [number, number, number], raise: (d: number) => void,
+  ) => {
+    const [ya, yb, yc] = getY();
+    let maxNeed = 0;
+    for (let u = 0; u <= 4; u++) for (let v = 0; v <= 4 - u; v++) {
+      const a = u / 4, b = v / 4, c = 1 - a - b;
+      const x = ax * a + bx * b + cx * c, z = az * a + bz * b + cz * c;
+      const y = ya * a + yb * b + yc * c;
+      const need = terrainHeight(x, z) + minLift - y;
+      if (need > maxNeed) maxNeed = need;
+    }
+    const mx = (ax + bx + cx) / 3, mz = (az + bz + cz) / 3, my = (ya + yb + yc) / 3;
+    const midNeed = terrainHeight(mx, mz) + minLift - my;
+    if (midNeed > maxNeed) maxNeed = midNeed;
+    if (maxNeed > 0) raise(maxNeed);
+  };
+  for (let pass = 0; pass < 2; pass++) {
+    for (let i = 0; i + 1 < st.length; i++) {
+      const a = st[i], b = st[i + 1];
+      checkTri(a.lx, a.lz, b.lx, b.lz, a.rx, a.rz, () => [a.hl, b.hl, a.hr], (d) => { a.hl += d; b.hl += d; a.hr += d; });
+      checkTri(a.rx, a.rz, b.lx, b.lz, b.rx, b.rz, () => [a.hr, b.hl, b.hr], (d) => { a.hr += d; b.hl += d; b.hr += d; });
+    }
+  }
+}
+function buildRibbonStations(way: number[], half: number, lift: number): Station[][] {
+  // Divide apenas em retornos muito fechados (> 100°); curvas normais usam chanfro/miter sem frestas
+  const rawPts: { x: number; z: number }[] = [];
+  for (let i = 0; i + 1 < way.length; i += 2) {
+    const x = way[i], z = way[i + 1], prev = rawPts[rawPts.length - 1];
+    if (!prev || Math.hypot(x - prev.x, z - prev.z) > 0.25) rawPts.push({ x, z });
+  }
+  if (rawPts.length < 2) return [];
+  const pieces: { x: number; z: number }[][] = [[rawPts[0]]];
+  for (let i = 1; i < rawPts.length - 1; i++) {
+    const p0 = rawPts[i - 1], p1 = rawPts[i], p2 = rawPts[i + 1];
+    const d0x = p1.x - p0.x, d0z = p1.z - p0.z, l0 = Math.hypot(d0x, d0z) || 1;
+    const d1x = p2.x - p1.x, d1z = p2.z - p1.z, l1 = Math.hypot(d1x, d1z) || 1;
+    const dot = (d0x * d1x + d0z * d1z) / (l0 * l1);
+    pieces[pieces.length - 1].push(p1);
+    if (dot < -0.15) pieces.push([p1]);
+  }
+  pieces[pieces.length - 1].push(rawPts[rawPts.length - 1]);
+
+  const out: Station[][] = [];
+  let accGlobal = 0;
+  for (const piece of pieces) {
+    if (piece.length < 2) continue;
+    const pts: { x: number; z: number; s: number }[] = [];
+    for (let i = 0; i + 1 < piece.length; i++) {
+      const ax = piece[i].x, az = piece[i].z, bx = piece[i + 1].x, bz = piece[i + 1].z;
+      const len = Math.hypot(bx - ax, bz - az), n = Math.max(1, Math.ceil(len / MAX_STEP));
+      for (let k = i ? 1 : 0; k <= n; k++) pts.push({ x: ax + (bx - ax) * k / n, z: az + (bz - az) * k / n, s: accGlobal + len * k / n });
+      accGlobal += len;
+    }
+    if (pts.length < 2) continue;
+    const makeStation = (p: { x: number; z: number; s: number }, nx: number, nz: number): Station => {
+      const lx = p.x + nx, lz = p.z + nz, rx = p.x - nx, rz = p.z - nz;
+      let hl = terrainHeight(lx, lz), hr = terrainHeight(rx, rz);
+      const hc = terrainHeight(p.x, p.z);
+      const mid = 0.5 * (hl + hr);
+      if (mid < hc) { const bump = hc - mid; hl += bump; hr += bump; }
+      return { x: p.x, z: p.z, s: p.s, lx, lz, rx, rz, hl: hl + lift, hr: hr + lift };
+    };
+    const st: Station[] = pts.map((p, i) => {
+      let nx: number, nz: number;
+      if (i === 0 || i === pts.length - 1) {
+        const a = pts[Math.max(0, i - 1)], b = pts[Math.min(pts.length - 1, i + 1)];
+        const len = Math.hypot(b.x - a.x, b.z - a.z) || 1;
+        nx = -(b.z - a.z) / len * half; nz = (b.x - a.x) / len * half;
+      } else {
+        const p0 = pts[i - 1], p2 = pts[i + 1];
+        const l0 = Math.hypot(p.x - p0.x, p.z - p0.z) || 1, l1 = Math.hypot(p2.x - p.x, p2.z - p.z) || 1;
+        const u0x = (p.x - p0.x) / l0, u0z = (p.z - p0.z) / l0;
+        const u1x = (p2.x - p.x) / l1, u1z = (p2.z - p.z) / l1;
+        const tx = u0x + u1x, tz = u0z + u1z, tl = Math.hypot(tx, tz) || 1;
+        const dot = Math.max(-0.5, Math.min(1, u0x * u1x + u0z * u1z));
+        const miter = Math.min(1.45, 1 / Math.max(0.68, Math.sqrt((1 + dot) * 0.5)));
+        nx = -(tz / tl) * half * miter; nz = (tx / tl) * half * miter;
+      }
+      return makeStation(p, nx, nz);
+    });
+    // Verifica se algum quad inverte a normal Y (curva muito fechada); se sim, usa quad limpo estendido sobre a emenda
+    const clean: Station[][] = [[st[0]]];
+    for (let i = 0; i + 1 < st.length; i++) {
+      const a = st[i], b = st[i + 1];
+      const ny1 = (b.lz - a.lz) * (a.rx - a.lx) - (b.lx - a.lx) * (a.rz - a.lz);
+      const ny2 = (b.lz - a.rz) * (b.rx - a.rx) - (b.lx - a.rx) * (b.rz - a.rz);
+      if (ny1 > 0.05 && ny2 > 0.05) {
+        clean[clean.length - 1].push(b);
+      } else {
+        const dx = b.x - a.x, dz = b.z - a.z, len = Math.hypot(dx, dz) || 1;
+        const ux = dx / len, uz = dz / len, nx = -uz * half, nz = ux * half;
+        const ext = Math.min(half * 0.5, len * 0.45);
+        const pa = { x: pts[i].x - ux * ext, z: pts[i].z - uz * ext, s: pts[i].s };
+        const pb = { x: pts[i + 1].x + ux * ext, z: pts[i + 1].z + uz * ext, s: pts[i + 1].s };
+        clean.push([makeStation(pa, nx, nz), makeStation(pb, nx, nz)]);
+        clean.push([b]);
+      }
+    }
+    for (const seg of clean) {
+      if (seg.length < 2) continue;
+      liftRibbonOverTerrain(seg, lift);
+      out.push(seg);
+    }
+  }
+  return out;
+}
 function roadNet() {
   if (netCache) return netCache;
   const ways: RoadWay[] = [], grid = new Map<number, RoadSegH[]>();
   for (let c = 0; c < ROAD_CLASSES.length; c++) (jf.vias[ROAD_CLASSES[c]] as number[][]).forEach((way, wi) => {
-    const half = stripWidth(c) / 2, pts: { x: number; z: number; s: number }[] = []; let acc = 0;
-    for (let i = 0; i + 3 < way.length; i += 2) {
-      const ax = way[i], az = way[i + 1], bx = way[i + 2], bz = way[i + 3], len = Math.hypot(bx - ax, bz - az), n = Math.max(1, Math.ceil(len / (c === 4 ? 12 : MAX_STEP)));
-      for (let k = i ? 1 : 0; k <= n; k++) pts.push({ x: ax + (bx - ax) * k / n, z: az + (bz - az) * k / n, s: acc + len * k / n });
-      acc += len;
-    }
-    if (pts.length < 2) return;
-    const raw = pts.map((p, i) => {
-      const a = pts[Math.max(0, i - 1)], b = pts[Math.min(pts.length - 1, i + 1)], len = Math.hypot(b.x - a.x, b.z - a.z) || 1;
-      const nx = -(b.z - a.z) / len * half, nz = (b.x - a.x) / len * half;
-      return Math.max(terrainHeight(p.x, p.z), terrainHeight(p.x + nx, p.z + nz), terrainHeight(p.x - nx, p.z - nz));
-    });
-    const st = pts.map((p, i) => ({ ...p, h: Math.max(raw[Math.max(0, i - 1)], raw[i], raw[Math.min(pts.length - 1, i + 1)]) + LIFT[c] + (wi % 4) * .006 }));
-    ways.push({ cls: c, half, st });
-    const reach = half + BEVEL;
-    for (let i = 0; i + 1 < st.length; i++) {
-      const sg: RoadSegH = { x0: st[i].x, z0: st[i].z, h0: st[i].h, x1: st[i + 1].x, z1: st[i + 1].z, h1: st[i + 1].h, half };
-      for (let gx = Math.floor((Math.min(sg.x0, sg.x1) - reach) / HASH); gx <= Math.floor((Math.max(sg.x0, sg.x1) + reach) / HASH); gx++) {
-        for (let gz = Math.floor((Math.min(sg.z0, sg.z1) - reach) / HASH); gz <= Math.floor((Math.max(sg.z0, sg.z1) + reach) / HASH); gz++) {
-          const k = hashKey(gx, gz); let l = grid.get(k); if (!l) grid.set(k, l = []); l.push(sg);
+    const half = stripWidth(c) / 2, lift = LIFT[c] + (wi % 4) * .006;
+    for (const st of buildRibbonStations(way, half, lift)) {
+      ways.push({ cls: c, half, st });
+      const reach = half + BEVEL;
+      for (let i = 0; i + 1 < st.length; i++) {
+        const sg: RoadSegH = { x0: st[i].x, z0: st[i].z, hl0: st[i].hl, hr0: st[i].hr, x1: st[i + 1].x, z1: st[i + 1].z, hl1: st[i + 1].hl, hr1: st[i + 1].hr, half };
+        for (let gx = Math.floor((Math.min(sg.x0, sg.x1) - reach) / HASH); gx <= Math.floor((Math.max(sg.x0, sg.x1) + reach) / HASH); gx++) {
+          for (let gz = Math.floor((Math.min(sg.z0, sg.z1) - reach) / HASH); gz <= Math.floor((Math.max(sg.z0, sg.z1) + reach) / HASH); gz++) {
+            const k = hashKey(gx, gz); let l = grid.get(k); if (!l) grid.set(k, l = []); l.push(sg);
+          }
         }
       }
     }
   });
   return netCache = { ways, grid };
 }
-/** Altura do asfalto em (x, z) para a física (com chanfro de 1,5 m nas bordas); -Infinity fora das ruas. */
+/** Altura do asfalto em (x, z) para a física (mesma superfície da malha, com transição suave nas bordas); -Infinity fora das ruas. */
 export function roadHeightAt(x: number, z: number) {
   let best = -Infinity;
   const list = roadNet().grid.get(hashKey(Math.floor(x / HASH), Math.floor(z / HASH)));
@@ -353,9 +471,14 @@ export function roadHeightAt(x: number, z: number) {
   for (const sg of list) {
     const dx = sg.x1 - sg.x0, dz = sg.z1 - sg.z0, len2 = dx * dx + dz * dz;
     const t = len2 ? Math.max(0, Math.min(1, ((x - sg.x0) * dx + (z - sg.z0) * dz) / len2)) : 0;
-    const d = Math.hypot(x - sg.x0 - dx * t, z - sg.z0 - dz * t);
+    const px = sg.x0 + dx * t, pz = sg.z0 + dz * t;
+    const d = Math.hypot(x - px, z - pz);
     if (d > sg.half + BEVEL) continue;
-    const h = sg.h0 + (sg.h1 - sg.h0) * t;
+    const len = Math.sqrt(len2) || 1;
+    const lat = ((x - px) * (-dz) + (z - pz) * dx) / len;
+    const u = Math.max(-1, Math.min(1, lat / sg.half));
+    const hl = sg.hl0 + (sg.hl1 - sg.hl0) * t, hr = sg.hr0 + (sg.hr1 - sg.hr0) * t;
+    const h = 0.5 * (hl + hr) + 0.5 * (hl - hr) * u;
     if (h <= terrain) continue;
     best = Math.max(best, terrain + (h - terrain) * (d <= sg.half ? 1 : 1 - (d - sg.half) / BEVEL));
   }
@@ -860,45 +983,25 @@ export function cityDetails(city = cityData()) {
     boxes.push({ x0: x - r, x1: x + r, z0: z - r, z1: z + r, top, bottom, radius: r, x, z });
   }
 
-  // Rio: faixa colada ao relevo (as ruas usam roadNet(), com nível por estação)
-  interface RStation { x: number; z: number; s: number }
-  function stations(way: number[]) {
-    const out: RStation[] = []; let s = 0;
-    for (let i = 0; i + 3 < way.length; i += 2) {
-      const ax = way[i], az = way[i + 1], bx = way[i + 2], bz = way[i + 3], len = Math.hypot(bx - ax, bz - az), n = Math.max(1, Math.ceil(len / MAX_STEP));
-      for (let k = i ? 1 : 0; k <= n; k++) out.push({ x: ax + (bx - ax) * k / n, z: az + (bz - az) * k / n, s: s + len * k / n });
-      s += len;
-    }
-    return out;
-  }
-  function ribbon(batchName: 'roads' | 'ground', way: number[], width: number, lift: number, color: number[], textured: boolean) {
-    const st = stations(way); if (st.length < 2) return;
-    const half = width / 2, pos: number[] = [], uv: number[] = [], idx: number[] = [];
-    for (let i = 0; i < st.length; i++) {
-      const a = st[Math.max(0, i - 1)], b = st[Math.min(st.length - 1, i + 1)];
-      const len = Math.hypot(b.x - a.x, b.z - a.z) || 1, nx = -(b.z - a.z) / len, nz = (b.x - a.x) / len;
-      const lx = st[i].x + nx * half, lz = st[i].z + nz * half, rx = st[i].x - nx * half, rz = st[i].z - nz * half;
-      pos.push(lx, terrainHeight(lx, lz) + lift, lz, rx, terrainHeight(rx, rz) + lift, rz);
-      uv.push(0, st[i].s / 32, 1, st[i].s / 32);
-    }
-    for (let i = 0; i + 1 < st.length; i++) { const l0 = i * 2, r0 = l0 + 1, l1 = l0 + 2, r1 = l0 + 3; idx.push(l0, l1, r0, r0, l1, r1); }
-    shape(batchName, pos, idx, color, textured ? uv : undefined);
-  }
-  // categorias menores primeiro; faixa plana na lateral, com o nível calculado por estação (nunca abaixo do terreno)
+  // Ruas (categorias menores primeiro) e rio usando a mesma faixa contínua acima do relevo
   const net = roadNet();
+  const emitRibbon = (batchName: 'roads' | 'ground', st: Station[], color: number[], textured: boolean) => {
+    const pos: number[] = [], uv: number[] = [], idx: number[] = [];
+    for (let i = 0; i < st.length; i++) {
+      const p = st[i];
+      pos.push(p.lx, p.hl, p.lz, p.rx, p.hr, p.rz);
+      if (textured) uv.push(0, p.s / 32, 1, p.s / 32);
+    }
+    for (let i = 0; i + 1 < st.length; i++) { const l0 = i * 2; idx.push(l0, l0 + 2, l0 + 1, l0 + 1, l0 + 2, l0 + 3); }
+    shape(batchName, pos, idx, color, textured ? uv : undefined);
+  };
   for (let c = ROAD_CLASSES.length - 1; c >= 0; c--) for (const w of net.ways) {
     if (w.cls !== c) continue;
-    const pos: number[] = [], uv: number[] = [], idx: number[] = [];
-    for (let i = 0; i < w.st.length; i++) {
-      const a = w.st[Math.max(0, i - 1)], b = w.st[Math.min(w.st.length - 1, i + 1)], len = Math.hypot(b.x - a.x, b.z - a.z) || 1;
-      const nx = -(b.z - a.z) / len * w.half, nz = (b.x - a.x) / len * w.half, p = w.st[i];
-      pos.push(p.x + nx, p.h, p.z + nz, p.x - nx, p.h, p.z - nz);
-      uv.push(0, p.s / 32, 1, p.s / 32);
-    }
-    for (let i = 0; i + 1 < w.st.length; i++) { const l0 = i * 2; idx.push(l0, l0 + 2, l0 + 1, l0 + 1, l0 + 2, l0 + 3); }
-    shape('roads', pos, idx, [255, 255, 255], uv);
+    emitRibbon('roads', w.st, [255, 255, 255], true);
   }
-  for (const piece of jf.rio as number[][]) ribbon('ground', piece, RIVER_WIDTH, .06, [58, 150, 170], false);
+  for (const piece of jf.rio as number[][]) {
+    for (const st of buildRibbonStations(piece, RIVER_WIDTH / 2, .16)) emitRibbon('ground', st, [58, 150, 170], false);
+  }
 
   // Praças, estádios e universidades: células de 10 m dentro do polígono, coladas ao relevo
   const CELL = 10;

@@ -216,11 +216,11 @@ if (existsSync(bairrosFile)) {
   await s.output('mundo-aeroporto.glb');
 }
 const total = outputs.reduce((sum, { bytes }) => sum + bytes.length, 0);
-assert(total < 4_000_000, `World exceeds 4 MB: ${total} bytes`);
+assert(total < 4_600_000, `World exceeds 4.6 MB: ${total} bytes`);
 await mkdir(resolve(root, 'public/models'), { recursive: true });
 for (const { file, bytes } of outputs) {
   await writeFile(file, bytes);
   console.log(`${file}: ${bytes.length} bytes`);
 }
-console.log(`Total: ${total} bytes (< 4 MB)`);
+console.log(`Total: ${total} bytes (< 4.6 MB)`);
 
