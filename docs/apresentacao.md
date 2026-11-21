@@ -21,36 +21,48 @@ Cada integrante apresenta **uma parte técnica curta** e conduz **uma etapa prá
 
 ---
 
-## 2. Roteiro passo a passo da demonstração ao vivo
+## 2. Roteiro passo a passo da demonstração ao vivo (usando o Modo Apresentação)
+
+Uma partida normal dura **30 minutos reais**; na banca (~10 minutos), use o **Modo apresentação** (botão no menu inicial ou atributo **Modo apresentação** no Inspector do PlayCanvas Editor). Ele exibe o selo discreto **`MODO APRESENTAÇÃO`** no canto inferior esquerdo, desliga o registro de recorde e ativa **F1–F6** somente durante a demo:
+
+| Tecla | Ação (só no Modo apresentação) | Momento no roteiro |
+|---|---|---|
+| **F1** | Estágio 1 — Hatch no Centro (`00:00`) | Gabriel abre a demo dirigindo no Centro |
+| **F2** | Estágio 2 — Coupé Tunado (`06:00`, amanhecer) | Gabriel mostra nitro (`Shift`) e drift (`Espaço`) |
+| **F3** | Estágio 3 — Helicóptero (`12:00`, meio-dia) | Rafael mostra pairado e pouso em cobertura / Cristo |
+| **F4** | Estágio 4 — A-29 na Serrinha (`17:30`, fim de tarde) | Rafael decola, mostra mira por mouse, cabine (`C`) e fumaça (`F`) |
+| **F5** | **Entrega final** — A-29 no ar perto da UniAcademia (`21:30`, noite) | Lucas solta a última caixa (`Espaço`) sobre a UniAcademia e mostra a vitória |
+| **F6** | **Avança +1h no relógio** | Qualquer integrante pode apertar para demonstrar o ciclo dia/noite e os postes acendendo ao vivo |
 
 Ordem recomendada (mantenha o **PlayCanvas Editor** já aberto em uma aba e o jogo pronto em **Launch**):
 
-1. **No PlayCanvas Editor (45 s):**
+1. **No PlayCanvas Editor (45 s — João Victor):**
    - Mostrar a **Hierarchy** com `Jogo`, `Mundo`, `A29`, `Heli`, `Carro_Inicial`, `Carro_Tunado` e `UniAcademia`.
    - Dar foco na `UniAcademia` (selecionar e apertar **`F`**) para a turma reconhecer o prédio histórico de Juiz de Fora direto no Viewport.
-   - Selecionar **`Jogo`** → mostrar o componente **Script (`simuladorVoo`)** no **Inspector** com os 7 atributos editáveis; marcar **`Mostrar FPS`** e ajustar **`Dificuldade`** para `Fácil` (para a demo fluir sem erros).
-2. **Menu e História (30 s):**
-   - No **Launch**, mostrar o menu principal (câmera orbitando o carro) → clicar em **Jogar** → passar pela tela de história da GoPostal e começar às `00:00`.
-3. **Estágio 1 — Hatch no Centro + troca de veículo (1m30):**
+   - Selecionar **`Jogo`** → mostrar o componente **Script (`simuladorVoo`)** no **Inspector** com os 8 atributos editáveis; marcar **`Mostrar FPS`**, **`Modo apresentação`** e ajustar **`Dificuldade = Fácil`** e **`Duração do dia = 10`**.
+2. **Menu, tela de carregamento e Modo apresentação (30 s — João Victor):**
+   - No **Launch**, destacar a tela de carregamento real dos GLBs/texturas; no menu inicial, clicar em **`Modo apresentação`** (escolher `Carro`, dia de `10 min`) e iniciar.
+3. **Estágio 1 — Hatch no Centro + troca de veículo (1m30 — Gabriel):**
    - Dirigir pelas ruas reais do Centro observando o **minimapa de Juiz de Fora** (Rio Paraibuna, marcos e UniAcademia em dourado) e as colunas de luz.
-   - Concluir uma entrega, parar, apertar **`E`** para sair a pé (mostrar o personagem) e entrar novamente com **`E`**.
-4. **Estágio 2 — Coupé Tunado com Nitro (1 min):**
-   - Mostrar o Coupé Tunado, ativar **`Shift`** (barra de nitro + chamas no escape + ronco mais agudo) e fazer uma curva puxando o freio de mão (**`Espaço`**).
-5. **Estágio 3 — Helicóptero no heliponto e morros (1m15):**
-   - Subir do heliponto no Centro, mostrar o pairado estável sobre a cidade e pousar numa cobertura ou junto ao Cristo do Imperador.
-6. **Estágio 4 — A-29 decolando da Serrinha (SBJF) (1m30):**
-   - Acelerar na pista real do aeroporto da Serrinha, decolar, mostrar a mira por mouse (e alternar **`M`** para teclado se quiser), alternar câmera de cabine (**`C`**) com horizonte artificial, ligar a fumaça (**`F`**) e apertar **`Espaço`** para lançar uma carga aérea.
-7. **Entrega final na UniAcademia e Vitória (1 min):**
-   - Sobrevoar a fachada histórica da **UniAcademia** (feixe dourado duplo e partículas subindo), soltar a carga final, comemorar a **tela de vitória (`MISSÃO CUMPRIDA!`)** e abrir rapidamente **Créditos** e **Opções**.
+   - Concluir uma entrega, parar, apertar **`E`** para sair a pé (mostrar o personagem) e entrar novamente com **`E`**; apertar **`F6`** uma vez se quiser mostrar o céu mudando.
+4. **Estágio 2 — Coupé Tunado com Nitro (1 min — Gabriel):**
+   - Apertar **`F2`** para pular direto ao estágio do Coupé Tunado (`06:00`, amanhecer), ativar **`Shift`** (barra de nitro + chamas no escape + ronco mais agudo) e fazer uma curva puxando o freio de mão (**`Espaço`**).
+5. **Estágio 3 — Helicóptero no heliponto e morros (1m15 — Rafael):**
+   - Apertar **`F3`** para ir ao estágio do Helicóptero (`12:00`), subir do heliponto no Centro, mostrar o pairado estável sobre Juiz de Fora e pousar numa cobertura ou junto ao Cristo do Imperador.
+6. **Estágio 4 — A-29 decolando da Serrinha (1m30 — Rafael):**
+   - Apertar **`F4`** para ir ao estágio do A-29 (`17:30`, pôr do sol), acelerar na pista da Serrinha (SBJF), decolar, mostrar a mira por mouse (e alternar **`M`** para teclado), abrir câmera de cabine (**`C`**) com horizonte artificial, ligar a fumaça (**`F`**) e lançar uma carga aérea (**`Espaço`**).
+7. **Entrega final na UniAcademia e Vitória (1 min — Lucas):**
+   - Apertar **`F5`** (ou marcar *"Ir direto para a entrega final"* no menu do Modo apresentação) para posicionar o A-29 perto da **UniAcademia** à noite (`21:30`, postes e janelas acesos + feixe dourado duplo com partículas), apertar **`Espaço`** para concluir a 16ª entrega, mostrar a **tela de vitória (`MISSÃO CUMPRIDA!`)** e abrir rapidamente **Créditos** (licenças JSBSim, MIT, OpenStreetMap ODbL e AWS Terrain Tiles).
 
 ### Plano B (se algo falhar na hora)
 
 | Imprevisto | Plano B imediato |
 |---|---|
-| **Wi-Fi da sala cair ou Editor ficar lento** | Rodar a cópia local já preparada no notebook com `npm run dev` (`http://localhost:5173`) — funciona 100% offline com exatamente o mesmo código. |
-| **Falta de tempo para concluir as 16 entregas ao vivo** | Usar o console do navegador (`F12`) já deixado como atalho de demonstração para avançar estágio/teletransportar ou mostrar o **vídeo gravado em 1080p (~2 min)** cobrindo os 4 estágios e a entrega final na UniAcademia sem cortes. |
-| **Travamento de navegador / áudio mudo** | Ter uma segunda aba aberta em segundo plano (ou o vídeo pronto em tela cheia no VLC/navegador) para continuar falando sem pausa constrangedora. |
-| **Controle difícil durante nervosismo** | Deixar o atributo **`Dificuldade = Fácil`** (+35% raio das entregas) selecionado antes de começar. |
+| **Wi-Fi da sala cair ou Editor ficar lento** | Rodar a cópia local já preparada no notebook com `npm run dev` (`http://localhost:5173`) e entrar pelo botão **`Modo apresentação`** — funciona 100% offline com exatamente o mesmo código. |
+| **Falta de tempo ou acidente no meio de um estágio** | Apertar **`F1–F4`** para pular instantaneamente para o estágio seguinte ou **`F5`** para ir direto à entrega final na UniAcademia sem perder o ritmo da apresentação. |
+| **Querer mostrar o ciclo dia/noite rápido sem esperar** | Apertar **`F6`** repetidamente (+1h por clique) para passar de madrugada → amanhecer → meio-dia → pôr do sol → noite com os postes acendendo ao vivo. |
+| **Travamento de navegador / áudio mudo** | Ter o **vídeo gravado em 1080p (~2 min)** pronto em tela cheia cobrindo Editor, os 4 veículos, entrega final na UniAcademia e tela de vitória. |
+| **Controle difícil durante nervosismo** | Deixar **`Dificuldade = Fácil`** (+35% raio das entregas) e **`Duração do dia = 10 min`** selecionados antes de começar. |
 
 ---
 
@@ -60,7 +72,7 @@ Destaque explicitamente estes **5 recursos nativos do PlayCanvas** durante a fal
 
 1. **Editor online + cena na Hierarchy:** mundo de Juiz de Fora, veículos e UniAcademia organizados como entidades reais na cena, inspecionáveis e navegáveis no Viewport (não apenas um canvas vazio).
 2. **Pipeline de assets 3D (GLB):** modelos exportados do Blender importados como assets nativos do PlayCanvas (`template`/`render` ou `model`), com nós internos animados (`Prop`, `Rotor`, `TailRotor`, `Roda_*`).
-3. **Atributos de Script no Inspector (ESM e Clássico):** 7 parâmetros expostos com título, descrição, limites e enum (`@attribute` em `flight-sim.mjs` e `attributes.add` em `flight-sim.js`), reagindo **ao vivo** ao evento `attr` sem reiniciar o jogo.
+3. **Atributos de Script no Inspector (ESM e Clássico):** 8 parâmetros expostos com título, descrição, limites e enum (`@attribute` em `flight-sim.mjs` e `attributes.add` em `flight-sim.js`), incluindo **Mostrar FPS** e **Modo apresentação**, reagindo **ao vivo** ao evento `attr` sem reiniciar o jogo.
 4. **Ciclo de vida e componentes da Engine 2.x:** uso de `camera` (tone mapping ACES, FOV dinâmico), `light` direcional com ciclo dia/noite, névoa linear, `StandardMaterial` com canais emissivos e `destroy()` limpo no `disable`/`destroy` do script.
 5. **Publicação automatizada via REST API oficial:** `npm run build:editor` + `npm run publicar:editor` enviam scripts e modelos diretamente para o branch do projeto no PlayCanvas.
 

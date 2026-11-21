@@ -32,7 +32,7 @@ import {
   type Stage,
 } from './types';
 import { createLoadingScreen, type LoadingScreenHandle } from './ui/loading';
-import { createGameMenus } from './ui/menus';
+import { createGameMenus, type PresentationLaunchConfig } from './ui/menus';
 import {
   clearRuntime,
   initRuntime,
@@ -40,6 +40,7 @@ import {
   requestCameraSnap,
   saveSettings,
   setRuntimeMode,
+  setRuntimePresentationMode,
   setRuntimeSettings,
   type GameMode,
   type GameSettings,
@@ -47,7 +48,7 @@ import {
 } from './ui/settings';
 import { createVehicleSystem } from './vehicles';
 import { SKY_HORIZON, buildWorld, type World } from './world';
-import { createWorldPhysics } from './world-data';
+import { UNIACADEMIA, createWorldPhysics } from './world-data';
 
 export type DifficultyLevel = 'facil' | 'normal' | 'dificil';
 
@@ -66,9 +67,26 @@ export interface FlightSimOptions {
   showMinimap?: boolean;
   /** Exibe um contador leve de FPS no canto da tela. */
   showFps?: boolean;
+  /** Ativa o modo apresentação (selo no HUD, atalhos F1–F6 e sem registro de recorde). */
+  presentationMode?: boolean;
   /** Tela de carregamento pré-montada (opcional, usada por main.ts e scripts do Editor). */
   loadingScreen?: LoadingScreenHandle;
 }
+
+type VehicleSystemJumpable = FlightModule & {
+  enterStageVehicle?: (
+    kind: Stage,
+    pose?: { x: number; y: number; z: number; heading: number; speed?: number },
+  ) => void;
+};
+
+const PRESENTATION_STAGE_CLOCK: Record<Stage, number> = {
+  car: 0, // 00:00
+  tuned: 360, // 06:00 (amanhecer)
+  heli: 720, // 12:00 (meio-dia)
+  a29: 1050, // 17:30 (fim de tarde)
+};
+const PRESENTATION_FINAL_CLOCK = 1290; // 21:30 (noite iluminada na UniAcademia)
 
 export interface FlightSimHandle {
   destroy(): void;
@@ -493,6 +511,7 @@ export function startFlightSim(
     sfxVolume: clampNum(initialOptions?.sfxVolume, persistedSettings.sfxVolume, 0, 1),
     showMinimap: typeof initialOptions?.showMinimap === 'boolean' ? initialOptions.showMinimap : true,
     showFps: typeof initialOptions?.showFps === 'boolean' ? initialOptions.showFps : persistedSettings.showFps,
+    presentationMode: Boolean(initialOptions?.presentationMode),
   };
 
   let settings: GameSettings = {
@@ -505,12 +524,13 @@ export function startFlightSim(
   const state = createFlightState();
   state.controlMode = settings.defaultControlMode;
   initRuntime(state, settings, 'title');
+  setRuntimePresentationMode(state, simOptions.presentationMode);
 
   const mission: MissionState = createMissionState();
   const ctx: FlightContext = { app, world, plane, camera, state, mission };
 
   // Ordem fixa: veículos/voo → missão → dia/noite → câmeras → marcadores → cabine → HUD → fumaça
-  const flightModule: FlightModule = createVehicleSystem(ctx);
+  const flightModule: VehicleSystemJumpable = createVehicleSystem(ctx);
   loadingScreen.setStage('vehicles', 'Veículos e fachada da UniAcademia prontos', true);
   const missionModule: FlightModule = createMissionSystem(ctx);
   const dayNightModule = createDayNight(ctx, sun);
@@ -686,8 +706,75 @@ export function startFlightSim(
     camera.lookAt(titleFocus, Vec3.UP);
   }
 
-  function beginMissionPlay() {
+  let presentationActive = simOptions.presentationMode;
+  let baseDayDurationMinutes = simOptions.dayDurationMinutes;
+  let lastPresentationConfig: PresentationLaunchConfig | null = null;
+
+  function applyPresentationTarget(stage: Stage, finalDelivery: boolean) {
+    startMission(ctx);
+    baseDeliveryRadii.clear();
+    syncDeliveryDifficulty();
+
+    const targetIdx = STAGE_ORDER.indexOf(stage);
+    let deliveredCount = 0;
+    for (let i = 0; i < mission.deliveries.length; i++) {
+      const d = mission.deliveries[i];
+      const dIdx = STAGE_ORDER.indexOf(d.stage);
+      const shouldMarkDone = finalDelivery ? d.id !== 'a29-4' : dIdx < targetIdx;
+      d.delivered = shouldMarkDone;
+      if (shouldMarkDone) deliveredCount++;
+    }
+    mission.stage = finalDelivery ? 'a29' : stage;
+    mission.delivered = deliveredCount;
+    mission.clockMinutes = finalDelivery ? PRESENTATION_FINAL_CLOCK : PRESENTATION_STAGE_CLOCK[stage];
+    mission.carrying = mission.stage;
+    const nextPending = mission.deliveries.find((d) => !d.delivered && d.stage === mission.stage);
+    mission.nextDeliveryId = nextPending?.id ?? null;
+
+    // Usa o gancho opcional em vehicles.ts (se exposto pelo Codex) para entrar direto no veículo do estágio
+    const airborneFinalPose = finalDelivery
+      ? {
+          x: UNIACADEMIA.x,
+          y: UNIACADEMIA.y + 135,
+          z: UNIACADEMIA.z + 520,
+          heading: 0,
+          speed: 75,
+        }
+      : undefined;
+
+    if (typeof flightModule.enterStageVehicle === 'function') {
+      flightModule.enterStageVehicle(mission.stage, airborneFinalPose);
+      mission.message = finalDelivery
+        ? 'Modo apresentação · Entrega final na UniAcademia (A-29)'
+        : `Modo apresentação · Estágio ${mission.stage.toUpperCase()}`;
+    } else {
+      mission.message = finalDelivery
+        ? 'Modo apresentação · Entrega final pronta (UniAcademia · 21:30)'
+        : `Modo apresentação · Estágio ${mission.stage.toUpperCase()} liberado`;
+    }
+    mission.messageTimer = 4;
+
+    clearSmoke(state);
+    state.controlMode = settings.defaultControlMode;
+    state.camera = 'chase';
+    menus.clearStageBanner();
+    syncMissionTracking();
+    requestCameraSnap(state);
+    dayNightModule.update(0);
+    cameraRig.update(0);
+    markersModule.update(0);
+    cockpitModule.update(0);
+    hudModule.update(0);
+  }
+
+  function beginMissionPlay(keepPresentation = false) {
     audio.unlock();
+    if (!keepPresentation) {
+      presentationActive = simOptions.presentationMode;
+      simOptions.dayDurationMinutes = baseDayDurationMinutes;
+      setRuntimePresentationMode(state, presentationActive);
+      lastPresentationConfig = null;
+    }
     startMission(ctx);
     baseDeliveryRadii.clear();
     syncDeliveryDifficulty();
@@ -706,6 +793,20 @@ export function startFlightSim(
     markersModule.update(0);
     cockpitModule.update(0);
     hudModule.update(0);
+    requestPointerLockForFlight();
+  }
+
+  function beginPresentationPlay(config: PresentationLaunchConfig) {
+    audio.unlock();
+    presentationActive = true;
+    lastPresentationConfig = { ...config };
+    simOptions.dayDurationMinutes = config.dayDurationMinutes;
+    setRuntimePresentationMode(state, true);
+    mode = 'playing';
+    hadPointerLockInFlight = false;
+    setRuntimeMode(state, 'playing');
+    menus.setMode('playing');
+    applyPresentationTarget(config.finalDelivery ? 'a29' : config.stage, config.finalDelivery);
     requestPointerLockForFlight();
   }
 
@@ -761,7 +862,8 @@ export function startFlightSim(
     releasePointerLock();
     if (outcome === 'won') audio.playVictory();
     else audio.playDefeat();
-    menus.showEndScreen(outcome, mission);
+    // Modo apresentação não registra recorde
+    menus.showEndScreen(outcome, mission, presentationActive);
     markersModule.update(0);
     cockpitModule.update(0);
     hudModule.update(0);
@@ -792,9 +894,16 @@ export function startFlightSim(
 
   let isLoading = true;
   const menus = createGameMenus(uiRoot, settings, {
-    onStartFlight: beginMissionPlay,
+    onStartFlight: () => beginMissionPlay(false),
+    onStartPresentation: beginPresentationPlay,
     onResume: resumeFlight,
-    onRestart: beginMissionPlay,
+    onRestart: () => {
+      if (presentationActive && lastPresentationConfig) {
+        beginPresentationPlay(lastPresentationConfig);
+      } else {
+        beginMissionPlay(presentationActive);
+      }
+    },
     onReturnTitle: returnToTitle,
     onSettingsChange: applyUpdatedSettings,
     onButtonClick: (confirm) => {
@@ -813,6 +922,46 @@ export function startFlightSim(
     if (destroyed || isLoading) return;
     audio.unlock();
     if (e.repeat) return;
+
+    // Atalhos exclusivos do Modo Apresentação (fora dele, F1–F6 não fazem nada)
+    if (presentationActive && mode === 'playing') {
+      if (e.code === 'F1') {
+        e.preventDefault();
+        applyPresentationTarget('car', false);
+        return;
+      }
+      if (e.code === 'F2') {
+        e.preventDefault();
+        applyPresentationTarget('tuned', false);
+        return;
+      }
+      if (e.code === 'F3') {
+        e.preventDefault();
+        applyPresentationTarget('heli', false);
+        return;
+      }
+      if (e.code === 'F4') {
+        e.preventDefault();
+        applyPresentationTarget('a29', false);
+        return;
+      }
+      if (e.code === 'F5') {
+        e.preventDefault();
+        applyPresentationTarget('a29', true);
+        return;
+      }
+      if (e.code === 'F6') {
+        e.preventDefault();
+        mission.clockMinutes = Math.min(1435, mission.clockMinutes + 60);
+        const hh = String(Math.floor(mission.clockMinutes / 60)).padStart(2, '0');
+        const mm = String(Math.floor(mission.clockMinutes % 60)).padStart(2, '0');
+        mission.message = `Modo apresentação · Relógio +1h (${hh}:${mm})`;
+        mission.messageTimer = 3;
+        dayNightModule.update(0);
+        hudModule.update(0);
+        return;
+      }
+    }
 
     const isEsc = e.code === 'Escape' || e.key === 'Escape';
     const isP = e.code === 'KeyP' || e.key === 'p' || e.key === 'P';
@@ -1060,7 +1209,16 @@ export function startFlightSim(
         sfxVolume: clampNum(next.sfxVolume, simOptions.sfxVolume, 0, 1),
         showMinimap: typeof next.showMinimap === 'boolean' ? next.showMinimap : simOptions.showMinimap,
         showFps: typeof next.showFps === 'boolean' ? next.showFps : simOptions.showFps,
+        presentationMode:
+          typeof next.presentationMode === 'boolean' ? next.presentationMode : simOptions.presentationMode,
       };
+      if (typeof next.dayDurationMinutes === 'number' && Number.isFinite(next.dayDurationMinutes)) {
+        baseDayDurationMinutes = simOptions.dayDurationMinutes;
+      }
+      if (typeof next.presentationMode === 'boolean') {
+        presentationActive = next.presentationMode;
+        setRuntimePresentationMode(state, presentationActive);
+      }
       syncDeliveryDifficulty();
       applyMinimapVisibility();
       if (fpsEl) {

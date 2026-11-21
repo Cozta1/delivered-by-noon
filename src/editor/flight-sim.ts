@@ -92,6 +92,14 @@ export class FlightSim extends Script {
    */
   showFps = false;
 
+  /**
+   * Ativa o modo apresentação (selo no HUD, atalhos F1–F6 para pular estágios/entrega final e +1h no relógio, sem contar recorde).
+   * @attribute
+   * @title Modo apresentação
+   * @type {boolean}
+   */
+  presentationMode = false;
+
   private styleEl: HTMLStyleElement | null = null;
   private uiEl: HTMLDivElement | null = null;
   private sim: FlightSimHandle | null = null;
@@ -107,6 +115,7 @@ export class FlightSim extends Script {
       sfxVolume: this.sfxVolume,
       showMinimap: this.showMinimap,
       showFps: this.showFps,
+      presentationMode: this.presentationMode,
     };
   }
 

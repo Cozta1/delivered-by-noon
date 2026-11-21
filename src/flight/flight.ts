@@ -10,13 +10,15 @@ import { INSTRUCTOR, MouseInstructor } from './fdm/instructor';
 import { AircraftGround } from './fdm/ground';
 import { HeliDynamics, type HeliControls } from './fdm/heli';
 
-export function createFlightController(ctx: FlightContext, spawn?: VehicleSpawn, resetSpawn = spawn): FlightModule {
+type FlightSpawn = VehicleSpawn & { speed?:number };
+
+export function createFlightController(ctx: FlightContext, spawn?: FlightSpawn, resetSpawn:VehicleSpawn|undefined = spawn): FlightModule {
   const start = spawn ? { ...spawn } : undefined;
   const home = resetSpawn ? { ...resetSpawn } : undefined;
   return (start?.kind ?? ctx.state.vehicle) === 'heli' ? createHeliController(ctx, start, home) : createA29Controller(ctx, start, home);
 }
 
-function createA29Controller({ app, world, plane, state }: FlightContext, spawn?: VehicleSpawn, home = spawn): FlightModule {
+function createA29Controller({ app, world, plane, state }: FlightContext, spawn?: FlightSpawn, home:VehicleSpawn|undefined = spawn): FlightModule {
   const fdm = new FlightDynamics();
   const instructor = new MouseInstructor();
   const rotation = fdm.rotation;
@@ -48,7 +50,7 @@ function createA29Controller({ app, world, plane, state }: FlightContext, spawn?
   let propAngle = 0;
   let returnDirection = 0;
   let accumulator = 0;
-  let resetPoint = spawn;
+  let resetPoint:FlightSpawn|undefined = spawn;
 
   function attitude() {
     rotation.transformVector(Vec3.FORWARD, forward);
@@ -79,12 +81,13 @@ function createA29Controller({ app, world, plane, state }: FlightContext, spawn?
   function reset() {
     const start = resetPoint ?? SPAWN;
     resetPoint = home;
-    fdm.reset(start.x, start.y, start.z, start.heading, spawn ? .1 : SPAWN.speed, spawn ? 0 : .6);
+    const flying = !spawn || ('speed' in start && (start.speed ?? 0) > 0);
+    fdm.reset(start.x, start.y, start.z, start.heading, flying ? ('speed' in start ? start.speed! : SPAWN.speed) : .1, flying ? .6 : 0);
     ground.crashed = false; ground.grounded = false; ground.takeoffAssist = 0;
-    if (spawn) ground.park(fdm, start.heading);
+    if (!flying) ground.park(fdm, start.heading);
     instructor.reset(start.heading);
     input.pitch = input.roll = input.yaw = 0;
-    input.throttle = spawn ? 0 : 0.6;
+    input.throttle = flying ? .6 : 0;
     state.crashed = false;
     crashTime = propAngle = returnDirection = accumulator = 0;
     plane.prop.setLocalEulerAngles(0, 0, 0);
@@ -211,8 +214,8 @@ function createHeliController({app,world,plane,state}:FlightContext,spawn?:Vehic
   }
   function reset() {
     const start=resetPoint??SPAWN;resetPoint=home;
-    body.reset(start.x,spawn?world.groundAt(start.x,start.z)+clearance:start.y,start.z,start.heading);
-    body.grounded=!!spawn;
+    body.reset(start.x,start===spawn?start.y:spawn?world.groundAt(start.x,start.z)+clearance:start.y,start.z,start.heading);
+    body.grounded=!!spawn&&body.position.y<=world.groundAt(start.x,start.z)+clearance+.02;
     accumulator=crashTime=collective=0;state.crashed=false;plane.root.enabled=true;publish();
   }
   reset();

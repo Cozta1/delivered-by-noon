@@ -8,10 +8,17 @@ import {
   sanitizeSettings,
 } from './settings';
 
-export type MenuScreen = 'main' | 'story' | 'options' | 'controls' | 'credits' | 'result';
+export type MenuScreen = 'main' | 'story' | 'presentation' | 'options' | 'controls' | 'credits' | 'result';
+
+export interface PresentationLaunchConfig {
+  stage: Stage;
+  dayDurationMinutes: 5 | 10 | 30;
+  finalDelivery: boolean;
+}
 
 export interface MenuCallbacks {
   onStartFlight(): void;
+  onStartPresentation?(config: PresentationLaunchConfig): void;
   onResume(): void;
   onRestart(): void;
   onReturnTitle(): void;
@@ -27,7 +34,7 @@ export interface GameMenus {
   syncSettings(settings: GameSettings): void;
   showStageUnlocked(stage: Stage): void;
   clearStageBanner(): void;
-  showEndScreen(outcome: 'won' | 'lost', mission: MissionState): void;
+  showEndScreen(outcome: 'won' | 'lost', mission: MissionState, presentationMode?: boolean): void;
   destroy(): void;
 }
 
@@ -132,6 +139,8 @@ export function createGameMenus(
   const actions = node('div', 'menu-actions');
   const btnPrimary = node('button', 'menu-btn menu-btn--primary', 'Jogar');
   btnPrimary.type = 'button';
+  const btnPresentation = node('button', 'menu-btn menu-btn--presentation', 'Modo apresentação');
+  btnPresentation.type = 'button';
   const btnRestart = node('button', 'menu-btn', 'Respawn no relógio!');
   btnRestart.type = 'button';
   const btnOptions = node('button', 'menu-btn', 'Opções');
@@ -143,7 +152,7 @@ export function createGameMenus(
   const btnReturnTitle = node('button', 'menu-btn menu-btn--ghost', 'Voltar ao início');
   btnReturnTitle.type = 'button';
 
-  actions.append(btnPrimary, btnRestart, btnOptions, btnControls, btnCredits, btnReturnTitle);
+  actions.append(btnPrimary, btnPresentation, btnRestart, btnOptions, btnControls, btnCredits, btnReturnTitle);
   mainView.append(header, actions);
 
   // --- Tela de História (antes de começar o turno) ---
@@ -187,6 +196,102 @@ export function createGameMenus(
   btnStoryPlay.type = 'button';
   storyFooter.append(btnStoryBack, btnStoryPlay);
   storyView.append(storyEyebrow, storyTitle, storyBody, storyLadder, storyTip, storyFooter);
+
+  // --- Tela de Modo Apresentação (demonstração rápida em sala / plano B) ---
+  const presView = node('div', 'menu-view menu-subview');
+  presView.hidden = true;
+  const presEyebrow = node('div', 'menu-eyebrow', 'ROTEIRO AO VIVO · SEM RECORDE');
+  const presTitle = node('h2', 'menu-section-title', 'MODO APRESENTAÇÃO');
+  const presIntro = node(
+    'p',
+    'menu-story-p',
+    'Escolha em qual veículo começar e a duração do dia. Durante a partida, F1–F4 trocam de estágio, F5 vai direto para a entrega final na UniAcademia e F6 avança +1h no relógio.',
+  );
+
+  let presStage: Stage = 'car';
+  let presDayMin: 5 | 10 | 30 = 10;
+  let presFinal = false;
+
+  const presForm = node('div', 'menu-options-list');
+
+  const stageRow = node('div', 'menu-opt-row');
+  stageRow.append(node('span', 'menu-opt-label', 'Estágio inicial'));
+  const stageSeg = node('div', 'menu-segments');
+  const stageBtns = new Map<Stage, HTMLButtonElement>();
+  for (const [st, label] of [
+    ['car', 'Carro'],
+    ['tuned', 'Tunado'],
+    ['heli', 'Heli'],
+    ['a29', 'A-29'],
+  ] as const) {
+    const b = node('button', 'menu-seg-btn', label);
+    b.type = 'button';
+    b.addEventListener('click', () => {
+      callbacks.onButtonClick();
+      presStage = st;
+      presFinal = false;
+      syncPresentationInputs();
+    });
+    stageBtns.set(st, b);
+    stageSeg.append(b);
+  }
+  stageRow.append(stageSeg);
+
+  const durRow = node('div', 'menu-opt-row');
+  durRow.append(node('span', 'menu-opt-label', 'Duração do dia (00:00 → 24:00)'));
+  const durSeg = node('div', 'menu-segments');
+  const durBtns = new Map<5 | 10 | 30, HTMLButtonElement>();
+  for (const mins of [5, 10, 30] as const) {
+    const b = node('button', 'menu-seg-btn', `${mins} min`);
+    b.type = 'button';
+    b.addEventListener('click', () => {
+      callbacks.onButtonClick();
+      presDayMin = mins;
+      syncPresentationInputs();
+    });
+    durBtns.set(mins, b);
+    durSeg.append(b);
+  }
+  durRow.append(durSeg);
+
+  const finalToggleRow = node('label', 'menu-opt-toggle');
+  const finalToggleLbl = node('span', 'menu-opt-label', 'Ir direto para a entrega final (A-29 na UniAcademia)');
+  const finalToggleInput = document.createElement('input');
+  finalToggleInput.type = 'checkbox';
+  finalToggleInput.className = 'menu-checkbox';
+  finalToggleInput.addEventListener('change', () => {
+    callbacks.onButtonClick();
+    presFinal = finalToggleInput.checked;
+    if (presFinal) presStage = 'a29';
+    syncPresentationInputs();
+  });
+  finalToggleRow.append(finalToggleLbl, finalToggleInput);
+
+  const presNote = node(
+    'p',
+    'menu-story-tip',
+    'Atalhos ativos só neste modo: F1 Carro · F2 Tunado · F3 Heli · F4 A-29 · F5 Entrega final · F6 +1h no relógio.',
+  );
+
+  presForm.append(stageRow, durRow, finalToggleRow, presNote);
+
+  const presFooter = node('div', 'menu-sub-footer');
+  const btnPresBack = node('button', 'menu-btn menu-btn--ghost', 'Voltar');
+  btnPresBack.type = 'button';
+  const btnPresStart = node('button', 'menu-btn menu-btn--primary', 'Iniciar apresentação');
+  btnPresStart.type = 'button';
+  presFooter.append(btnPresBack, btnPresStart);
+  presView.append(presEyebrow, presTitle, presIntro, presForm, presFooter);
+
+  function syncPresentationInputs() {
+    for (const [st, btn] of stageBtns) {
+      btn.classList.toggle('is-active', !presFinal && st === presStage);
+    }
+    for (const [m, btn] of durBtns) {
+      btn.classList.toggle('is-active', m === presDayMin);
+    }
+    finalToggleInput.checked = presFinal;
+  }
 
   // --- Tela de Resultado (Vitória ou Derrota) ---
   const resultView = node('div', 'menu-view menu-subview');
@@ -402,7 +507,7 @@ export function createGameMenus(
   credFooter.append(btnCredBack);
   creditsView.append(credTitle, credBody, credFooter);
 
-  card.append(mainView, storyView, resultView, optionsView, controlsView, creditsView);
+  card.append(mainView, storyView, presView, resultView, optionsView, controlsView, creditsView);
 
   function clearStageBanner() {
     if (stageBannerTimer !== null) {
@@ -434,6 +539,7 @@ export function createGameMenus(
 
     mainView.hidden = screen !== 'main';
     storyView.hidden = screen !== 'story';
+    presView.hidden = screen !== 'presentation';
     resultView.hidden = screen !== 'result';
     optionsView.hidden = screen !== 'options';
     controlsView.hidden = screen !== 'controls';
@@ -445,6 +551,7 @@ export function createGameMenus(
       subtitleEl.textContent = 'Entregue tudo antes da próxima meia-noite com veículos cada vez mais malucos';
       subtitleEl.hidden = false;
       btnPrimary.textContent = 'Jogar';
+      btnPresentation.hidden = false;
       btnRestart.hidden = true;
       btnCredits.hidden = false;
       btnReturnTitle.hidden = true;
@@ -454,6 +561,7 @@ export function createGameMenus(
       subtitleEl.textContent = 'Relógio congelado — pressione Esc ou P para voltar ao expediente';
       subtitleEl.hidden = false;
       btnPrimary.textContent = 'Continuar';
+      btnPresentation.hidden = true;
       btnRestart.textContent = 'Respawn no relógio!';
       btnRestart.hidden = false;
       btnCredits.hidden = true;
@@ -469,6 +577,28 @@ export function createGameMenus(
     } else {
       callbacks.onResume();
     }
+  });
+
+  btnPresentation.addEventListener('click', () => {
+    callbacks.onButtonClick();
+    screen = 'presentation';
+    syncPresentationInputs();
+    renderView();
+  });
+
+  btnPresBack.addEventListener('click', () => {
+    callbacks.onButtonClick();
+    screen = 'main';
+    renderView();
+  });
+
+  btnPresStart.addEventListener('click', () => {
+    callbacks.onButtonClick(true);
+    callbacks.onStartPresentation?.({
+      stage: presFinal ? 'a29' : presStage,
+      dayDurationMinutes: presDayMin,
+      finalDelivery: presFinal,
+    });
   });
 
   btnStoryPlay.addEventListener('click', () => {
@@ -578,24 +708,29 @@ export function createGameMenus(
       }, 4500);
     },
     clearStageBanner,
-    showEndScreen(outcome: 'won' | 'lost', mission: MissionState) {
+    showEndScreen(outcome: 'won' | 'lost', mission: MissionState, presentationMode = false) {
       clearStageBanner();
       mode = 'ended';
       screen = 'result';
       const remaining = Math.max(0, mission.total - mission.delivered);
+      const recordNote = presentationMode ? ' (Modo apresentação: sem registro de recorde.)' : '';
 
       resultView.className = `menu-view menu-subview menu-result--${outcome}`;
       if (outcome === 'won') {
-        resultEyebrow.textContent = 'GOPOSTAL · MISSÃO CUMPRIDA!';
+        resultEyebrow.textContent = presentationMode
+          ? 'MODO APRESENTAÇÃO · MISSÃO CUMPRIDA!'
+          : 'GOPOSTAL · MISSÃO CUMPRIDA!';
         resultTitle.textContent = 'MISSÃO CUMPRIDA!';
-        resultMsg.textContent = `Michael De Santa, o patrão, aprovou o serviço: todas as ${mission.delivered} entregas da GoPostal chegaram às ${formatClock(mission.clockMinutes)}!`;
+        resultMsg.textContent = `Michael De Santa, o patrão, aprovou o serviço: todas as ${mission.delivered} entregas da GoPostal chegaram às ${formatClock(mission.clockMinutes)}!${recordNote}`;
       } else {
-        resultEyebrow.textContent = 'GOPOSTAL · RESPAWN NO RELÓGIO!';
+        resultEyebrow.textContent = presentationMode
+          ? 'MODO APRESENTAÇÃO · MEIA-NOITE!'
+          : 'GOPOSTAL · RESPAWN NO RELÓGIO!';
         resultTitle.textContent = 'MEIA-NOITE!';
         resultMsg.textContent =
           remaining === 1
-            ? 'Meia-noite! Faltou 1 entrega — Michael De Santa, o patrão, quer respawn no relógio!'
-            : `Meia-noite! Faltaram ${remaining} entregas — Michael De Santa, o patrão, quer respawn no relógio!`;
+            ? `Meia-noite! Faltou 1 entrega — Michael De Santa, o patrão, quer respawn no relógio!${recordNote}`
+            : `Meia-noite! Faltaram ${remaining} entregas — Michael De Santa, o patrão, quer respawn no relógio!${recordNote}`;
       }
 
       statTimeVal.textContent = formatClock(outcome === 'lost' ? 1440 : mission.clockMinutes);

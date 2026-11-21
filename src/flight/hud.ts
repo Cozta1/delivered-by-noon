@@ -565,10 +565,17 @@ export function createHud(ctx: FlightContext, uiRoot?: HTMLElement | null): Flig
   const alertBox = el('div', 'hud-alert');
   alertBox.hidden = true;
 
+  // Selo e atalhos discretos do Modo Apresentação (visíveis somente quando ativo)
+  const presBox = el('div', 'hud-pres-wrap');
+  presBox.hidden = true;
+  const presBadge = el('div', 'hud-pres-badge', 'MODO APRESENTAÇÃO');
+  const presKeys = el('div', 'hud-pres-keys', 'F1 Carro · F2 Tunado · F3 Heli · F4 A-29 · F5 Final · F6 +1h');
+  presBox.append(presBadge, presKeys);
+
   // Rodapé de atalhos
   const footer = el('div', 'hud-footer', FOOTER_BY_VEHICLE.car);
 
-  root.append(reticlesLayer, clockWrap, missionMsg, leftCol, minimapWrap, nearbyPrompt, alertBox, footer);
+  root.append(reticlesLayer, clockWrap, missionMsg, leftCol, minimapWrap, nearbyPrompt, alertBox, presBox, footer);
   ui.append(root);
 
   const canvas = (app.graphicsDevice as { canvas?: HTMLCanvasElement } | undefined)?.canvas ?? null;
@@ -599,6 +606,7 @@ export function createHud(ctx: FlightContext, uiRoot?: HTMLElement | null): Flig
   let lastSmoke: boolean | null = null;
   let lastCockpit: boolean | null = null;
   let lastHudVisible: boolean | null = null;
+  let lastPresVisible: boolean | null = null;
   let lastNearbyKey = '';
   let lastAlert: AlertState = 'none';
   let lastClockText = '';
@@ -1009,6 +1017,11 @@ export function createHud(ctx: FlightContext, uiRoot?: HTMLElement | null): Flig
     if (hudVisible !== lastHudVisible) {
       lastHudVisible = hudVisible;
       root.hidden = !hudVisible;
+    }
+    const presVisible = hudVisible && rt.presentationMode;
+    if (presVisible !== lastPresVisible) {
+      lastPresVisible = presVisible;
+      presBox.hidden = !presVisible;
     }
     if (!hudVisible) {
       nitroActiveByState.set(state, false);

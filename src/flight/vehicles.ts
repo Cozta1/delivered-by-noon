@@ -5,7 +5,9 @@ import { createFootController } from './foot';
 import { createFlightController } from './flight';
 import { AIRPORT, WORKSHOP, carSpots, cityData, createWorldPhysics, terrainHeight } from './world-data';
 import { canEnterVehicle, onMissionRestart } from './mission';
-import type { FlightContext, FlightModule, VehicleKind, VehicleSpawn } from './types';
+import type { FlightContext, FlightModule, Stage, VehicleKind, VehicleSpawn } from './types';
+
+type StagePose = { x:number; y:number; z:number; heading:number; speed?:number };
 
 export function vehicleSpawns(): VehicleSpawn[] {
   const {helipad}=cityData();
@@ -25,7 +27,7 @@ export function nearestVehicle(spawns:VehicleSpawn[],x:number,y:number,z:number)
 }
 
 /** Replaces createFlightController(ctx) in game.ts; owns all movement and vehicle models. */
-export function createVehicleSystem(ctx:FlightContext):FlightModule {
+export function createVehicleSystem(ctx:FlightContext):FlightModule & {enterStageVehicle(kind:Stage,pose?:StagePose):void} {
   const {app,state}=ctx;
   const physics={...createWorldPhysics(),...ctx.world};
   const original={...ctx.plane}, originalEnabled=original.root.enabled;
@@ -44,20 +46,23 @@ export function createVehicleSystem(ctx:FlightContext):FlightModule {
   person.root.enabled=false;original.root.enabled=false;
   let current:VehicleSpawn|undefined,controller:FlightModule;
   let destroyed=false;
-  function select(kind:VehicleKind,model:VehicleModel,pose:{x:number;y:number;z:number;heading:number},spawn?:VehicleSpawn) {
+  function select(kind:VehicleKind,model:VehicleModel,pose:{x:number;y:number;z:number;heading:number},spawn?:VehicleSpawn & {speed?:number}) {
     controller?.destroy?.();
     state.vehicle=kind;
     Object.assign(state,{x:pose.x,y:pose.y,z:pose.z,heading:pose.heading,speed:0,verticalSpeed:0,pitch:0,roll:0,crashed:false,stall:false,nearbyVehicleId:null,nearbyVehicleKind:null});
     Object.assign(ctx.plane,model);
     model.root.enabled=true;
+    model.root.setPosition(pose.x,pose.y,pose.z);model.root.setLocalEulerAngles(0,-pose.heading,0);
     const activeContext={...ctx,world:physics,plane:model};
     controller=kind==='car'||kind==='tuned'?createCarController(activeContext,physics):kind==='foot'?createFootController(activeContext,physics):createFlightController(activeContext,spawn,spawn?homes.get(spawn.id):undefined);
     state.altitude=state.y;state.heightAboveGround=Math.max(0,state.y-physics.surfaceAt(state.x,state.z,state.y+.1));
   }
-  function enter(spawn:VehicleSpawn) {
+  function enter(spawn:VehicleSpawn,pose?:StagePose) {
     if(!canEnterVehicle(ctx,spawn.kind))return;
+    if(current)Object.assign(current,{x:state.x,y:state.y,z:state.z,heading:state.heading});
+    if(pose)Object.assign(spawn,{x:pose.x,y:pose.y,z:pose.z,heading:pose.heading});
     person.root.enabled=false;current=spawn;
-    select(spawn.kind,models.get(spawn.id)!,spawn,spawn);
+    select(spawn.kind,models.get(spawn.id)!,spawn,{...spawn,speed:pose?.speed});
   }
   function leave() {
     if(!current||state.speed>2||Math.abs(state.verticalSpeed)>.5)return;
@@ -77,6 +82,7 @@ export function createVehicleSystem(ctx:FlightContext):FlightModule {
     }
   }
   function reset() {
+    current=undefined;
     for(const spawn of spawns) {
       const home=homes.get(spawn.id)!;
       Object.assign(spawn,home);
@@ -90,7 +96,11 @@ export function createVehicleSystem(ctx:FlightContext):FlightModule {
   }
   const unsubscribe=onMissionRestart(ctx,reset);
   enter(spawns[0]);
-  return {update(dt) {
+  return {enterStageVehicle(kind,pose) {
+    if(destroyed)return;
+    const spawn=spawns.find(s=>s.kind===kind);
+    if(spawn)enter(spawn,pose);
+  },update(dt) {
     if(destroyed||!Number.isFinite(dt)||dt<=0)return;
     controller.update(dt);
     if(current)Object.assign(ctx.plane,models.get(current.id));else Object.assign(ctx.plane,person);

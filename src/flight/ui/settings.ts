@@ -81,6 +81,7 @@ export interface FlightRuntime {
   mode: GameMode;
   settings: GameSettings;
   cameraSnap: boolean;
+  presentationMode: boolean;
 }
 
 const runtimeByState = new WeakMap<FlightState, FlightRuntime>();
@@ -88,6 +89,7 @@ const FALLBACK_RUNTIME: FlightRuntime = {
   mode: 'playing',
   settings: { ...DEFAULT_SETTINGS },
   cameraSnap: false,
+  presentationMode: false,
 };
 
 export function initRuntime(state: FlightState, settings: GameSettings, mode: GameMode = 'title'): FlightRuntime {
@@ -95,6 +97,7 @@ export function initRuntime(state: FlightState, settings: GameSettings, mode: Ga
     mode,
     settings: sanitizeSettings(settings),
     cameraSnap: false,
+    presentationMode: false,
   };
   runtimeByState.set(state, rt);
   return rt;
@@ -112,6 +115,11 @@ export function setRuntimeMode(state: FlightState, mode: GameMode): void {
 export function setRuntimeSettings(state: FlightState, settings: GameSettings): void {
   const rt = runtimeByState.get(state);
   if (rt) rt.settings = sanitizeSettings(settings);
+}
+
+export function setRuntimePresentationMode(state: FlightState, enabled: boolean): void {
+  const rt = runtimeByState.get(state);
+  if (rt) rt.presentationMode = enabled;
 }
 
 export function requestCameraSnap(state: FlightState): void {

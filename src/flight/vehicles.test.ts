@@ -1,11 +1,53 @@
 import { describe, expect, it, vi } from 'vitest';
-import { Entity, KEY_E, KEY_W, type AppBase } from 'playcanvas';
+import { Entity, KEY_E, KEY_R, KEY_W, type AppBase } from 'playcanvas';
 import { createWorldPhysics, cityData, airportData, AIRPORT, HANGAR, terrainHeight } from './world-data';
 import { CarDynamics } from './car';
 import { FootDynamics } from './foot';
 import { nearestVehicle, vehicleSpawns, createVehicleSystem } from './vehicles';
 import { startMission, createMissionSystem } from './mission';
-import { createMissionState, createFlightState, type FlightContext } from './types';
+import { createMissionState, createFlightState, STAGE_ORDER, type FlightContext } from './types';
+
+function presentationSimulator() {
+  const keys=new Set<number>(),state=createFlightState();state.controlMode='keyboard';
+  const app={keyboard:{isPressed:(key:number)=>keys.has(key),wasPressed:(key:number)=>keys.has(key)}} as unknown as FlightContext['app'];
+  const root=new Entity('root',app),plane=new Entity('original',app);root.addChild(plane);Object.assign(app,{root});
+  const ctx={app,state,mission:createMissionState(),camera:new Entity('camera',app),world:createWorldPhysics(),
+    plane:{root:plane,prop:plane,exterior:[],materials:[],hitbox:[],wingTips:[plane,plane]}} as unknown as FlightContext;
+  const system=createVehicleSystem(ctx);startMission(ctx);
+  return {ctx,state,keys,system};
+}
+
+it.each(STAGE_ORDER)('presentation enters %s at its parked position or supplied pose, respecting mission locks',kind=>{
+  const s=presentationSimulator();
+  try {
+    if(kind!=='car') {
+      const before={...s.state};s.system.enterStageVehicle(kind,{x:20,y:1000,z:30,heading:90});
+      expect(s.state).toEqual(before);expect(s.ctx.mission!.message).toContain('primeiro');
+    }
+    s.ctx.mission!.stage=kind;s.system.enterStageVehicle(kind);
+    const parked=vehicleSpawns().find(p=>p.kind===kind)!;
+    expect(s.state.vehicle).toBe(kind);expect(s.state.x).toBe(parked.x);expect(s.state.z).toBe(parked.z);
+    expect(s.state.y).toBeCloseTo(s.ctx.world.groundAt(parked.x,parked.z)+(kind==='a29'||kind==='heli'?.1:0));
+    s.system.enterStageVehicle(kind,{x:20,y:1000,z:30,heading:90,...(kind==='a29'?{speed:70}:{})});
+    expect(s.state.vehicle).toBe(kind);expect(s.state.x).toBe(20);expect(s.state.y).toBe(1000);expect(s.state.z).toBe(30);expect(s.state.heading).toBeCloseTo(90);
+    expect(s.ctx.plane.root.getPosition().y).toBe(1000);
+    if(kind==='heli'){s.system.update(1/60);expect(s.state.y).toBeCloseTo(1000,1);expect(s.state.crashed).toBe(false);}
+    startMission(s.ctx);expect(s.state.vehicle).toBe('car');expect(s.state.x).toBe(vehicleSpawns()[0].x);
+  } finally {s.system.destroy?.();}
+});
+
+it('presentation A29 starts flying at the requested speed and R restores its runway parking',()=>{
+  const s=presentationSimulator();
+  try {
+    s.ctx.mission!.stage='a29';s.system.enterStageVehicle('a29',{x:0,y:1000,z:0,heading:90,speed:70});
+    expect(s.state.speed).toBeCloseTo(70);expect(s.state.throttle).toBe(.6);
+    for(let i=0;i<60;i++)s.system.update(1/60);
+    expect(s.state.x).toBeGreaterThan(60);expect(s.state.y).toBeGreaterThan(990);expect(s.state.crashed).toBe(false);
+    s.keys.add(KEY_R);s.system.update(1/60);s.keys.clear();
+    const home=vehicleSpawns().find(p=>p.kind==='a29')!;
+    expect(s.state.x).toBe(home.x);expect(s.state.z).toBe(home.z);expect(s.state.speed).toBe(0);expect(s.state.throttle).toBe(0);
+  } finally {s.system.destroy?.();}
+});
 
 vi.mock('./models',()=>({buildVehicleModel:(_app:unknown,kind:string,_variant:number,parent:Entity)=>{
   const root=new Entity(kind,_app as AppBase);parent.addChild(root);

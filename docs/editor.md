@@ -70,7 +70,7 @@ Para que o mundo, os veículos, a UniAcademia, a câmera e o sol apareçam **mon
 
 ## 5. Atributos editáveis do script no Editor (Inspector)
 
-Os dois formatos de script — **ESM** (`flightSim` em `src/editor/flight-sim.ts`, com anotações JSDoc `@attribute`, `@title`, `@range`, `@step`, `@precision` e `@enum`) e **clássico** (`simuladorVoo` em `src/editor/flight-sim-classic.ts`, com `SimuladorVoo.attributes.add`) — expõem exatamente os mesmos **7 atributos** no painel do componente **Script** do Editor, com atualização **ao vivo** na aba de Launch (via evento `attr`):
+Os dois formatos de script — **ESM** (`flightSim` em `src/editor/flight-sim.ts`, com anotações JSDoc `@attribute`, `@title`, `@range`, `@step`, `@precision` e `@enum`) e **clássico** (`simuladorVoo` em `src/editor/flight-sim-classic.ts`, com `SimuladorVoo.attributes.add`) — expõem exatamente os mesmos **8 atributos** no painel do componente **Script** do Editor, com atualização **ao vivo** na aba de Launch (via evento `attr`):
 
 | Atributo | Título no Inspector | Tipo / Limites | Padrão | Efeito no jogo |
 |---|---|---|---|---|
@@ -80,7 +80,8 @@ Os dois formatos de script — **ESM** (`flightSim` em `src/editor/flight-sim.ts
 | `musicVolume` | **Volume da música** | Número (`0` a `1`, passo `0.05`) | `0.45` | Volume inicial da trilha sonora procedural (`0` = mudo, `1` = máximo). |
 | `sfxVolume` | **Volume dos efeitos** | Número (`0` a `1`, passo `0.05`) | `0.80` | Volume inicial dos motores, pneus, alertas e efeitos de entrega. |
 | `showMinimap` | **Mostrar minimapa** | Booleano (caixa de seleção) | `true` | Liga ou desliga o minimapa de Juiz de Fora no canto superior direito. |
-| `showFps` | **Mostrar FPS** | Booleano (caixa de seleção) | `false` | Mostra um contador leve de quadros por segundo (`XX FPS`) no canto inferior direito. |
+| `showFps` | **Mostrar FPS** | Booleano (caixa de seleção) | `false` | Mostra um contador leve de quadros por segundo (`XX FPS · pior YY ms`) no canto inferior direito. |
+| `presentationMode` | **Modo apresentação** | Booleano (caixa de seleção) | `false` | Ativa o selo **MODO APRESENTAÇÃO** no HUD, libera os atalhos **F1–F4** (estágios), **F5** (entrega final na UniAcademia) e **F6** (+1h no relógio) e desliga o registro de recorde. |
 
 ### Onde ficam os atributos no Editor (mapa visual da tela)
 
@@ -99,13 +100,15 @@ Ao abrir o projeto no PlayCanvas Editor, os controles aparecem no lado direito d
 │   └─ Sol               │   │                     │   │     Volume dos efeitos         [ 0.80      ]   │
 └────────────────────────┘   └─────────────────────┘   │     Mostrar minimapa           [✓]             │
                                                        │     Mostrar FPS                [ ]             │
+                                                       │     Modo apresentação          [ ]             │
                                                        └────────────────────────────────────────────────┘
 ```
 
 1. Na coluna **Hierarchy** (à esquerda), clique na entidade **`Jogo`**.
 2. Na coluna **Inspector** (à direita), role até o componente **Script** → bloco **`simuladorVoo`** (ou **`flightSim`**).
 3. Se você acabou de enviar uma versão nova do script, clique no ícone **Parse** (seta circular) no cabeçalho do script para o Editor ler os atributos atualizados.
-4. Altere qualquer campo (por exemplo, marque **Mostrar FPS** ou reduza **Duração do dia (min)** para `6` durante a demonstração em sala): se a aba de **Launch** já estiver aberta, a mudança reflete na hora sem precisar reiniciar!
+4. Altere qualquer campo (por exemplo, marque **Mostrar FPS**, **Modo apresentação** ou reduza **Duração do dia (min)** para `10` durante a demonstração em sala): se a aba de **Launch** já estiver aberta, a mudança reflete na hora sem precisar reiniciar!
+   - Com **Modo apresentação** marcado no Editor (ou iniciado pelo botão **Modo apresentação** no menu inicial), o jogo exibe o selo discreto no canto inferior esquerdo e libera **F1–F4** (estágios), **F5** (entrega final) e **F6** (+1h no relógio). Fora desse modo, `F1–F6` ficam totalmente inativos.
 
 ## 6. Executar (Launch)
 

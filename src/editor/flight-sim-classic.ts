@@ -21,6 +21,7 @@ type ClassicScript = {
   sfxVolume: number;
   showMinimap: boolean;
   showFps: boolean;
+  presentationMode: boolean;
   on(event: string, fn: () => void, scope?: unknown): void;
   off(event: string, fn: () => void, scope?: unknown): void;
   once(event: string, fn: () => void, scope?: unknown): void;
@@ -107,6 +108,14 @@ SimuladorVoo.attributes.add('showFps', {
   default: false,
 });
 
+SimuladorVoo.attributes.add('presentationMode', {
+  type: 'boolean',
+  title: 'Modo apresentação',
+  description:
+    'Ativa o modo apresentação (selo no HUD, atalhos F1–F6 para pular estágios/entrega final e +1h no relógio, sem contar recorde).',
+  default: false,
+});
+
 SimuladorVoo.prototype.initialize = function (this: ClassicScript) {
   let styleEl: HTMLStyleElement | null = null;
   let uiEl: HTMLDivElement | null = null;
@@ -122,6 +131,7 @@ SimuladorVoo.prototype.initialize = function (this: ClassicScript) {
     sfxVolume: this.sfxVolume,
     showMinimap: this.showMinimap,
     showFps: this.showFps,
+    presentationMode: this.presentationMode,
   });
 
   const syncOptions = () => {
