@@ -104,8 +104,12 @@ export function createCameraRig({ app, world, plane, camera, state }: FlightCont
     return kind === 'a29' || kind === 'heli';
   }
 
+  function isCar(kind: VehicleKind) {
+    return kind === 'car' || kind === 'tuned';
+  }
+
   function allowsMouseLook() {
-    return state.vehicle === 'foot' || state.vehicle === 'car' || state.controlMode === 'mouse';
+    return state.vehicle === 'foot' || isCar(state.vehicle) || state.controlMode === 'mouse';
   }
 
   function isPointerLocked() {
@@ -195,11 +199,11 @@ export function createCameraRig({ app, world, plane, camera, state }: FlightCont
     const { mouseSensitivity, invertY } = getRuntime(state).settings;
     const sens = Number.isFinite(mouseSensitivity) ? mouseSensitivity : MOUSE_SENSITIVITY;
     const ySign = invertY ? 1 : -1;
-    const pitchMin = state.vehicle === 'foot' ? -45 : state.vehicle === 'car' ? -25 : -85;
-    const pitchMax = state.vehicle === 'foot' ? 60 : state.vehicle === 'car' ? 35 : 85;
+    const pitchMin = state.vehicle === 'foot' ? -45 : isCar(state.vehicle) ? -25 : -85;
+    const pitchMax = state.vehicle === 'foot' ? 60 : isCar(state.vehicle) ? 35 : 85;
     aimYaw = ((aimYaw + e.movementX * sens) % 360 + 360) % 360;
     aimPitch = clamp(aimPitch + e.movementY * sens * ySign, pitchMin, pitchMax);
-    if (state.vehicle === 'car' && (Math.abs(e.movementX) > 0 || Math.abs(e.movementY) > 0)) {
+    if (isCar(state.vehicle) && (Math.abs(e.movementX) > 0 || Math.abs(e.movementY) > 0)) {
       carOrbitIdle = 0;
     }
   }
@@ -224,7 +228,7 @@ export function createCameraRig({ app, world, plane, camera, state }: FlightCont
   }
 
   function syncAimToVehicleForward() {
-    if (state.vehicle === 'foot' || state.vehicle === 'car') {
+    if (state.vehicle === 'foot' || isCar(state.vehicle)) {
       aimYaw = ((state.heading % 360) + 360) % 360;
       aimPitch = state.vehicle === 'foot' ? -6 : -4;
       const yawRad = aimYaw * DEG_TO_RAD;
@@ -247,7 +251,7 @@ export function createCameraRig({ app, world, plane, camera, state }: FlightCont
   }
 
   function updateAimState(dt: number) {
-    if (state.vehicle === 'car') {
+    if (isCar(state.vehicle)) {
       carOrbitIdle += dt;
       // Quando o carro dirige sem mexer o mouse por ~1.4 s, a câmera realinha suavemente atrás do carro
       if (!isPointerLocked() || (carOrbitIdle > 1.4 && Math.abs(state.speed) > 1.5)) {
@@ -392,6 +396,13 @@ export function createCameraRig({ app, world, plane, camera, state }: FlightCont
     camera.setPosition(camPos);
     lookTarget.set(planePos.x, planePos.y + 1.45, planePos.z);
     safeLookAt(lookTarget, aimYaw);
+    if (camera.camera) {
+      const targetFov =
+        state.vehicle === 'tuned'
+          ? FOV.chase + clamp((Math.abs(state.speed) - 26) / 36, 0, 1) * 11
+          : FOV.chase;
+      camera.camera.fov = snap ? targetFov : camera.camera.fov + (targetFov - camera.camera.fov) * (1 - Math.exp(-8 * dt));
+    }
   }
 
   function updateAircraftChase(dt: number, snap: boolean) {
@@ -429,7 +440,7 @@ export function createCameraRig({ app, world, plane, camera, state }: FlightCont
   function updateChase(dt: number, snap: boolean) {
     if (state.vehicle === 'foot') {
       updateFootChase(dt, snap);
-    } else if (state.vehicle === 'car') {
+    } else if (isCar(state.vehicle)) {
       updateCarChase(dt, snap);
     } else {
       updateAircraftChase(dt, snap);
@@ -438,7 +449,7 @@ export function createCameraRig({ app, world, plane, camera, state }: FlightCont
 
   function updateTop(dt: number, snap: boolean) {
     const topHeight =
-      state.vehicle === 'foot' ? FOOT_TOP_HEIGHT : state.vehicle === 'car' ? CAR_TOP_HEIGHT : TOP_HEIGHT;
+      state.vehicle === 'foot' ? FOOT_TOP_HEIGHT : isCar(state.vehicle) ? CAR_TOP_HEIGHT : TOP_HEIGHT;
     desiredPos.set(planePos.x, planePos.y + topHeight, planePos.z);
     yawRot.setFromAxisAngle(Vec3.UP, -state.heading);
     pitchRot.setFromAxisAngle(Vec3.RIGHT, -90);

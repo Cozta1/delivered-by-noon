@@ -10,7 +10,7 @@ import {
   StandardMaterial,
   Texture,
 } from 'playcanvas';
-import { CITY, CITY_Y, WORLD_SIZE, terrainHeight, airportData, createWorldPhysics, terrainData, cityData, cloudData, windowImages, skyImage, type Box, type MeshData, type ImageData } from './world-data';
+import { CITY, CITY_Y, WORLD_SIZE, terrainHeight, airportData, deliveryRampData, createWorldPhysics, terrainData, cityData, cloudData, windowImages, skyImage, type Box, type MeshData, type ImageData } from './world-data';
 export { WORLD_SIZE, terrainHeight, type Box } from './world-data';
 
 // ---------------------------------------------------------------------------
@@ -232,12 +232,13 @@ export function buildWorld(app: AppBase, parent: Entity = app.root): World {
   const sky = buildSky(app, parent, materials, textures);
 
   const airport = airportData();
-  boxes.push(...airport.boxes);
+  const deliveryRamps=deliveryRampData();
+  boxes.push(...airport.boxes,...deliveryRamps.boxes);
   const airportMaterial = new StandardMaterial();
   airportMaterial.diffuseVertexColor = true;
   airportMaterial.update();
   materials.push(airportMaterial);
-  for (const part of airport.parts) meshEntity(parent, part.name, buildMesh(app, part.mesh), airportMaterial);
+  for (const part of [...airport.parts,...deliveryRamps.parts]) meshEntity(parent, part.name, buildMesh(app, part.mesh), airportMaterial);
   const physics = createWorldPhysics(boxes);
   return { sky, ...physics, materials, textures };
 }

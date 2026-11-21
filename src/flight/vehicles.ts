@@ -3,21 +3,22 @@ import { buildVehicleModel, type VehicleModel } from './models';
 import { createCarController } from './car';
 import { createFootController } from './foot';
 import { createFlightController } from './flight';
-import { AIRPORT, cityData, createWorldPhysics } from './world-data';
+import { AIRPORT, WORKSHOP, cityData, createWorldPhysics } from './world-data';
+import { canEnterVehicle, onMissionRestart } from './mission';
 import type { FlightContext, FlightModule, VehicleKind, VehicleSpawn } from './types';
 
 export function vehicleSpawns(): VehicleSpawn[] {
   const {helipad}=cityData();
   const cars:VehicleSpawn[]=[{id:'car-inicial',kind:'car',x:38,y:3,z:-622,heading:90,variant:0}];
   for(let i=0;i<5;i++)cars.push({id:`car-${i+1}`,kind:'car',x:-900+86*(i*3+2)+78,y:3,z:-450+i*90,heading:0,variant:i%3});
-  return [...cars,{id:'a29-pista',kind:'a29',x:AIRPORT.x,y:AIRPORT.y,z:410,heading:0},
+  return [...cars,{id:'tuned-oficina',kind:'tuned',x:WORKSHOP.x+3,y:WORKSHOP.y,z:WORKSHOP.z,heading:90,variant:2},{id:'a29-pista',kind:'a29',x:AIRPORT.x,y:AIRPORT.y,z:410,heading:0},
     {id:'heli-centro',kind:'heli',x:helipad.x,y:helipad.y,z:helipad.z,heading:0}];
 }
 
 export function nearestVehicle(spawns:VehicleSpawn[],x:number,y:number,z:number) {
   let nearest:VehicleSpawn|undefined,distance=Infinity;
   for(const spawn of spawns) {
-    const d=Math.hypot(spawn.x-x,spawn.y-y,spawn.z-z),range=spawn.kind==='car'?4:8;
+    const d=Math.hypot(spawn.x-x,spawn.y-y,spawn.z-z),range=spawn.kind==='car'||spawn.kind==='tuned'?4:8;
     if(d<=range&&d<distance){nearest=spawn;distance=d;}
   }
   return nearest;
@@ -34,7 +35,7 @@ export function createVehicleSystem(ctx:FlightContext):FlightModule {
   const models=new Map<string,VehicleModel>();
   for(const spawn of spawns) {
     const model=buildVehicleModel(app,spawn.kind,spawn.variant??0,parent);
-    const clearance=spawn.kind==='car'?0:Math.max(.1,...(model.hitbox??[]).map(p=>-p[1]));
+    const clearance=spawn.kind==='car'||spawn.kind==='tuned'?0:Math.max(.1,...(model.hitbox??[]).map(p=>-p[1]));
     spawn.y=physics.groundAt(spawn.x,spawn.z)+clearance;
     model.root.setPosition(spawn.x,spawn.y,spawn.z);model.root.setLocalEulerAngles(0,-spawn.heading,0);
     models.set(spawn.id,model);
@@ -50,10 +51,11 @@ export function createVehicleSystem(ctx:FlightContext):FlightModule {
     Object.assign(ctx.plane,model);
     model.root.enabled=true;
     const activeContext={...ctx,world:physics,plane:model};
-    controller=kind==='car'?createCarController(activeContext,physics):kind==='foot'?createFootController(activeContext,physics):createFlightController(activeContext,spawn,spawn?homes.get(spawn.id):undefined);
+    controller=kind==='car'||kind==='tuned'?createCarController(activeContext,physics):kind==='foot'?createFootController(activeContext,physics):createFlightController(activeContext,spawn,spawn?homes.get(spawn.id):undefined);
     state.altitude=state.y;state.heightAboveGround=Math.max(0,state.y-physics.surfaceAt(state.x,state.z,state.y+.1));
   }
   function enter(spawn:VehicleSpawn) {
+    if(!canEnterVehicle(ctx,spawn.kind))return;
     person.root.enabled=false;current=spawn;
     select(spawn.kind,models.get(spawn.id)!,spawn,spawn);
   }
@@ -62,7 +64,7 @@ export function createVehicleSystem(ctx:FlightContext):FlightModule {
     const support=physics.surfaceAt(state.x,state.z,state.y+.1);
     if(state.y-support>4)return;
     const h=state.heading*Math.PI/180;
-    const distance=current.kind==='car'?3.2:current.kind==='a29'?7:6;
+    const distance=current.kind==='car'||current.kind==='tuned'?3.2:current.kind==='a29'?7:6;
     for(const side of [1,-1]) {
       const x=state.x+Math.cos(h)*distance*side,z=state.z+Math.sin(h)*distance*side;
       const y=physics.surfaceAt(x,z,state.y+.35);
@@ -74,6 +76,19 @@ export function createVehicleSystem(ctx:FlightContext):FlightModule {
       select('foot',person,{x,y,z,heading:state.heading});return;
     }
   }
+  function reset() {
+    for(const spawn of spawns) {
+      const home=homes.get(spawn.id)!;
+      Object.assign(spawn,home);
+      const model=models.get(spawn.id)!;
+      const clearance=spawn.kind==='car'||spawn.kind==='tuned'?0:Math.max(.1,...(model.hitbox??[]).map(p=>-p[1]));
+      spawn.y=physics.groundAt(spawn.x,spawn.z)+clearance;
+      model.root.enabled=true;model.root.setPosition(spawn.x,spawn.y,spawn.z);model.root.setLocalEulerAngles(0,-spawn.heading,0);
+      for(const e of model.exterior){if(e.render)e.render.enabled=true;if(e.model)e.model.enabled=true;}
+    }
+    enter(spawns[0]);
+  }
+  const unsubscribe=onMissionRestart(ctx,reset);
   enter(spawns[0]);
   return {update(dt) {
     if(destroyed||!Number.isFinite(dt)||dt<=0)return;
@@ -86,7 +101,7 @@ export function createVehicleSystem(ctx:FlightContext):FlightModule {
       if(current)leave();else if(nearby)enter(nearby);
     }
   },destroy(){
-    if(destroyed)return;destroyed=true;controller.destroy?.();
+    if(destroyed)return;destroyed=true;unsubscribe();controller.destroy?.();
     const materials=new Set([...person.materials,...[...models.values()].flatMap(m=>m.materials)]);
     for(const m of models.values())m.root.destroy();person.root.destroy();
     for(const m of materials)m.destroy();

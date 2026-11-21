@@ -1,6 +1,6 @@
 import type { FlightState } from '../types';
 
-export type GameMode = 'title' | 'playing' | 'paused';
+export type GameMode = 'title' | 'playing' | 'paused' | 'ended';
 export type QualityLevel = 'low' | 'medium' | 'high';
 
 export interface GameSettings {

@@ -4,7 +4,8 @@ import { createWorldPhysics, cityData, airportData, AIRPORT, terrainHeight } fro
 import { CarDynamics } from './car';
 import { FootDynamics } from './foot';
 import { nearestVehicle, vehicleSpawns, createVehicleSystem } from './vehicles';
-import { createFlightState, type FlightContext } from './types';
+import { startMission, createMissionSystem } from './mission';
+import { createMissionState, createFlightState, type FlightContext } from './types';
 
 vi.mock('./models',()=>({buildVehicleModel:(_app:unknown,kind:string,_variant:number,parent:Entity)=>{
   const root=new Entity(kind,_app as AppBase);parent.addChild(root);
@@ -62,7 +63,7 @@ describe('ground world and bodies',()=>{
 
 it('spawns an initial car, five variants, A29 and roof heli, with three-dimensional entry range',()=>{
   const spawns=vehicleSpawns();expect(spawns.filter(s=>s.kind==='car')).toHaveLength(6);
-  expect(new Set(spawns.map(s=>s.id)).size).toBe(8);
+  expect(new Set(spawns.map(s=>s.id)).size).toBe(9);
   expect(new Set(spawns.filter(s=>s.id!=='car-inicial'&&s.kind==='car').map(s=>s.variant))).toEqual(new Set([0,1,2]));
   expect(nearestVehicle(spawns,38,3,-622)?.id).toBe('car-inicial');
   expect(nearestVehicle(spawns,38,30,-622)).toBeUndefined();
@@ -111,4 +112,19 @@ it('keeps actual drift speed available while handbraking and contains ground bod
   expect(car.speed).toBeLessThan(2);expect(car.movementSpeed).toBeGreaterThan(2);
   const p=world.moveCapsule({x:2980,y:world.groundAt(2980,0),z:0},10,0,.35,1.8);
   expect(p.x).toBeLessThanOrEqual(2980);
+});
+
+
+it('mission restart resets the moving vehicle, parked poses and all mission progress',()=>{
+  const keys=new Set<number>(),state=createFlightState();state.controlMode='keyboard';
+  const app={keyboard:{isPressed:(key:number)=>keys.has(key),wasPressed:()=>false}} as unknown as FlightContext['app'];
+  const root=new Entity('root',app),plane=new Entity('original',app);root.addChild(plane);
+  Object.assign(app,{root});
+  const ctx={app,state,mission:createMissionState(),camera:new Entity('camera',app),world:createWorldPhysics(),plane:{root:plane,prop:plane,exterior:[],materials:[],hitbox:[],wingTips:[plane,plane]}} as unknown as FlightContext;
+  const vehicles=createVehicleSystem(ctx),mission=createMissionSystem(ctx);startMission(ctx);
+  keys.add(KEY_W);for(let i=0;i<60;i++)vehicles.update(1/60);keys.clear();
+  expect(state.x).toBeGreaterThan(38);ctx.mission!.score=999;ctx.mission!.clockMinutes=120;
+  startMission(ctx);expect(state.x).toBe(38);expect(state.z).toBe(-622);expect(state.speed).toBe(0);expect(state.vehicle).toBe('car');
+  expect(ctx.mission!.score).toBe(0);expect(ctx.mission!.clockMinutes).toBe(0);expect(ctx.mission!.delivered).toBe(0);
+  mission.destroy?.();vehicles.destroy?.();
 });

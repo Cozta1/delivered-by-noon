@@ -198,7 +198,7 @@ assert.deepEqual(data.windowImages(), data.windowImages(), 'Windows must be dete
 {
   const s = scene('Aeroporto');
   const material = s.material('Asfalto e marcacoes');
-  for (const part of data.airportData(city.helipad).parts) s.node(s.rootNode, part.name, s.mesh(part.name, part.mesh, material));
+  for (const part of [...data.airportData(city.helipad).parts,...data.deliveryRampData().parts]) s.node(s.rootNode, part.name, s.mesh(part.name, part.mesh, material));
   await s.output('mundo-aeroporto.glb');
 }
 const total = outputs.reduce((sum, { bytes }) => sum + bytes.length, 0);

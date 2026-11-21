@@ -1,5 +1,5 @@
 // ============================================================================
-// Monta a cena do simulador "Horizonte Dourado" (A-29) no PlayCanvas Editor.
+// Monta a cena de "Delivered by Midnight" no PlayCanvas Editor.
 //
 // COMO USAR (UMA VEZ):
 // 1. Abra a cena do projeto no PlayCanvas Editor (playcanvas.com/editor/...).
@@ -10,6 +10,9 @@
 // Compatível com os dois modos de importação de GLB do Editor:
 // - Novo (useModelV2 = true): assets `template` / `render`
 // - Legado (useModelV2 = false): assets `model`
+//
+// Nota: o carro tunado (estágio 2), os marcadores 3D de entrega e o ciclo de dia/noite
+// são gerados em tempo de execução pelo script `simuladorVoo` / `flightSim` no Launch.
 //
 // Segurança: 100% local no navegador usando apenas a Editor API oficial (`editor`).
 // Não envia dados para fora e pode ser executado novamente sem duplicar entidades.
@@ -292,6 +295,7 @@
     { name: 'Carro_3', slug: 'carro-esportivo', position: [-134, 3, -270], rotation: [0, 0, 0] },
     { name: 'Carro_4', slug: 'carro-compacto', position: [124, 3, -180], rotation: [0, 0, 0] },
     { name: 'Carro_5', slug: 'carro-picape', position: [382, 3, -90], rotation: [0, 0, 0] },
+    { name: 'Carro_Tunado', slug: 'carro-tunado', position: [729, 3, 410], rotation: [0, -90, 0] },
     { name: 'Personagem', slug: 'personagem', position: [38, 3, -618.8], rotation: [0, 0, 0] },
   ];
   const OUR_NAMES = new Set(['Jogo', 'Mundo', 'CameraJogo', 'Sol', ...VEHICLE_SLOTS.map((v) => v.name)]);

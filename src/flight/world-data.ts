@@ -343,7 +343,7 @@ function boxTop(b:Box,x:number,z:number) {
 
 export interface CapsulePosition { x: number; y: number; z: number }
 /** Box broad phase and small swept steps prevent tunnelling; y is the capsule's feet. */
-export function createWorldPhysics(boxes: Box[] = [...cityData().boxes, ...airportData().boxes]) {
+export function createWorldPhysics(boxes: Box[] = [...cityData().boxes, ...airportData().boxes, ...deliveryRampData().boxes]) {
   const grid = new Map<string, Box[]>();
   for (const b of boxes) for(let gx=Math.floor(b.x0/100);gx<=Math.floor(b.x1/100);gx++) {
     for(let gz=Math.floor(b.z0/100);gz<=Math.floor(b.z1/100);gz++) {
@@ -391,4 +391,26 @@ export function createWorldPhysics(boxes: Box[] = [...cityData().boxes, ...airpo
     return result;
   }
   return { groundAt:(x:number,z:number)=>surfaceAt(x,z), surfaceAt, obstacleAt, moveCapsule, isRunway };
+}
+
+
+export const WORKSHOP = { x: 726, y: CITY_Y, z: 410 };
+/** Delivery ramps stay outside building blocks and share collision with their exported mesh. */
+export function deliveryRampData() {
+  const ramps = [
+    {name:'Salto do Recibo',x0:940,z0:410,x1:1000,z1:410,y0:Math.max(0,terrainHeight(940,410)),y1:Math.max(0,terrainHeight(940,410))+10},
+    {name:'Ladeira do Troco',x0:-920,z0:410,x1:-1100,z1:410,y0:CITY_Y,y1:Math.max(CITY_Y,terrainHeight(-1100,410))+1},
+  ];
+  const boxes:Box[]=[],parts:WorldPart[]=[];
+  for(const r of ramps) {
+    const dx=r.x1-r.x0,dz=r.z1-r.z0,len=Math.hypot(dx,dz),px=dz/len*7,pz=-dx/len*7;
+    const mesh=geometry([r.x0+px,r.y0,r.z0+pz,r.x0-px,r.y0,r.z0-pz,r.x1-px,r.y1,r.z1-pz,r.x1+px,r.y1,r.z1+pz],
+      [0,1,2,0,2,3],Array.from({length:4},()=>[230,145,45,255]).flat());
+    parts.push({name:r.name,mesh});
+    boxes.push({x0:Math.min(r.x0,r.x1)-Math.abs(px),x1:Math.max(r.x0,r.x1)+Math.abs(px),z0:Math.min(r.z0,r.z1)-Math.abs(pz),z1:Math.max(r.z0,r.z1)+Math.abs(pz),top:r.y1,bottom:r.y0-.12,ramp:r});
+  }
+  const {x,y,z}=WORKSHOP;
+  parts.push({name:'Oficina do Parafuso Perdido',mesh:geometry([x-7,y+.02,z+7,x+7,y+.02,z+7,x+7,y+.02,z-7,x-7,y+.02,z-7],
+    [0,1,2,0,2,3],Array.from({length:4},()=>[235,165,65,255]).flat())});
+  return {ramps,boxes,parts};
 }

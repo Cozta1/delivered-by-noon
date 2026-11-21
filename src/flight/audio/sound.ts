@@ -1,27 +1,42 @@
-import type { FlightState, VehicleKind } from '../types';
+import type { FlightState, MissionState, VehicleKind } from '../types';
 import type { GameMode, GameSettings } from '../ui/settings';
 
 export interface FlightAudio {
   unlock(): void;
   applySettings(settings: GameSettings): void;
-  update(dt: number, mode: GameMode, state: FlightState): void;
+  update(dt: number, mode: GameMode, state: FlightState, mission?: MissionState, nitroActive?: boolean): void;
   playClick(): void;
   playConfirm(): void;
+  playDelivery(): void;
+  playStageFanfare(): void;
+  playVictory(): void;
+  playDefeat(): void;
+  playLocked(): void;
   destroy(): void;
 }
 
 // Progressão atmosférica original (Fmaj7 -> G6 -> Am9 -> Em7) em MIDI
-const CHORDS: readonly (readonly number[])[] = [
+const CALM_CHORDS: readonly (readonly number[])[] = [
   [53, 57, 60, 64, 67],
   [55, 59, 62, 64, 67],
   [57, 60, 64, 67, 71],
   [52, 55, 59, 62, 67],
 ];
 
+// Progressão mais tensa perto da meia-noite (Am -> F -> Dm -> E7) em MIDI
+const TENSE_CHORDS: readonly (readonly number[])[] = [
+  [57, 60, 64, 69, 72],
+  [53, 57, 60, 65, 69],
+  [50, 53, 57, 62, 65],
+  [52, 56, 59, 62, 68],
+];
+
 const ARP_PATTERNS: readonly (readonly number[])[] = [
   [0, 2, 3, 4, 3, 2, 1, 3],
   [0, 1, 3, 4, 2, 3, 4, 2],
 ];
+
+const TENSE_ARP: readonly number[] = [0, 3, 2, 4, 1, 3, 4, 2];
 
 function midiToHz(midi: number): number {
   return 440 * Math.pow(2, (midi - 69) / 12);
@@ -92,11 +107,16 @@ export function createFlightAudio(initialSettings: GameSettings): FlightAudio {
   let turbineOsc: OscillatorNode | null = null;
   let turbineGain: GainNode | null = null;
 
-  // Motor de carro
+  // Motor de carro / carro tunado
   let carOsc: OscillatorNode | null = null;
   let carSubOsc: OscillatorNode | null = null;
   let carFilter: BiquadFilterNode | null = null;
   let carGain: GainNode | null = null;
+
+  // Nitro do carro tunado (sopro turbo contínuo)
+  let nitroSrc: AudioBufferSourceNode | null = null;
+  let nitroFilter: BiquadFilterNode | null = null;
+  let nitroGain: GainNode | null = null;
 
   // Rotor do helicóptero (ruído grave pulsado + LFO de pás)
   let heliNoiseSrc: AudioBufferSourceNode | null = null;
@@ -121,6 +141,8 @@ export function createFlightAudio(initialSettings: GameSettings): FlightAudio {
   let lastVehicle: VehicleKind | null = null;
   let stallPhase = 0;
   let stepTimer = 0;
+  let tickTimer = 0;
+  let tickParity = false;
 
   // Sequenciador musical procedural
   let musicTimer = 0;
@@ -216,7 +238,7 @@ export function createFlightAudio(initialSettings: GameSettings): FlightAudio {
     turbineGain.connect(worldBus);
     turbineOsc.start();
 
-    // 2) Motor de carro (ronco suave com variação de marchas por velocidade)
+    // 2) Motor de carro / carro tunado
     carFilter = ctx.createBiquadFilter();
     carFilter.type = 'lowpass';
     carFilter.frequency.value = 240;
@@ -240,6 +262,21 @@ export function createFlightAudio(initialSettings: GameSettings): FlightAudio {
     carSubOsc.connect(carSubGain);
     carSubGain.connect(carFilter);
     carSubOsc.start();
+
+    // 2b) Nitro do carro tunado (jato bandpass contínuo)
+    nitroSrc = ctx.createBufferSource();
+    nitroSrc.buffer = noiseBuffer;
+    nitroSrc.loop = true;
+    nitroFilter = ctx.createBiquadFilter();
+    nitroFilter.type = 'bandpass';
+    nitroFilter.frequency.value = 820;
+    nitroFilter.Q.value = 1.4;
+    nitroGain = ctx.createGain();
+    nitroGain.gain.value = 0.0001;
+    nitroSrc.connect(nitroFilter);
+    nitroFilter.connect(nitroGain);
+    nitroGain.connect(worldBus);
+    nitroSrc.start();
 
     // 3) Rotor do helicóptero ("whup-whup-whup" com LFO em 11..18 Hz)
     heliNoiseSrc = ctx.createBufferSource();
@@ -329,32 +366,93 @@ export function createFlightAudio(initialSettings: GameSettings): FlightAudio {
     osc.stop(now + duration + 0.05);
   }
 
-  function triggerMusicStep(mode: GameMode) {
-    const chordIdx = Math.floor(musicStep / 8) % CHORDS.length;
+  function playSfxTone(
+    freq: number,
+    endFreq: number,
+    duration: number,
+    peakGain: number,
+    wave: OscillatorType,
+    delay = 0,
+  ) {
+    if (destroyed) return;
+    ensureInitialized();
+    if (!ctx || !sfxBus) return;
+    if (ctx.state === 'suspended') {
+      ctx.resume().catch(() => {});
+    }
+    const start = ctx.currentTime + delay;
+    const osc = ctx.createOscillator();
+    const gain = ctx.createGain();
+    osc.type = wave;
+    osc.frequency.setValueAtTime(freq, start);
+    if (endFreq !== freq) {
+      osc.frequency.exponentialRampToValueAtTime(Math.max(20, endFreq), start + duration);
+    }
+    gain.gain.setValueAtTime(0.0001, start);
+    gain.gain.linearRampToValueAtTime(peakGain, start + 0.008);
+    gain.gain.exponentialRampToValueAtTime(0.0001, start + duration);
+    osc.connect(gain);
+    gain.connect(sfxBus);
+    trackSource(osc);
+    osc.start(start);
+    osc.stop(start + duration + 0.03);
+  }
+
+  function triggerMusicStep(mode: GameMode, tension: number) {
+    const useTense = mode === 'playing' && tension > 0.4;
+    const chords = useTense ? TENSE_CHORDS : CALM_CHORDS;
+    const chordIdx = Math.floor(musicStep / 8) % chords.length;
     const beatInBar = musicStep % 8;
-    const chord = CHORDS[chordIdx];
+    const chord = chords[chordIdx];
 
     if (beatInBar === 0) {
-      const padDur = mode === 'playing' ? 2.5 : 3.5;
+      const padDur = mode === 'playing' ? (useTense ? 1.85 : 2.5) : 3.5;
       const padVol = mode === 'playing' ? 0.07 : 0.085;
-      playSynthVoice(midiToHz(chord[0] - 12), padDur, padVol * 0.9, 'sine', 0.35);
-      playSynthVoice(midiToHz(chord[0]), padDur, padVol * 0.75, 'triangle', 0.45);
-      playSynthVoice(midiToHz(chord[2]), padDur, padVol * 0.6, 'sine', 0.5);
+      playSynthVoice(midiToHz(chord[0] - 12), padDur, padVol * 0.9, 'sine', 0.25);
+      playSynthVoice(midiToHz(chord[0]), padDur, padVol * 0.72, 'triangle', 0.35);
+      playSynthVoice(midiToHz(chord[2]), padDur, padVol * 0.58, 'sine', 0.4);
     }
 
     if (mode === 'playing') {
-      const pattern = ARP_PATTERNS[chordIdx % ARP_PATTERNS.length];
+      const pattern = useTense ? TENSE_ARP : ARP_PATTERNS[chordIdx % ARP_PATTERNS.length];
       const noteMidi = chord[pattern[beatInBar]] + (beatInBar % 4 === 3 ? 12 : 0);
-      playSynthVoice(midiToHz(noteMidi), 0.7, 0.06, 'triangle', 0.02);
-      if (beatInBar === 0 || beatInBar === 4) {
-        playSynthVoice(midiToHz(chord[0] - 12), 0.42, 0.065, 'sine', 0.015);
+      const arpWave: OscillatorType = useTense ? 'sawtooth' : 'triangle';
+      const arpVol = useTense ? 0.042 + tension * 0.022 : 0.06;
+      const arpDur = useTense ? 0.34 : 0.7;
+      playSynthVoice(midiToHz(noteMidi), arpDur, arpVol, arpWave, 0.015);
+
+      // Pulso de baixo acelera quando a meia-noite se aproxima
+      const bassHit = useTense ? beatInBar % 2 === 0 : beatInBar === 0 || beatInBar === 4;
+      if (bassHit) {
+        const bassMidi = chord[0] - 12 + (useTense && beatInBar % 4 === 2 ? 7 : 0);
+        playSynthVoice(midiToHz(bassMidi), useTense ? 0.22 : 0.42, 0.065 + tension * 0.025, 'sine', 0.01);
       }
     } else if (beatInBar === 0 || beatInBar === 3 || beatInBar === 6) {
       const noteMidi = chord[(beatInBar + chordIdx) % chord.length] + 12;
       playSynthVoice(midiToHz(noteMidi), 1.45, 0.045, 'sine', 0.08);
     }
 
-    musicStep = (musicStep + 1) % (CHORDS.length * 8);
+    musicStep = (musicStep + 1) % (chords.length * 8);
+  }
+
+  function triggerClockTick(high: boolean, urgency: number) {
+    if (!ctx || !sfxBus || ctx.state !== 'running') return;
+    const now = ctx.currentTime;
+    const osc = ctx.createOscillator();
+    const gain = ctx.createGain();
+    osc.type = 'triangle';
+    const baseHz = high ? 1320 : 980;
+    osc.frequency.setValueAtTime(baseHz, now);
+    osc.frequency.exponentialRampToValueAtTime(baseHz * 0.62, now + 0.032);
+    const vol = 0.09 + urgency * 0.1;
+    gain.gain.setValueAtTime(0.0001, now);
+    gain.gain.linearRampToValueAtTime(vol, now + 0.003);
+    gain.gain.exponentialRampToValueAtTime(0.0001, now + 0.042);
+    osc.connect(gain);
+    gain.connect(sfxBus);
+    trackSource(osc);
+    osc.start(now);
+    osc.stop(now + 0.05);
   }
 
   function triggerFootstep() {
@@ -380,7 +478,6 @@ export function createFlightAudio(initialSettings: GameSettings): FlightAudio {
   function triggerDoorSound(entering: boolean) {
     if (!ctx || !sfxBus || !noiseBuffer || ctx.state !== 'running') return;
     const now = ctx.currentTime;
-    // Trinco metálico breve
     const latch = ctx.createOscillator();
     const latchGain = ctx.createGain();
     latch.type = 'triangle';
@@ -394,7 +491,6 @@ export function createFlightAudio(initialSettings: GameSettings): FlightAudio {
     latch.start(now);
     latch.stop(now + 0.07);
 
-    // Batida abafada da porta logo após o trinco
     const thudTime = now + (entering ? 0.07 : 0.03);
     const thud = ctx.createOscillator();
     const thudGain = ctx.createGain();
@@ -444,29 +540,6 @@ export function createFlightAudio(initialSettings: GameSettings): FlightAudio {
     burst.stop(now + 0.82);
   }
 
-  function playUiTone(startHz: number, endHz: number, dur: number, vol: number) {
-    if (destroyed) return;
-    ensureInitialized();
-    if (!ctx || !sfxBus) return;
-    if (ctx.state === 'suspended') {
-      ctx.resume().catch(() => {});
-    }
-    const now = ctx.currentTime;
-    const osc = ctx.createOscillator();
-    const gain = ctx.createGain();
-    osc.type = 'triangle';
-    osc.frequency.setValueAtTime(startHz, now);
-    osc.frequency.exponentialRampToValueAtTime(endHz, now + dur);
-    gain.gain.setValueAtTime(0.0001, now);
-    gain.gain.linearRampToValueAtTime(vol, now + 0.006);
-    gain.gain.exponentialRampToValueAtTime(0.0001, now + dur);
-    osc.connect(gain);
-    gain.connect(sfxBus);
-    trackSource(osc);
-    osc.start(now);
-    osc.stop(now + dur + 0.02);
-  }
-
   return {
     unlock() {
       if (destroyed) return;
@@ -481,7 +554,7 @@ export function createFlightAudio(initialSettings: GameSettings): FlightAudio {
       applyGainLevels();
     },
 
-    update(dt: number, mode: GameMode, state: FlightState) {
+    update(dt: number, mode: GameMode, state: FlightState, mission?: MissionState, nitroActive = false) {
       if (destroyed || !started || !ctx || ctx.state !== 'running') {
         wasCrashed = state.crashed;
         lastVehicle = state.vehicle;
@@ -491,6 +564,7 @@ export function createFlightAudio(initialSettings: GameSettings): FlightAudio {
       const now = ctx.currentTime;
       const playing = mode === 'playing';
       const vehicle = state.vehicle;
+      const isCar = vehicle === 'car' || vehicle === 'tuned';
 
       // Som de porta ao entrar ou sair de qualquer veículo
       if (playing && lastVehicle !== null && vehicle !== lastVehicle) {
@@ -498,19 +572,38 @@ export function createFlightAudio(initialSettings: GameSettings): FlightAudio {
       }
       lastVehicle = vehicle;
 
-      // Música ambiente (calma no menu, animada jogando, reduzida na pausa)
+      // Tensão musical cresce das 19:00 até as 24:00
+      const clockMin = mission && mission.status === 'playing' ? mission.clockMinutes : 0;
+      const tension = playing && mission?.status === 'playing' ? clamp((clockMin - 19 * 60) / (5 * 60), 0, 1) : 0;
+
+      // Música ambiente (calma no menu, animada jogando, tensa perto da meia-noite, reduzida na pausa)
       if (musicDuck && musicFilter) {
-        const duckTarget = mode === 'paused' ? 0.32 : playing ? 1.0 : 0.88;
-        const filterTarget = mode === 'paused' ? 580 : playing ? 1750 : 900;
+        const duckTarget = mode === 'paused' || mode === 'ended' ? 0.3 : playing ? 1.0 : 0.88;
+        const filterTarget =
+          mode === 'paused' || mode === 'ended' ? 560 : playing ? 1650 + tension * 1250 : 900;
         musicDuck.gain.setTargetAtTime(duckTarget, now, 0.14);
         musicFilter.frequency.setTargetAtTime(filterTarget, now, 0.2);
       }
 
-      const stepDuration = playing ? 0.28 : 0.4;
+      const stepDuration = playing ? 0.28 - tension * 0.1 : 0.4;
       musicTimer += dt;
       if (musicTimer >= stepDuration) {
         musicTimer %= stepDuration;
-        triggerMusicStep(mode);
+        triggerMusicStep(mode, tension);
+      }
+
+      // Tique-taque do relógio nos últimos minutos (depois das 22:00)
+      if (playing && mission?.status === 'playing' && clockMin >= 22 * 60) {
+        const urgency = clamp((clockMin - 22 * 60) / 120, 0, 1);
+        const tickInterval = 0.85 - urgency * 0.52;
+        tickTimer += dt;
+        if (tickTimer >= tickInterval) {
+          tickTimer %= tickInterval;
+          tickParity = !tickParity;
+          triggerClockTick(tickParity, urgency);
+        }
+      } else {
+        tickTimer = 0;
       }
 
       if (worldBus) {
@@ -526,7 +619,7 @@ export function createFlightAudio(initialSettings: GameSettings): FlightAudio {
       const speedAbs = Math.abs(state.speed);
       const alive = playing && !state.crashed;
 
-      // 1) Motor A-29 turboélice
+      // 1) Motor A-29 turboélice + assobio de turbina (A-29, heli ou turbo do tunado)
       const a29On = alive && vehicle === 'a29';
       const a29Speed = clamp(speedAbs / 160, 0, 1.15);
       if (propOsc && subOsc && engineFilter && engineGain && turbineOsc && turbineGain) {
@@ -536,26 +629,51 @@ export function createFlightAudio(initialSettings: GameSettings): FlightAudio {
         engineFilter.frequency.setTargetAtTime(190 + throttle * 340 + a29Speed * 140, now, 0.08);
         engineGain.gain.setTargetAtTime(a29On ? 0.055 + throttle * 0.115 : 0.0001, now, 0.07);
 
-        const turbineOn = alive && (vehicle === 'a29' || vehicle === 'heli');
-        turbineOsc.frequency.setTargetAtTime(
-          vehicle === 'heli' ? 840 + throttle * 380 : 720 + throttle * 520 + a29Speed * 140,
-          now,
-          0.08,
-        );
-        turbineGain.gain.setTargetAtTime(turbineOn ? 0.014 + throttle * 0.034 : 0.0001, now, 0.08);
+        const tunedTurbo = alive && vehicle === 'tuned' && (nitroActive || speedAbs > 18);
+        const turbineOn = alive && (vehicle === 'a29' || vehicle === 'heli' || tunedTurbo);
+        const turbHz =
+          vehicle === 'tuned'
+            ? 680 + clamp(speedAbs / 65, 0, 1.2) * 580 + (nitroActive ? 360 : 0)
+            : vehicle === 'heli'
+              ? 840 + throttle * 380
+              : 720 + throttle * 520 + a29Speed * 140;
+        const turbLevel =
+          vehicle === 'tuned'
+            ? nitroActive
+              ? 0.042
+              : 0.016
+            : 0.014 + throttle * 0.034;
+        turbineOsc.frequency.setTargetAtTime(turbHz, now, 0.08);
+        turbineGain.gain.setTargetAtTime(turbineOn ? turbLevel : 0.0001, now, 0.08);
       }
 
-      // 2) Motor de carro (rotação por velocidade com marchas simuladas)
-      const carOn = alive && vehicle === 'car';
+      // 2) Motor de carro / carro tunado (mais agudo e encorpado no tunado)
+      const carOn = alive && isCar;
       if (carOsc && carSubOsc && carFilter && carGain) {
         const kmh = speedAbs * 3.6;
-        // Faixa de marcha cíclica para sensação realista de troca de marchas
-        const gearCycle = kmh < 2 ? 0 : ((kmh % 34) / 34) * 0.72 + Math.min(1, kmh / 150) * 0.28;
-        const rpmFreq = 42 + gearCycle * 92 + throttle * 22;
+        const tunedBoost = vehicle === 'tuned' ? 1.28 : 1.0;
+        const gearBand = vehicle === 'tuned' ? 42 : 34;
+        const gearCycle = kmh < 2 ? 0 : ((kmh % gearBand) / gearBand) * 0.72 + Math.min(1, kmh / 180) * 0.28;
+        const rpmFreq = (42 + gearCycle * 96 + throttle * 24 + (nitroActive ? 28 : 0)) * tunedBoost;
         carOsc.frequency.setTargetAtTime(rpmFreq, now, 0.05);
         carSubOsc.frequency.setTargetAtTime(rpmFreq * 0.5, now, 0.05);
-        carFilter.frequency.setTargetAtTime(175 + gearCycle * 460 + throttle * 160, now, 0.06);
-        carGain.gain.setTargetAtTime(carOn ? 0.055 + throttle * 0.075 + gearCycle * 0.045 : 0.0001, now, 0.06);
+        carFilter.frequency.setTargetAtTime(
+          (175 + gearCycle * 480 + throttle * 170 + (nitroActive ? 380 : 0)) * (vehicle === 'tuned' ? 1.2 : 1),
+          now,
+          0.06,
+        );
+        carGain.gain.setTargetAtTime(
+          carOn ? (0.055 + throttle * 0.075 + gearCycle * 0.045) * (vehicle === 'tuned' ? 1.15 : 1) : 0.0001,
+          now,
+          0.06,
+        );
+      }
+
+      // 2b) Nitro contínuo (sopro de turbo)
+      if (nitroFilter && nitroGain) {
+        const nitroOn = alive && vehicle === 'tuned' && nitroActive;
+        nitroFilter.frequency.setTargetAtTime(nitroOn ? 950 + clamp(speedAbs / 70, 0, 1) * 750 : 600, now, 0.06);
+        nitroGain.gain.setTargetAtTime(nitroOn ? 0.24 : 0.0001, now, 0.05);
       }
 
       // 3) Rotor do helicóptero ("whup-whup-whup")
@@ -581,9 +699,9 @@ export function createFlightAudio(initialSettings: GameSettings): FlightAudio {
 
       // 5) Vento proporcional à velocidade
       if (windFilter && windGain) {
-        const windNorm = clamp(speedAbs / (vehicle === 'car' ? 90 : 160), 0, 1.15);
+        const windNorm = clamp(speedAbs / (isCar ? 90 : 160), 0, 1.15);
         windFilter.frequency.setTargetAtTime(240 + windNorm * 1100, now, 0.08);
-        const windScale = vehicle === 'foot' ? 0.04 : vehicle === 'car' ? 0.14 : 0.26;
+        const windScale = vehicle === 'foot' ? 0.04 : isCar ? 0.16 : 0.26;
         const windLevel = alive ? Math.pow(windNorm, 1.6) * windScale : 0.0001;
         windGain.gain.setTargetAtTime(windLevel, now, 0.08);
       }
@@ -603,11 +721,44 @@ export function createFlightAudio(initialSettings: GameSettings): FlightAudio {
     },
 
     playClick() {
-      playUiTone(520, 680, 0.045, 0.14);
+      playSfxTone(520, 680, 0.045, 0.14, 'triangle');
     },
 
     playConfirm() {
-      playUiTone(440, 660, 0.075, 0.18);
+      playSfxTone(440, 660, 0.075, 0.18, 'triangle');
+    },
+
+    playDelivery() {
+      playSfxTone(784, 784, 0.11, 0.2, 'triangle', 0);
+      playSfxTone(1046.5, 1046.5, 0.14, 0.22, 'triangle', 0.08);
+      playSfxTone(1318.5, 1318.5, 0.22, 0.18, 'sine', 0.16);
+    },
+
+    playStageFanfare() {
+      const notes = [523.25, 659.25, 783.99, 1046.5];
+      for (let i = 0; i < notes.length; i++) {
+        playSfxTone(notes[i], notes[i], i === notes.length - 1 ? 0.42 : 0.13, 0.22, 'triangle', i * 0.09);
+      }
+      playSfxTone(523.25, 523.25, 0.42, 0.14, 'sine', 0.27);
+    },
+
+    playVictory() {
+      const notes = [523.25, 659.25, 783.99, 1046.5, 1318.5];
+      for (let i = 0; i < notes.length; i++) {
+        playSfxTone(notes[i], notes[i], i === notes.length - 1 ? 0.65 : 0.14, 0.2, 'triangle', i * 0.085);
+      }
+    },
+
+    playDefeat() {
+      // Badalada de meia-noite + queda menor
+      playSfxTone(440, 430, 0.55, 0.22, 'sine', 0);
+      playSfxTone(392, 385, 0.42, 0.18, 'triangle', 0.28);
+      playSfxTone(329.63, 293.66, 0.65, 0.2, 'triangle', 0.52);
+    },
+
+    playLocked() {
+      playSfxTone(210, 165, 0.09, 0.18, 'sawtooth', 0);
+      playSfxTone(170, 135, 0.11, 0.16, 'sawtooth', 0.1);
     },
 
     destroy() {
@@ -629,6 +780,7 @@ export function createFlightAudio(initialSettings: GameSettings): FlightAudio {
         turbineOsc,
         carOsc,
         carSubOsc,
+        nitroSrc,
         heliNoiseSrc,
         heliLfo,
         windSrc,
@@ -643,9 +795,18 @@ export function createFlightAudio(initialSettings: GameSettings): FlightAudio {
       }
 
       propOsc = subOsc = turbineOsc = carOsc = carSubOsc = heliLfo = stallOsc = null;
-      heliNoiseSrc = windSrc = null;
-      engineFilter = carFilter = heliFilter = windFilter = musicFilter = null;
-      engineGain = turbineGain = carGain = heliPulseGain = heliLfoDepth = heliMasterGain = windGain = stallGain = null;
+      nitroSrc = heliNoiseSrc = windSrc = null;
+      engineFilter = carFilter = nitroFilter = heliFilter = windFilter = musicFilter = null;
+      engineGain =
+        turbineGain =
+        carGain =
+        nitroGain =
+        heliPulseGain =
+        heliLfoDepth =
+        heliMasterGain =
+        windGain =
+        stallGain =
+          null;
       masterGain = musicBus = musicDuck = sfxBus = worldBus = null;
       noiseBuffer = null;
 

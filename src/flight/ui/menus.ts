@@ -1,3 +1,4 @@
+import type { MissionState, Stage } from '../types';
 import {
   DEFAULT_SETTINGS,
   type GameMode,
@@ -6,7 +7,7 @@ import {
   sanitizeSettings,
 } from './settings';
 
-export type MenuScreen = 'main' | 'options' | 'controls' | 'credits';
+export type MenuScreen = 'main' | 'story' | 'options' | 'controls' | 'credits' | 'result';
 
 export interface MenuCallbacks {
   onStartFlight(): void;
@@ -22,23 +23,65 @@ export interface GameMenus {
   getScreen(): MenuScreen;
   back(): boolean;
   syncSettings(settings: GameSettings): void;
+  showStageUnlocked(stage: Stage): void;
+  clearStageBanner(): void;
+  showEndScreen(outcome: 'won' | 'lost', mission: MissionState): void;
   destroy(): void;
 }
 
+const STAGE_UNLOCK_COPY: Record<Stage, { title: string; subtitle: string; accent: string }> = {
+  car: {
+    title: 'Carro da firma liberado!',
+    subtitle: 'Siga os marcadores luminosos pela cidade para entregar as encomendas.',
+    accent: 'car',
+  },
+  tuned: {
+    title: 'Carro tunado liberado!',
+    subtitle: 'Mais rápido e com nitro no Shift! Entre nele para as entregas expressas.',
+    accent: 'tuned',
+  },
+  heli: {
+    title: 'Helicóptero liberado!',
+    subtitle: 'Decole do heliponto e corte caminho por cima dos prédios da cidade.',
+    accent: 'heli',
+  },
+  a29: {
+    title: 'Avião A-29 liberado!',
+    subtitle: 'Reta final aérea: sobrevoe os alvos e aperte Espaço para soltar as caixas!',
+    accent: 'a29',
+  },
+};
+
+const STAGE_LABEL: Record<Stage, string> = {
+  car: '1/4 · Carro',
+  tuned: '2/4 · Carro Tunado',
+  heli: '3/4 · Helicóptero',
+  a29: '4/4 · Avião A-29',
+};
+
 const CONTROLS_LIST: ReadonlyArray<[string, string]> = [
-  ['E', 'Entrar ou sair do veículo próximo (carro, helicóptero ou A-29)'],
-  ['W / A / S / D', 'Andar (a pé), dirigir (carro) ou pilotar (aeronaves)'],
-  ['Espaço', 'Freio de mão (carro) ou pular (a pé)'],
-  ['Mouse', 'Gira a câmera (a pé/carro) ou move a mira (aeronaves)'],
+  ['E', 'Entrar ou sair do veículo próximo (carro, carro tunado, helicóptero ou A-29)'],
+  ['W / A / S / D', 'Andar (a pé), dirigir (carros) ou pilotar (aeronaves)'],
+  ['Shift', 'Nitro no carro tunado · acelerar (+) em aeronaves'],
+  ['Ctrl', 'Reduzir acelerador / coletivo (−) em aeronaves'],
+  ['Espaço', 'Freio de mão (carros), pular (a pé) ou soltar carga aérea (A-29)'],
+  ['Mouse', 'Gira a câmera (a pé/carros) ou move a mira (aeronaves)'],
   ['Clique esquerdo', 'Trava o ponteiro para girar a câmera / mirar'],
-  ['Shift / Ctrl', 'Acelerador / coletivo (+ / − em aeronaves)'],
   ['Q / E', 'Leme / pedais em aeronaves'],
   ['M', 'Alterna entre controle por Mouse e Teclado (aeronaves)'],
   ['F', 'Liga / desliga a fumaça branca na cauda do A-29'],
   ['C / V', 'Alterna câmeras disponíveis para o veículo atual'],
   ['R', 'Reinicia o veículo atual'],
-  ['Esc / P', 'Pausa o jogo e abre o menu (soltar o mouse também pausa)'],
+  ['Esc / P', 'Pausa o jogo e congela o relógio (soltar o mouse também pausa)'],
 ];
+
+function formatClock(minutes: number): string {
+  const clamped = Math.max(0, Math.min(1440, Math.floor(minutes)));
+  if (clamped >= 1440) return '24:00';
+  const hh = Math.floor(clamped / 60);
+  const mm = clamped % 60;
+  return `${String(hh).padStart(2, '0')}:${String(mm).padStart(2, '0')}`;
+}
 
 function node<K extends keyof HTMLElementTagNameMap>(
   tag: K,
@@ -59,24 +102,34 @@ export function createGameMenus(
   let mode: GameMode = 'title';
   let screen: MenuScreen = 'main';
   let settings: GameSettings = { ...initialSettings };
+  let stageBannerTimer: ReturnType<typeof setTimeout> | null = null;
 
   const overlay = node('div', 'menu-overlay menu-overlay--title');
   const card = node('div', 'menu-card');
   overlay.append(card);
   uiRoot.append(overlay);
 
+  // Banner comemorativo de estágio liberado (aparece sobre o jogo sem travar o movimento)
+  const stageBanner = node('div', 'stage-banner');
+  stageBanner.hidden = true;
+  const stageBannerEyebrow = node('div', 'stage-banner-eyebrow', 'NOVO ESTÁGIO DESBLOQUEADO');
+  const stageBannerTitle = node('div', 'stage-banner-title', 'Carro tunado liberado!');
+  const stageBannerSub = node('div', 'stage-banner-sub', '');
+  stageBanner.append(stageBannerEyebrow, stageBannerTitle, stageBannerSub);
+  uiRoot.append(stageBanner);
+
   // --- Tela Principal (Título ou Pausa) ---
   const mainView = node('div', 'menu-view');
   const header = node('div', 'menu-header');
-  const eyebrow = node('div', 'menu-eyebrow', 'MUNDO ABERTO DE VEÍCULOS');
-  const titleEl = node('h1', 'menu-title', 'HORIZONTE DOURADO');
-  const subtitleEl = node('p', 'menu-subtitle', 'Explore a cidade de carro, a pé, de helicóptero e no A-29');
+  const eyebrow = node('div', 'menu-eyebrow', 'CORRIDA CONTRA O RELÓGIO · 00:00 → 24:00');
+  const titleEl = node('h1', 'menu-title', 'DELIVERED BY MIDNIGHT');
+  const subtitleEl = node('p', 'menu-subtitle', 'Entregue tudo antes da próxima meia-noite com veículos cada vez mais malucos');
   header.append(eyebrow, titleEl, subtitleEl);
 
   const actions = node('div', 'menu-actions');
   const btnPrimary = node('button', 'menu-btn menu-btn--primary', 'Jogar');
   btnPrimary.type = 'button';
-  const btnRestart = node('button', 'menu-btn', 'Reiniciar');
+  const btnRestart = node('button', 'menu-btn', 'Reiniciar turno');
   btnRestart.type = 'button';
   const btnOptions = node('button', 'menu-btn', 'Opções');
   btnOptions.type = 'button';
@@ -89,6 +142,80 @@ export function createGameMenus(
 
   actions.append(btnPrimary, btnRestart, btnOptions, btnControls, btnCredits, btnReturnTitle);
   mainView.append(header, actions);
+
+  // --- Tela de História (antes de começar o turno) ---
+  const storyView = node('div', 'menu-view menu-subview');
+  storyView.hidden = true;
+  const storyEyebrow = node('div', 'menu-eyebrow', 'TURNO DA MEIA-NOITE · BRIEFING');
+  const storyTitle = node('h2', 'menu-section-title', 'ENTREGUE TUDO ATÉ AS 24:00');
+  const storyBody = node('div', 'menu-story-body');
+  storyBody.append(
+    node(
+      'p',
+      'menu-story-p',
+      'A Veloce Express fez uma promessa maluca na TV: cada encomenda pendente da cidade será entregue antes da próxima meia-noite — ou todos os pedidos saem de graça.',
+    ),
+    node(
+      'p',
+      'menu-story-p',
+      'O problema? Só sobrou você no plantão das 00:00. Para cumprir o prazo antes do relógio bater 24:00, a frota vai ficando cada vez mais absurda a cada estágio concluído!',
+    ),
+  );
+  const storyLadder = node('div', 'menu-story-ladder');
+  for (const [num, label] of [
+    ['1', 'Carro'],
+    ['2', 'Carro Tunado'],
+    ['3', 'Helicóptero'],
+    ['4', 'Avião A-29'],
+  ] as const) {
+    const step = node('div', 'menu-story-step');
+    step.append(node('span', 'menu-story-num', num), node('span', 'menu-story-veh', label));
+    storyLadder.append(step);
+  }
+  const storyTip = node(
+    'p',
+    'menu-story-tip',
+    'Siga as colunas luminosas e o minimapa. A última entrega de cada etapa leva direto ao próximo veículo!',
+  );
+  const storyFooter = node('div', 'menu-sub-footer');
+  const btnStoryBack = node('button', 'menu-btn menu-btn--ghost', 'Voltar');
+  btnStoryBack.type = 'button';
+  const btnStoryPlay = node('button', 'menu-btn menu-btn--primary', 'Jogar');
+  btnStoryPlay.type = 'button';
+  storyFooter.append(btnStoryBack, btnStoryPlay);
+  storyView.append(storyEyebrow, storyTitle, storyBody, storyLadder, storyTip, storyFooter);
+
+  // --- Tela de Resultado (Vitória ou Derrota) ---
+  const resultView = node('div', 'menu-view menu-subview');
+  resultView.hidden = true;
+  const resultEyebrow = node('div', 'menu-eyebrow', 'FIM DO TURNO');
+  const resultTitle = node('h2', 'menu-title menu-result-title', 'MISSÃO CUMPRIDA!');
+  const resultMsg = node('p', 'menu-result-msg', '');
+  const resultStats = node('div', 'menu-result-stats');
+  const statTimeVal = node('span', 'menu-stat-value', '00:00');
+  const statScoreVal = node('span', 'menu-stat-value', '0');
+  const statDeliveriesVal = node('span', 'menu-stat-value', '0/0');
+  const statStageVal = node('span', 'menu-stat-value', '1/4 · Carro');
+
+  const makeStat = (label: string, valEl: HTMLElement) => {
+    const box = node('div', 'menu-stat-box');
+    box.append(node('span', 'menu-stat-label', label), valEl);
+    return box;
+  };
+  resultStats.append(
+    makeStat('Horário', statTimeVal),
+    makeStat('Pontos', statScoreVal),
+    makeStat('Entregas', statDeliveriesVal),
+    makeStat('Estágio', statStageVal),
+  );
+
+  const resultActions = node('div', 'menu-actions');
+  const btnPlayAgain = node('button', 'menu-btn menu-btn--primary', 'Jogar de novo');
+  btnPlayAgain.type = 'button';
+  const btnResultTitle = node('button', 'menu-btn menu-btn--ghost', 'Voltar ao início');
+  btnResultTitle.type = 'button';
+  resultActions.append(btnPlayAgain, btnResultTitle);
+  resultView.append(resultEyebrow, resultTitle, resultMsg, resultStats, resultActions);
 
   // --- Subtela: Opções ---
   const optionsView = node('div', 'menu-view menu-subview');
@@ -201,7 +328,7 @@ export function createGameMenus(
   );
 
   const invertCtrl = makeToggleRow('Inverter eixo Y (mouse)', (v) => patchSettings({ invertY: v }));
-  const hudCtrl = makeToggleRow('Mostrar HUD em voo', (v) => patchSettings({ showHud: v }));
+  const hudCtrl = makeToggleRow('Mostrar HUD', (v) => patchSettings({ showHud: v }));
 
   const controlModeCtrl = makeSegmentRow<'mouse' | 'keyboard'>(
     'Modo de controle padrão',
@@ -252,11 +379,11 @@ export function createGameMenus(
   const credTitle = node('h2', 'menu-section-title', 'CRÉDITOS');
   const credBody = node('div', 'menu-credits-body');
   const creditEntries: ReadonlyArray<[string, string]> = [
-    ['Equipe', 'João Costa'],
-    ['Física de voo', 'Física baseada no JSBSim (LGPL-2.1, JSBSim-Team)'],
-    ['Modelos 3D', 'A-29, helicóptero, carros e personagem originais feitos no Blender'],
+    ['Equipe', 'João Victor da Costa, Gabriel Monteiro, Rafael Lima Henriques, Lucas Tostes'],
+    ['Física de voo', 'Física baseada no JSBSim (LGPL-2.1)'],
     ['Motor gráfico', 'PlayCanvas'],
-    ['Áudio e interface', 'Trilha, motores, passos e interface procedurais em Web Audio API'],
+    ['Modelos 3D', 'Modelos originais feitos no Blender (A-29, helicóptero, carros, personagem e cenários)'],
+    ['Áudio e interface', 'Trilha dinâmica, efeitos procedurais, ciclo dia/noite e HUD em Web Audio API'],
   ];
   for (const [role, value] of creditEntries) {
     const item = node('div', 'menu-credit-item');
@@ -269,7 +396,15 @@ export function createGameMenus(
   credFooter.append(btnCredBack);
   creditsView.append(credTitle, credBody, credFooter);
 
-  card.append(mainView, optionsView, controlsView, creditsView);
+  card.append(mainView, storyView, resultView, optionsView, controlsView, creditsView);
+
+  function clearStageBanner() {
+    if (stageBannerTimer !== null) {
+      clearTimeout(stageBannerTimer);
+      stageBannerTimer = null;
+    }
+    stageBanner.hidden = true;
+  }
 
   function syncOptionInputs() {
     masterCtrl.setValue(settings.masterVolume);
@@ -285,27 +420,31 @@ export function createGameMenus(
   function renderView() {
     const visible = mode !== 'playing';
     overlay.hidden = !visible;
-    overlay.className = `menu-overlay ${mode === 'title' ? 'menu-overlay--title' : 'menu-overlay--paused'}`;
+    overlay.className = `menu-overlay ${
+      mode === 'title' ? 'menu-overlay--title' : mode === 'ended' ? 'menu-overlay--ended' : 'menu-overlay--paused'
+    }`;
     if (!visible) return;
 
     mainView.hidden = screen !== 'main';
+    storyView.hidden = screen !== 'story';
+    resultView.hidden = screen !== 'result';
     optionsView.hidden = screen !== 'options';
     controlsView.hidden = screen !== 'controls';
     creditsView.hidden = screen !== 'credits';
 
     if (mode === 'title') {
-      eyebrow.textContent = 'MUNDO ABERTO DE VEÍCULOS';
-      titleEl.textContent = 'HORIZONTE DOURADO';
-      subtitleEl.textContent = 'Explore a cidade de carro, a pé, de helicóptero e no A-29';
+      eyebrow.textContent = 'CORRIDA CONTRA O RELÓGIO · 00:00 → 24:00';
+      titleEl.textContent = 'DELIVERED BY MIDNIGHT';
+      subtitleEl.textContent = 'Entregue tudo antes da próxima meia-noite com veículos cada vez mais malucos';
       subtitleEl.hidden = false;
       btnPrimary.textContent = 'Jogar';
       btnRestart.hidden = true;
       btnCredits.hidden = false;
       btnReturnTitle.hidden = true;
-    } else {
-      eyebrow.textContent = 'HORIZONTE DOURADO';
+    } else if (mode === 'paused') {
+      eyebrow.textContent = 'DELIVERED BY MIDNIGHT';
       titleEl.textContent = 'PAUSADO';
-      subtitleEl.textContent = 'Pressione Esc ou P para continuar';
+      subtitleEl.textContent = 'Relógio congelado — pressione Esc ou P para continuar';
       subtitleEl.hidden = false;
       btnPrimary.textContent = 'Continuar';
       btnRestart.hidden = false;
@@ -316,11 +455,31 @@ export function createGameMenus(
 
   btnPrimary.addEventListener('click', () => {
     callbacks.onButtonClick(true);
-    if (mode === 'title') callbacks.onStartFlight();
-    else callbacks.onResume();
+    if (mode === 'title') {
+      screen = 'story';
+      renderView();
+    } else {
+      callbacks.onResume();
+    }
+  });
+
+  btnStoryPlay.addEventListener('click', () => {
+    callbacks.onButtonClick(true);
+    callbacks.onStartFlight();
+  });
+
+  btnStoryBack.addEventListener('click', () => {
+    callbacks.onButtonClick();
+    screen = 'main';
+    renderView();
   });
 
   btnRestart.addEventListener('click', () => {
+    callbacks.onButtonClick(true);
+    callbacks.onRestart();
+  });
+
+  btnPlayAgain.addEventListener('click', () => {
     callbacks.onButtonClick(true);
     callbacks.onRestart();
   });
@@ -349,6 +508,11 @@ export function createGameMenus(
     callbacks.onReturnTitle();
   });
 
+  btnResultTitle.addEventListener('click', () => {
+    callbacks.onButtonClick();
+    callbacks.onReturnTitle();
+  });
+
   btnResetDefaults.addEventListener('click', () => {
     callbacks.onButtonClick();
     patchSettings({ ...DEFAULT_SETTINGS });
@@ -369,14 +533,16 @@ export function createGameMenus(
   return {
     setMode(nextMode: GameMode) {
       mode = nextMode;
-      screen = 'main';
+      if (nextMode !== 'ended') {
+        screen = 'main';
+      }
       renderView();
     },
     getScreen() {
       return screen;
     },
     back() {
-      if (screen !== 'main') {
+      if (screen !== 'main' && screen !== 'result') {
         screen = 'main';
         renderView();
         return true;
@@ -387,8 +553,50 @@ export function createGameMenus(
       settings = sanitizeSettings(next);
       syncOptionInputs();
     },
+    showStageUnlocked(stage: Stage) {
+      clearStageBanner();
+      const copy = STAGE_UNLOCK_COPY[stage];
+      stageBanner.className = `stage-banner stage-banner--${copy.accent}`;
+      stageBannerTitle.textContent = copy.title;
+      stageBannerSub.textContent = copy.subtitle;
+      stageBanner.hidden = false;
+      stageBannerTimer = setTimeout(() => {
+        stageBannerTimer = null;
+        stageBanner.hidden = true;
+      }, 4500);
+    },
+    clearStageBanner,
+    showEndScreen(outcome: 'won' | 'lost', mission: MissionState) {
+      clearStageBanner();
+      mode = 'ended';
+      screen = 'result';
+      const remaining = Math.max(0, mission.total - mission.delivered);
+
+      resultView.className = `menu-view menu-subview menu-result--${outcome}`;
+      if (outcome === 'won') {
+        resultEyebrow.textContent = 'DELIVERED BY MIDNIGHT · VITÓRIA';
+        resultTitle.textContent = 'ENTREGUE ANTES DA MEIA-NOITE!';
+        resultMsg.textContent = `Você entregou todas as ${mission.delivered} encomendas às ${formatClock(mission.clockMinutes)} e salvou a promessa da Veloce Express!`;
+      } else {
+        resultEyebrow.textContent = 'DELIVERED BY MIDNIGHT · PRAZO ESGOTADO';
+        resultTitle.textContent = 'MEIA-NOITE!';
+        resultMsg.textContent =
+          remaining === 1
+            ? 'Meia-noite! Faltou 1 entrega para completar o turno.'
+            : `Meia-noite! Faltaram ${remaining} entregas para completar o turno.`;
+      }
+
+      statTimeVal.textContent = formatClock(outcome === 'lost' ? 1440 : mission.clockMinutes);
+      statScoreVal.textContent = `${mission.score.toLocaleString('pt-BR')} pts`;
+      statDeliveriesVal.textContent = `${mission.delivered}/${mission.total}`;
+      statStageVal.textContent = STAGE_LABEL[mission.stage];
+
+      renderView();
+    },
     destroy() {
+      clearStageBanner();
       overlay.remove();
+      stageBanner.remove();
     },
   };
 }

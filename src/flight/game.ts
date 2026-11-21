@@ -15,9 +15,20 @@ import { bindSceneAirplane, buildAirplane, type AirplaneModel } from './airplane
 import { createFlightAudio } from './audio/sound';
 import { createCameraRig } from './cameras';
 import { createCockpit } from './cockpit';
-import { createHud } from './hud';
+import { createDayNight } from './daynight';
+import { createHud, isTunedNitroActive } from './hud';
+import { createMarkers } from './markers';
+import { createMissionSystem, startMission } from './mission';
 import { clearSmoke, createSmoke } from './smoke';
-import { createFlightState, type FlightContext, type FlightModule } from './types';
+import {
+  STAGE_ORDER,
+  createFlightState,
+  createMissionState,
+  type FlightContext,
+  type FlightModule,
+  type MissionState,
+  type Stage,
+} from './types';
 import { createGameMenus } from './ui/menus';
 import {
   clearRuntime,
@@ -160,7 +171,6 @@ export function startFlightSim(app: AppBase, uiRoot: HTMLElement): { destroy(): 
   const prevMaxPixelRatio = graphicsDevice?.maxPixelRatio;
   const canvas = graphicsDevice?.canvas ?? null;
 
-  // Luz de fim de tarde + névoa na cor do horizonte (esconde a borda do mundo)
   app.scene.ambientLight = new Color(0.55, 0.48, 0.55);
   app.scene.fog.type = FOG_LINEAR;
   app.scene.fog.color = SKY_HORIZON.clone();
@@ -332,11 +342,15 @@ export function startFlightSim(app: AppBase, uiRoot: HTMLElement): { destroy(): 
   state.controlMode = settings.defaultControlMode;
   initRuntime(state, settings, 'title');
 
-  const ctx: FlightContext = { app, world, plane, camera, state };
+  const mission: MissionState = createMissionState();
+  const ctx: FlightContext = { app, world, plane, camera, state, mission };
 
-  // Ordem fixa (contrato em types.ts): veículos/voo → câmeras → cabine → HUD → fumaça
-  let flightModule: FlightModule = createVehicleSystem(ctx);
+  // Ordem fixa: veículos/voo → missão → dia/noite → câmeras → marcadores → cabine → HUD → fumaça
+  const flightModule: FlightModule = createVehicleSystem(ctx);
+  const missionModule: FlightModule = createMissionSystem(ctx);
+  const dayNightModule = createDayNight(ctx, sun);
   const cameraRig = createCameraRig(ctx);
+  const markersModule = createMarkers(ctx, uiRoot);
   const cockpitModule = createCockpit(ctx, uiRoot);
   const hudModule = createHud(ctx, uiRoot);
   const smokeModule = createSmoke(ctx);
@@ -347,10 +361,21 @@ export function startFlightSim(app: AppBase, uiRoot: HTMLElement): { destroy(): 
   let hadPointerLockInFlight = false;
   let lastPauseAt = 0;
   let titleAngle = 0.65;
-  let wheelAngle = 0;
   let heliRotorAngle = 0;
+  let nitroFlamePhase = 0;
+  let prevDelivered = mission.delivered;
+  let prevStage: Stage = mission.stage;
+  let prevStatus: MissionState['status'] = mission.status;
+  let prevWarnMsg = '';
   const titleFocus = new Vec3();
   const titleCamPos = new Vec3();
+
+  function syncMissionTracking() {
+    prevDelivered = mission.delivered;
+    prevStage = mission.stage;
+    prevStatus = mission.status;
+    prevWarnMsg = mission.message ?? '';
+  }
 
   function applyQuality(quality: QualityLevel) {
     const cfg = QUALITY_CONFIG[quality];
@@ -413,7 +438,7 @@ export function startFlightSim(app: AppBase, uiRoot: HTMLElement): { destroy(): 
   function updateTitleCamera(dt: number) {
     titleAngle = (titleAngle + dt * 0.14) % (Math.PI * 2);
     if (camera.camera) camera.camera.fov = 58;
-    const isGround = state.vehicle === 'car' || state.vehicle === 'foot';
+    const isGround = state.vehicle === 'car' || state.vehicle === 'tuned' || state.vehicle === 'foot';
     const radius = isGround ? 14.5 : 34;
     const height = (isGround ? 5.2 : 10.5) + Math.sin(titleAngle * 2) * (isGround ? 1.0 : 2.2);
     titleFocus.set(state.x, state.y + (isGround ? 1.1 : 0.5), state.z);
@@ -426,23 +451,22 @@ export function startFlightSim(app: AppBase, uiRoot: HTMLElement): { destroy(): 
     camera.lookAt(titleFocus, Vec3.UP);
   }
 
-  function resetFlightState() {
-    flightModule.destroy?.();
-    flightModule = createVehicleSystem(ctx);
+  function beginMissionPlay() {
+    audio.unlock();
+    startMission(ctx);
     clearSmoke(state);
     state.controlMode = settings.defaultControlMode;
     state.camera = 'chase';
-  }
-
-  function startFlight() {
-    audio.unlock();
-    resetFlightState();
+    menus.clearStageBanner();
+    syncMissionTracking();
     mode = 'playing';
     hadPointerLockInFlight = false;
     setRuntimeMode(state, 'playing');
     requestCameraSnap(state);
     menus.setMode('playing');
+    dayNightModule.update(0);
     cameraRig.update(0);
+    markersModule.update(0);
     cockpitModule.update(0);
     hudModule.update(0);
     requestPointerLockForFlight();
@@ -470,31 +494,38 @@ export function startFlightSim(app: AppBase, uiRoot: HTMLElement): { destroy(): 
     requestPointerLockForFlight();
   }
 
-  function restartFlight() {
-    audio.unlock();
-    resetFlightState();
-    mode = 'playing';
-    hadPointerLockInFlight = false;
-    setRuntimeMode(state, 'playing');
-    requestCameraSnap(state);
-    menus.setMode('playing');
-    cameraRig.update(0);
-    cockpitModule.update(0);
-    hudModule.update(0);
-    requestPointerLockForFlight();
-  }
-
   function returnToTitle() {
-    resetFlightState();
+    startMission(ctx);
+    mission.status = 'intro';
+    clearSmoke(state);
+    state.controlMode = settings.defaultControlMode;
+    state.camera = 'chase';
+    menus.clearStageBanner();
+    syncMissionTracking();
     mode = 'title';
     hadPointerLockInFlight = false;
     setRuntimeMode(state, 'title');
     releasePointerLock();
     showPlaneExterior();
     menus.setMode('title');
+    dayNightModule.update(0);
+    markersModule.update(0);
     cockpitModule.update(0);
     hudModule.update(0);
     updateTitleCamera(0);
+  }
+
+  function enterEndScreen(outcome: 'won' | 'lost') {
+    mode = 'ended';
+    hadPointerLockInFlight = false;
+    setRuntimeMode(state, 'ended');
+    releasePointerLock();
+    if (outcome === 'won') audio.playVictory();
+    else audio.playDefeat();
+    menus.showEndScreen(outcome, mission);
+    markersModule.update(0);
+    cockpitModule.update(0);
+    hudModule.update(0);
   }
 
   function applyUpdatedSettings(next: GameSettings) {
@@ -513,9 +544,9 @@ export function startFlightSim(app: AppBase, uiRoot: HTMLElement): { destroy(): 
   }
 
   const menus = createGameMenus(uiRoot, settings, {
-    onStartFlight: startFlight,
+    onStartFlight: beginMissionPlay,
     onResume: resumeFlight,
-    onRestart: restartFlight,
+    onRestart: beginMissionPlay,
     onReturnTitle: returnToTitle,
     onSettingsChange: applyUpdatedSettings,
     onButtonClick: (confirm) => {
@@ -536,6 +567,14 @@ export function startFlightSim(app: AppBase, uiRoot: HTMLElement): { destroy(): 
 
     const isEsc = e.code === 'Escape' || e.key === 'Escape';
     const isP = e.code === 'KeyP' || e.key === 'p' || e.key === 'P';
+
+    if (mode === 'title' && menus.getScreen() === 'story' && (e.code === 'Enter' || e.code === 'Space')) {
+      e.preventDefault();
+      audio.playConfirm();
+      beginMissionPlay();
+      return;
+    }
+
     if (!isEsc && !isP) return;
 
     if (mode === 'playing') {
@@ -586,8 +625,10 @@ export function startFlightSim(app: AppBase, uiRoot: HTMLElement): { destroy(): 
 
   applyQuality(settings.quality);
   showPlaneExterior();
+  dayNightModule.update(0);
   updateTitleCamera(0);
   world.sky.setPosition(camera.getPosition());
+  markersModule.update(0);
   cockpitModule.update(0);
   hudModule.update(0);
 
@@ -598,17 +639,65 @@ export function startFlightSim(app: AppBase, uiRoot: HTMLElement): { destroy(): 
       updateTitleCamera(dt);
     } else if (mode === 'playing') {
       flightModule.update(dt);
-      // Anima rodas no carro e rotores no helicóptero
-      if (state.vehicle === 'car' && ctx.plane.wheels && ctx.plane.wheels.length > 0) {
-        wheelAngle = (wheelAngle - state.speed * dt * 165) % 360;
-        for (let i = 0; i < ctx.plane.wheels.length; i++) {
-          ctx.plane.wheels[i].setLocalEulerAngles(wheelAngle, 0, 0);
+      missionModule?.update(dt);
+
+      // Reage a eventos escritos em ctx.mission pelo mission.ts
+      if (mission.delivered > prevDelivered) {
+        audio.playDelivery();
+      }
+      prevDelivered = mission.delivered;
+
+      if (mission.stage !== prevStage) {
+        const prevIdx = STAGE_ORDER.indexOf(prevStage);
+        const nextIdx = STAGE_ORDER.indexOf(mission.stage);
+        prevStage = mission.stage;
+        if (nextIdx > prevIdx) {
+          audio.playStageFanfare();
+          menus.showStageUnlocked(mission.stage);
         }
-      } else if (state.vehicle === 'heli') {
+      }
+
+      if (mission.message && mission.message !== prevWarnMsg) {
+        prevWarnMsg = mission.message;
+        if (/bloquead|trancad|termine as entregas/i.test(mission.message)) {
+          audio.playLocked();
+        }
+      } else if (!mission.message) {
+        prevWarnMsg = '';
+      }
+
+      if (mission.status !== prevStatus) {
+        prevStatus = mission.status;
+        if (mission.status === 'won' || mission.status === 'lost') {
+          dayNightModule.update(0);
+          enterEndScreen(mission.status);
+          world.sky.setPosition(camera.getPosition());
+          audio.update(dt, mode, state, mission, false);
+          return;
+        }
+      }
+
+      // Anima rotores do helicóptero e chamas de nitro do carro tunado (rodas já giram em car.ts)
+      if (state.vehicle === 'heli') {
         heliRotorAngle = (heliRotorAngle + (420 + state.throttle * 1100) * dt) % 360;
         ctx.plane.prop.setLocalEulerAngles(0, heliRotorAngle, 0);
         ctx.plane.tailRotor?.setLocalEulerAngles((heliRotorAngle * 2.4) % 360, 0, 0);
       }
+
+      const nitroActive = isTunedNitroActive(state);
+      if (state.vehicle === 'tuned') {
+        const flames = ctx.plane.root.findByName('NitroFlames') as Entity | null;
+        if (flames) {
+          flames.enabled = nitroActive;
+          if (nitroActive) {
+            nitroFlamePhase = (nitroFlamePhase + dt * 36) % (Math.PI * 2);
+            const flicker = 0.85 + 0.35 * Math.sin(nitroFlamePhase);
+            flames.setLocalScale(1, 1, flicker);
+          }
+        }
+      }
+
+      dayNightModule.update(dt);
       cameraRig.update(dt);
       // Sincroniza visibilidade de componentes `model` legados na troca de câmera (cabine)
       const isAircraft = state.vehicle === 'a29' || state.vehicle === 'heli';
@@ -617,19 +706,20 @@ export function startFlightSim(app: AppBase, uiRoot: HTMLElement): { destroy(): 
         const modelComp = plane.exterior[i].model;
         if (modelComp && modelComp.enabled !== showExt) modelComp.enabled = showExt;
       }
+      markersModule.update(dt);
       cockpitModule.update(dt);
       hudModule.update(dt);
       smokeModule.update(dt);
     }
-    // Na pausa: nenhum módulo de voo/câmera/fumaça atualiza (mundo congelado; render continua)
+    // Na pausa e no fim de jogo: nenhum módulo de simulação/missão/dia-noite/marcadores atualiza (tudo congelado)
 
     world.sky.setPosition(camera.getPosition());
-    audio.update(dt, mode, state);
+    audio.update(dt, mode, state, mission, mode === 'playing' && isTunedNitroActive(state));
   };
   app.on('update', onUpdate);
 
   // Depuração pelo console do navegador
-  Object.assign(window, { app, flight: ctx.state });
+  Object.assign(window, { app, flight: ctx.state, mission: ctx.mission });
 
   let destroyed = false;
   return {
@@ -649,8 +739,11 @@ export function startFlightSim(app: AppBase, uiRoot: HTMLElement): { destroy(): 
       releasePointerLock();
       audio.destroy();
       menus.destroy();
+      missionModule?.destroy?.();
       flightModule.destroy?.();
+      dayNightModule.destroy?.();
       cameraRig.destroy?.();
+      markersModule.destroy?.();
       cockpitModule.destroy?.();
       hudModule.destroy?.();
       smokeModule.destroy?.();
