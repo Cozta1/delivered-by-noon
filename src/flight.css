@@ -54,7 +54,11 @@ canvas {
 .menu-btn[hidden],
 .menu-subtitle[hidden],
 .hud-fps-counter[hidden],
-.hud-pres-wrap[hidden] {
+.hud-pres-wrap[hidden],
+.fx-speed-lines[hidden],
+.hud-urgent-vignette[hidden],
+.hud-countdown[hidden],
+.hud-score-pop[hidden] {
   display: none;
 }
 
@@ -1449,4 +1453,149 @@ canvas {
   color: rgba(214, 232, 240, 0.86);
   font: 600 10.5px/1.25 ui-monospace, SFMono-Regular, Consolas, monospace;
   letter-spacing: 0.02em;
+}
+
+/* -------------------------------------------------------------------------
+ * Sensação nas ações ("game feel"): linhas de velocidade, vinheta, contagem, +pts, cartão de estágio
+ * ------------------------------------------------------------------------- */
+.fx-speed-lines {
+  position: fixed;
+  inset: 0;
+  z-index: 1;
+  pointer-events: none;
+  background: repeating-conic-gradient(
+    from 0deg at 50% 50%,
+    rgba(220, 244, 255, 0.24) 0deg 0.7deg,
+    transparent 0.7deg 7.5deg
+  );
+  mask-image: radial-gradient(circle at 50% 50%, transparent 56%, rgba(0, 0, 0, 0.9) 92%, #000 100%);
+  -webkit-mask-image: radial-gradient(circle at 50% 50%, transparent 56%, rgba(0, 0, 0, 0.9) 92%, #000 100%);
+  animation: fx-speed-jitter 0.14s steps(2) infinite;
+}
+
+.fx-speed-lines--nitro {
+  background: repeating-conic-gradient(
+    from 0deg at 50% 50%,
+    rgba(68, 242, 255, 0.36) 0deg 0.8deg,
+    transparent 0.8deg 5.4deg,
+    rgba(255, 76, 184, 0.28) 5.4deg 6deg,
+    transparent 6deg 9deg
+  );
+}
+
+@keyframes fx-speed-jitter {
+  0% {
+    transform: scale(1) rotate(0deg);
+  }
+  100% {
+    transform: scale(1.03) rotate(1.6deg);
+  }
+}
+
+.hud-urgent-vignette {
+  position: fixed;
+  inset: 0;
+  z-index: 1;
+  pointer-events: none;
+  box-shadow: inset 0 0 110px 26px rgba(235, 36, 52, 0.75);
+}
+
+.hud-countdown {
+  position: absolute;
+  top: 23%;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 5;
+  font-family: ui-monospace, SFMono-Regular, Consolas, monospace;
+  font-size: clamp(54px, 8vw, 84px);
+  font-weight: 900;
+  line-height: 1;
+  color: #ff626d;
+  text-shadow:
+    0 4px 24px rgba(255, 38, 60, 0.75),
+    0 2px 6px rgba(0, 0, 0, 0.85);
+  pointer-events: none;
+}
+
+.hud-countdown--pop {
+  animation: hud-cd-pop 0.45s cubic-bezier(0.2, 0.9, 0.3, 1);
+}
+
+@keyframes hud-cd-pop {
+  0% {
+    transform: translateX(-50%) scale(1.28);
+    opacity: 0.4;
+  }
+  100% {
+    transform: translateX(-50%) scale(1);
+    opacity: 1;
+  }
+}
+
+.hud-score-pop {
+  position: absolute;
+  top: 98px;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 6;
+  padding: 4px 12px;
+  border-radius: 999px;
+  background: rgba(16, 28, 22, 0.88);
+  border: 1.5px solid #ffd648;
+  color: #ffe87a;
+  font-family: ui-monospace, SFMono-Regular, Consolas, monospace;
+  font-size: 16px;
+  font-weight: 900;
+  letter-spacing: 0.06em;
+  text-shadow: 0 0 12px rgba(255, 214, 72, 0.7);
+  pointer-events: none;
+}
+
+.hud-score-pop--show {
+  animation: hud-score-rise 1.15s ease-out forwards;
+}
+
+@keyframes hud-score-rise {
+  0% {
+    transform: translate(-50%, 10px) scale(0.86);
+    opacity: 0;
+  }
+  18% {
+    transform: translate(-50%, -2px) scale(1.08);
+    opacity: 1;
+  }
+  100% {
+    transform: translate(-50%, -34px) scale(0.96);
+    opacity: 0;
+  }
+}
+
+.stage-banner-badge {
+  display: inline-block;
+  margin-top: 6px;
+  padding: 3px 11px;
+  border-radius: 999px;
+  background: rgba(255, 214, 72, 0.18);
+  border: 1px solid rgba(255, 214, 72, 0.55);
+  color: #ffe484;
+  font-size: 11px;
+  font-weight: 800;
+  letter-spacing: 0.14em;
+}
+
+.stage-banner-perk {
+  margin-top: 7px;
+  padding-top: 6px;
+  border-top: 1px solid rgba(255, 255, 255, 0.12);
+  font-size: 11.5px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  color: #8df8e6;
+}
+
+.reduce-motion .fx-speed-lines,
+.reduce-motion .hud-clock--urgent,
+.reduce-motion .hud-countdown--pop,
+.reduce-motion .stage-banner {
+  animation: none !important;
 }

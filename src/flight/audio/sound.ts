@@ -143,6 +143,7 @@ export function createFlightAudio(initialSettings: GameSettings): FlightAudio {
   let stepTimer = 0;
   let tickTimer = 0;
   let tickParity = false;
+  let deliveryVariant = 0;
 
   // Sequenciador musical procedural
   let musicTimer = 0;
@@ -592,10 +593,15 @@ export function createFlightAudio(initialSettings: GameSettings): FlightAudio {
         triggerMusicStep(mode, tension);
       }
 
-      // Tique-taque do relógio nos últimos minutos (depois das 22:00)
+      // Tique-taque do relógio: leve após 22:00 e acelerando forte a partir das 23:00 até 24:00
       if (playing && mission?.status === 'playing' && clockMin >= 22 * 60) {
-        const urgency = clamp((clockMin - 22 * 60) / 120, 0, 1);
-        const tickInterval = 0.85 - urgency * 0.52;
+        const isFinalHour = clockMin >= 23 * 60;
+        const urgency = isFinalHour
+          ? 0.45 + clamp((clockMin - 23 * 60) / 60, 0, 1) * 0.55
+          : clamp((clockMin - 22 * 60) / 60, 0, 1) * 0.45;
+        const tickInterval = isFinalHour
+          ? 0.56 - clamp((clockMin - 23 * 60) / 60, 0, 1) * 0.34
+          : 0.92 - clamp((clockMin - 22 * 60) / 60, 0, 1) * 0.36;
         tickTimer += dt;
         if (tickTimer >= tickInterval) {
           tickTimer %= tickInterval;
@@ -729,17 +735,30 @@ export function createFlightAudio(initialSettings: GameSettings): FlightAudio {
     },
 
     playDelivery() {
-      playSfxTone(784, 784, 0.11, 0.2, 'triangle', 0);
-      playSfxTone(1046.5, 1046.5, 0.14, 0.22, 'triangle', 0.08);
-      playSfxTone(1318.5, 1318.5, 0.22, 0.18, 'sine', 0.16);
+      // Som de entrega mais presente e com 4 variações melódicas rotativas
+      const motifs: readonly (readonly [number, number, number])[] = [
+        [784.0, 1046.5, 1318.5],
+        [880.0, 1174.7, 1568.0],
+        [740.0, 987.8, 1480.0],
+        [830.6, 1108.7, 1661.2],
+      ];
+      const [n1, n2, n3] = motifs[deliveryVariant % motifs.length];
+      deliveryVariant++;
+      playSfxTone(n1, n1 * 1.02, 0.13, 0.28, 'triangle', 0);
+      playSfxTone(n1 * 0.5, n1 * 0.5, 0.12, 0.16, 'sine', 0);
+      playSfxTone(n2, n2 * 1.01, 0.16, 0.3, 'triangle', 0.075);
+      playSfxTone(n3, n3 * 1.015, 0.28, 0.28, 'sine', 0.15);
+      playSfxTone(n3 * 1.5, n3 * 1.5, 0.2, 0.12, 'triangle', 0.17);
     },
 
     playStageFanfare() {
-      const notes = [523.25, 659.25, 783.99, 1046.5];
+      const notes = [523.25, 659.25, 783.99, 1046.5, 1318.5];
       for (let i = 0; i < notes.length; i++) {
-        playSfxTone(notes[i], notes[i], i === notes.length - 1 ? 0.42 : 0.13, 0.22, 'triangle', i * 0.09);
+        const last = i === notes.length - 1;
+        playSfxTone(notes[i], notes[i], last ? 0.52 : 0.14, last ? 0.28 : 0.24, 'triangle', i * 0.08);
       }
-      playSfxTone(523.25, 523.25, 0.42, 0.14, 'sine', 0.27);
+      playSfxTone(523.25, 523.25, 0.5, 0.18, 'sine', 0.24);
+      playSfxTone(783.99, 783.99, 0.48, 0.16, 'sine', 0.32);
     },
 
     playVictory() {

@@ -17,6 +17,7 @@ import { createFlightAudio } from './audio/sound';
 import { createCameraRig } from './cameras';
 import { createCockpit } from './cockpit';
 import { createDayNight } from './daynight';
+import { createEfeitos } from './efeitos';
 import { createHud, isTunedNitroActive } from './hud';
 import { createMarkers } from './markers';
 import { createMissionSystem, startMission } from './mission';
@@ -40,6 +41,7 @@ import {
   loadSettings,
   requestCameraSnap,
   saveSettings,
+  setRuntimeDaySeconds,
   setRuntimeMode,
   setRuntimePresentationMode,
   setRuntimeSettings,
@@ -543,6 +545,17 @@ export function startFlightSim(
   const hudModule = createHud(ctx, uiRoot);
   loadingScreen.setStage('minimap', 'Minimapa de Juiz de Fora pronto', true);
   const smokeModule = createSmoke(ctx);
+  const efeitosModule = createEfeitos(ctx, uiRoot);
+
+  function syncRuntimeDayDuration() {
+    const { timeScale } = DIFFICULTY_PRESETS[simOptions.difficulty];
+    setRuntimeDaySeconds(state, Math.max(90, simOptions.dayDurationMinutes * timeScale * 60));
+  }
+  function syncReduceMotionClass() {
+    uiRoot.classList?.toggle('reduce-motion', settings.reduceMotion);
+  }
+  syncRuntimeDayDuration();
+  syncReduceMotionClass();
 
   // Guarda os raios originais das entregas para poder reajustar a dificuldade ao vivo pelo Editor
   const baseDeliveryRadii = new Map<string, number>();
@@ -775,6 +788,7 @@ export function startFlightSim(
     if (!keepPresentation) {
       presentationActive = simOptions.presentationMode;
       simOptions.dayDurationMinutes = baseDayDurationMinutes;
+      syncRuntimeDayDuration();
       setRuntimePresentationMode(state, presentationActive);
       lastPresentationConfig = null;
     }
@@ -804,6 +818,7 @@ export function startFlightSim(
     presentationActive = true;
     lastPresentationConfig = { ...config };
     simOptions.dayDurationMinutes = config.dayDurationMinutes;
+    syncRuntimeDayDuration();
     setRuntimePresentationMode(state, true);
     mode = 'playing';
     hadPointerLockInFlight = false;
@@ -885,6 +900,7 @@ export function startFlightSim(
     }
     saveSettings(settings);
     setRuntimeSettings(state, settings);
+    syncReduceMotionClass();
     audio.applySettings(settings);
     applyQuality(settings.quality);
     syncTrafficControl?.(settings.traffic);
@@ -1225,6 +1241,10 @@ export function startFlightSim(
       cockpitModule.update(dt);
       hudModule.update(dt);
       smokeModule.update(dt);
+      efeitosModule.update(dt);
+    } else if (mode === 'ended' && mission.status === 'won') {
+      // Fogos de artifício sobre a UniAcademia na tela de vitória
+      efeitosModule.update(dt);
     }
     // Na pausa e no fim de jogo: nenhum módulo de simulação/missão/dia-noite/marcadores atualiza (tudo congelado)
 
@@ -1265,6 +1285,7 @@ export function startFlightSim(
         setRuntimePresentationMode(state, presentationActive);
       }
       syncDeliveryDifficulty();
+      syncRuntimeDayDuration();
       applyMinimapVisibility();
       if (fpsEl) {
         fpsEl.hidden = !simOptions.showFps;
@@ -1313,6 +1334,8 @@ export function startFlightSim(
       cockpitModule.destroy?.();
       hudModule.destroy?.();
       smokeModule.destroy?.();
+      efeitosModule.destroy?.();
+      uiRoot.classList?.remove('reduce-motion');
       clearRuntime(state);
 
       simRoot.destroy();

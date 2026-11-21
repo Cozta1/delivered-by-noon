@@ -15,6 +15,7 @@ export interface GameSettings {
   traffic: TrafficLevel;
   showHud: boolean;
   showFps: boolean;
+  reduceMotion: boolean;
 }
 
 export const DEFAULT_SETTINGS: Readonly<GameSettings> = {
@@ -28,6 +29,7 @@ export const DEFAULT_SETTINGS: Readonly<GameSettings> = {
   traffic: 'normal',
   showHud: true,
   showFps: false,
+  reduceMotion: false,
 };
 
 const STORAGE_KEY = 'horizonte-dourado:settings:v1';
@@ -60,6 +62,7 @@ export function sanitizeSettings(raw: Partial<GameSettings> | null | undefined):
     traffic,
     showHud: typeof s.showHud === 'boolean' ? s.showHud : DEFAULT_SETTINGS.showHud,
     showFps: typeof s.showFps === 'boolean' ? s.showFps : DEFAULT_SETTINGS.showFps,
+    reduceMotion: typeof s.reduceMotion === 'boolean' ? s.reduceMotion : DEFAULT_SETTINGS.reduceMotion,
   };
 }
 
@@ -88,6 +91,7 @@ export interface FlightRuntime {
   settings: GameSettings;
   cameraSnap: boolean;
   presentationMode: boolean;
+  effectiveDaySeconds: number;
 }
 
 const runtimeByState = new WeakMap<FlightState, FlightRuntime>();
@@ -96,6 +100,7 @@ const FALLBACK_RUNTIME: FlightRuntime = {
   settings: { ...DEFAULT_SETTINGS },
   cameraSnap: false,
   presentationMode: false,
+  effectiveDaySeconds: 1800,
 };
 
 export function initRuntime(state: FlightState, settings: GameSettings, mode: GameMode = 'title'): FlightRuntime {
@@ -104,6 +109,7 @@ export function initRuntime(state: FlightState, settings: GameSettings, mode: Ga
     settings: sanitizeSettings(settings),
     cameraSnap: false,
     presentationMode: false,
+    effectiveDaySeconds: 1800,
   };
   runtimeByState.set(state, rt);
   return rt;
@@ -126,6 +132,11 @@ export function setRuntimeSettings(state: FlightState, settings: GameSettings): 
 export function setRuntimePresentationMode(state: FlightState, enabled: boolean): void {
   const rt = runtimeByState.get(state);
   if (rt) rt.presentationMode = enabled;
+}
+
+export function setRuntimeDaySeconds(state: FlightState, seconds: number): void {
+  const rt = runtimeByState.get(state);
+  if (rt && Number.isFinite(seconds) && seconds > 0) rt.effectiveDaySeconds = seconds;
 }
 
 export function requestCameraSnap(state: FlightState): void {

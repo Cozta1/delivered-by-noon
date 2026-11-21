@@ -170,6 +170,18 @@ export function createMarkers(ctx: FlightContext, uiRoot?: HTMLElement | null): 
     sparkMis.push(mi);
   }
 
+  // Slot leve para animação de encolhimento quando uma entrega é concluída
+  const shrinkRoot = new Entity('DeliveryShrinkFx', app);
+  shrinkRoot.enabled = false;
+  markersRoot.addChild(shrinkRoot);
+  const shrinkBeam = makePart('shrinkBeam', shrinkRoot, matNextBeam).entity;
+  const shrinkRing = makePart('shrinkRing', shrinkRoot, matNextRing).entity;
+  const prevDeliveredSet = new Set<string>();
+  let shrinkTimer = 0;
+  const SHRINK_DURATION = 0.48;
+  let shrinkRadius = 16;
+  let shrinkHeight = 110;
+
   // Seta na borda da tela quando a entrega destacada estiver fora da visão
   let edgeArrow: HTMLDivElement | null = null;
   let edgeChevron: HTMLDivElement | null = null;
@@ -207,6 +219,8 @@ export function createMarkers(ctx: FlightContext, uiRoot?: HTMLElement | null): 
       slots[i].root.enabled = false;
     }
     finalFxRoot.enabled = false;
+    shrinkRoot.enabled = false;
+    shrinkTimer = 0;
     if (edgeArrow && lastArrowVisible) {
       lastArrowVisible = false;
       edgeArrow.hidden = true;
@@ -390,6 +404,45 @@ export function createMarkers(ctx: FlightContext, uiRoot?: HTMLElement | null): 
 
       if (Number.isFinite(dt) && dt > 0) {
         pulseTime = (pulseTime + dt) % (Math.PI * 200);
+      }
+
+      // Detecta entrega recém-concluída para animar o marcador encolhendo até sumir
+      let newlyDelivered: DeliveryPoint | null = null;
+      let newlyCount = 0;
+      for (let i = 0; i < mission.deliveries.length; i++) {
+        const d = mission.deliveries[i];
+        if (d.delivered) {
+          if (!prevDeliveredSet.has(d.id)) {
+            prevDeliveredSet.add(d.id);
+            newlyDelivered = d;
+            newlyCount++;
+          }
+        } else {
+          prevDeliveredSet.delete(d.id);
+        }
+      }
+      if (newlyCount === 1 && newlyDelivered) {
+        shrinkRoot.setPosition(newlyDelivered.x, newlyDelivered.y, newlyDelivered.z);
+        shrinkRadius = Math.max(4, Math.min(newlyDelivered.radius || 12, 34));
+        shrinkHeight = isFinalDelivery(newlyDelivered, mission) ? 220 : 120;
+        shrinkTimer = SHRINK_DURATION;
+        shrinkRoot.enabled = true;
+      }
+      if (shrinkTimer > 0) {
+        shrinkTimer = Math.max(0, shrinkTimer - (Number.isFinite(dt) && dt > 0 ? dt : 0));
+        if (shrinkTimer <= 0) {
+          shrinkRoot.enabled = false;
+        } else {
+          const p = 1 - shrinkTimer / SHRINK_DURATION;
+          const pop = p < 0.18 ? 1 + (p / 0.18) * 0.28 : Math.max(0.01, (1 - (p - 0.18) / 0.82) ** 1.7);
+          const h = Math.max(0.2, shrinkHeight * pop);
+          const diam = Math.max(0.2, 4.2 * pop);
+          shrinkBeam.setLocalPosition(0, h * 0.5, 0);
+          shrinkBeam.setLocalScale(diam, h, diam);
+          shrinkRing.setLocalPosition(0, 0.45, 0);
+          const ringD = Math.max(0.2, shrinkRadius * 2 * pop);
+          shrinkRing.setLocalScale(ringD, 0.45, ringD);
+        }
       }
 
       const { pending, next } = selectActiveDeliveries();

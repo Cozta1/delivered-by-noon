@@ -38,26 +38,34 @@ export interface GameMenus {
   destroy(): void;
 }
 
-const STAGE_UNLOCK_COPY: Record<Stage, { title: string; subtitle: string; accent: string }> = {
+const STAGE_UNLOCK_COPY: Record<Stage, { title: string; subtitle: string; accent: string; badge: string; perk: string }> = {
   car: {
     title: 'Hatch da GoPostal liberado!',
     subtitle: 'Recado de Michael De Santa, o patrão: siga os marcadores luminosos pela cidade.',
     accent: 'car',
+    badge: 'ESTÁGIO 1 · HATCH',
+    perk: 'Tração dianteira ágil nas ruas do Centro',
   },
   tuned: {
     title: 'Coupé Tunado liberado!',
     subtitle: 'Recado de Michael De Santa, o patrão: mete o Shift no nitro e parte para as entregas malucas!',
     accent: 'tuned',
+    badge: 'ESTÁGIO 2 · COUPÉ TUNADO',
+    perk: 'Tração traseira · Nitro [Shift] · Drift [Espaço]',
   },
   heli: {
     title: 'Helicóptero liberado!',
     subtitle: 'Recado de Michael De Santa, o patrão: agora o trânsito ficou lá embaixo — suba nos telhados!',
     accent: 'heli',
+    badge: 'ESTÁGIO 3 · HELICÓPTERO MD 500',
+    perk: 'Pairado estável · Pouso em coberturas e morros',
   },
   a29: {
     title: 'Avião A-29 liberado!',
     subtitle: 'Reta final da GoPostal! Sobrevoe os alvos e aperte Espaço para soltar as caixas!',
     accent: 'a29',
+    badge: 'ESTÁGIO 4 · AVIÃO A-29',
+    perk: 'Lançamento aéreo [Espaço] · Fumaça [F]',
   },
 };
 
@@ -119,13 +127,15 @@ export function createGameMenus(
   overlay.append(card);
   uiRoot.append(overlay);
 
-  // Banner comemorativo de estágio liberado (aparece sobre o jogo sem travar o movimento)
+  // Cartão animado de estágio liberado (aparece sobre o jogo sem travar o movimento)
   const stageBanner = node('div', 'stage-banner');
   stageBanner.hidden = true;
   const stageBannerEyebrow = node('div', 'stage-banner-eyebrow', 'NOVO ESTÁGIO DESBLOQUEADO · GOPOSTAL');
+  const stageBannerBadge = node('div', 'stage-banner-badge', 'ESTÁGIO 2 · COUPÉ TUNADO');
   const stageBannerTitle = node('div', 'stage-banner-title', 'Coupé Tunado liberado!');
   const stageBannerSub = node('div', 'stage-banner-sub', '');
-  stageBanner.append(stageBannerEyebrow, stageBannerTitle, stageBannerSub);
+  const stageBannerPerk = node('div', 'stage-banner-perk', '');
+  stageBanner.append(stageBannerEyebrow, stageBannerBadge, stageBannerTitle, stageBannerSub, stageBannerPerk);
   uiRoot.append(stageBanner);
 
   // --- Tela Principal (Título ou Pausa) ---
@@ -438,6 +448,9 @@ export function createGameMenus(
   const invertCtrl = makeToggleRow('Inverter eixo Y (mouse)', (v) => patchSettings({ invertY: v }));
   const hudCtrl = makeToggleRow('Mostrar HUD', (v) => patchSettings({ showHud: v }));
   const fpsCtrl = makeToggleRow('Mostrar FPS', (v) => patchSettings({ showFps: v }));
+  const reduceMotionCtrl = makeToggleRow('Reduzir movimento (desliga tremores e linhas)', (v) =>
+    patchSettings({ reduceMotion: v }),
+  );
 
   const controlModeCtrl = makeSegmentRow<'mouse' | 'keyboard'>(
     'Modo de controle do A-29',
@@ -525,6 +538,7 @@ export function createGameMenus(
     invertCtrl.setChecked(settings.invertY);
     hudCtrl.setChecked(settings.showHud);
     fpsCtrl.setChecked(settings.showFps);
+    reduceMotionCtrl.setChecked(settings.reduceMotion);
     controlModeCtrl.setActive(settings.defaultControlMode);
     qualityCtrl.setActive(settings.quality);
   }
@@ -699,13 +713,15 @@ export function createGameMenus(
       clearStageBanner();
       const copy = STAGE_UNLOCK_COPY[stage];
       stageBanner.className = `stage-banner stage-banner--${copy.accent}`;
+      stageBannerBadge.textContent = copy.badge;
       stageBannerTitle.textContent = copy.title;
       stageBannerSub.textContent = copy.subtitle;
+      stageBannerPerk.textContent = copy.perk;
       stageBanner.hidden = false;
       stageBannerTimer = setTimeout(() => {
         stageBannerTimer = null;
         stageBanner.hidden = true;
-      }, 4500);
+      }, 4800);
     },
     clearStageBanner,
     showEndScreen(outcome: 'won' | 'lost', mission: MissionState, presentationMode = false) {

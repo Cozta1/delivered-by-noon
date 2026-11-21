@@ -572,10 +572,33 @@ export function createHud(ctx: FlightContext, uiRoot?: HTMLElement | null): Flig
   const presKeys = el('div', 'hud-pres-keys', 'F1 Carro · F2 Tunado · F3 Heli · F4 A-29 · F5 Final · F6 +1h');
   presBox.append(presBadge, presKeys);
 
+  // Vinheta vermelha pulsante após 23:00 + contagem regressiva grande nos últimos 60 s + "+pontos" flutuante
+  const urgentVignette = el('div', 'hud-urgent-vignette');
+  urgentVignette.hidden = true;
+
+  const countdownEl = el('div', 'hud-countdown');
+  countdownEl.hidden = true;
+
+  const scorePop = el('div', 'hud-score-pop');
+  scorePop.hidden = true;
+
   // Rodapé de atalhos
   const footer = el('div', 'hud-footer', FOOTER_BY_VEHICLE.car);
 
-  root.append(reticlesLayer, clockWrap, missionMsg, leftCol, minimapWrap, nearbyPrompt, alertBox, presBox, footer);
+  root.append(
+    urgentVignette,
+    reticlesLayer,
+    clockWrap,
+    scorePop,
+    countdownEl,
+    missionMsg,
+    leftCol,
+    minimapWrap,
+    nearbyPrompt,
+    alertBox,
+    presBox,
+    footer,
+  );
   ui.append(root);
 
   const canvas = (app.graphicsDevice as { canvas?: HTMLCanvasElement } | undefined)?.canvas ?? null;
@@ -611,6 +634,9 @@ export function createHud(ctx: FlightContext, uiRoot?: HTMLElement | null): Flig
   let lastAlert: AlertState = 'none';
   let lastClockText = '';
   let lastClockUrgent: boolean | null = null;
+  let lastVignetteOpacity = -1;
+  let lastCountdownSec = -1;
+  let scorePopTimer = 0;
   let lastScore = Number.NaN;
   let lastTotalKey = '';
   let lastObjKey = '';
@@ -1103,9 +1129,57 @@ export function createHud(ctx: FlightContext, uiRoot?: HTMLElement | null): Flig
         clockTag.textContent = urgent ? 'CORRE! QUASE MEIA-NOITE' : 'ATÉ MEIA-NOITE';
       }
 
+      // A partir das 23:00: vinheta vermelha pulsando de leve + contagem grande nos últimos 60 s de jogo
+      const isFinalHour = rt.mode === 'playing' && mission.status === 'playing' && mission.clockMinutes >= 23 * 60;
+      if (isFinalHour) {
+        const hourProg = Math.max(0, Math.min(1, (mission.clockMinutes - 23 * 60) / 60));
+        const pulse = rt.settings.reduceMotion ? 0.5 : 0.5 + 0.5 * Math.sin(animPhase * (4.2 + hourProg * 4.8));
+        const vOp = Math.round((0.18 + hourProg * 0.42 + pulse * 0.22) * 20) / 20;
+        if (vOp !== lastVignetteOpacity) {
+          lastVignetteOpacity = vOp;
+          urgentVignette.hidden = false;
+          urgentVignette.style.opacity = vOp.toFixed(2);
+        }
+        const remRealSec = Math.ceil(((1440 - mission.clockMinutes) / 1440) * rt.effectiveDaySeconds);
+        const showCd = remRealSec >= 1 && remRealSec <= 60;
+        const cdVal = showCd ? remRealSec : 0;
+        if (cdVal !== lastCountdownSec) {
+          lastCountdownSec = cdVal;
+          countdownEl.hidden = !showCd;
+          if (showCd) {
+            countdownEl.textContent = String(cdVal);
+            countdownEl.classList.remove('hud-countdown--pop');
+            void countdownEl.offsetWidth;
+            countdownEl.classList.add('hud-countdown--pop');
+          }
+        }
+      } else {
+        if (lastVignetteOpacity !== 0) {
+          lastVignetteOpacity = 0;
+          urgentVignette.hidden = true;
+        }
+        if (lastCountdownSec !== 0) {
+          lastCountdownSec = 0;
+          countdownEl.hidden = true;
+        }
+      }
+
       if (mission.score !== lastScore) {
+        const gain = Number.isFinite(lastScore) ? mission.score - lastScore : 0;
         lastScore = mission.score;
         scoreBadge.textContent = `${mission.score.toLocaleString('pt-BR')} PTS`;
+        if (gain > 0 && rt.mode === 'playing') {
+          scorePop.textContent = `+${gain} PTS`;
+          scorePop.hidden = false;
+          scorePopTimer = 1.15;
+          scorePop.classList.remove('hud-score-pop--show');
+          void scorePop.offsetWidth;
+          scorePop.classList.add('hud-score-pop--show');
+        }
+      }
+      if (scorePopTimer > 0 && Number.isFinite(dt) && dt > 0) {
+        scorePopTimer = Math.max(0, scorePopTimer - dt);
+        if (scorePopTimer <= 0) scorePop.hidden = true;
       }
 
       const totalKey = `${mission.delivered}/${mission.total}`;

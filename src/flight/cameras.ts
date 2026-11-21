@@ -1,4 +1,5 @@
 import { KEY_C, KEY_M, KEY_V, Quat, Vec3 } from 'playcanvas';
+import { isTunedNitroActive } from './hud';
 import {
   type CameraMode,
   type FlightContext,
@@ -97,6 +98,16 @@ export function createCameraRig({ app, world, plane, camera, state }: FlightCont
   let headYaw = 0;
   let headPitch = 0;
   let carOrbitIdle = 99;
+  // Sensação ("game feel"): tremor, inclinação nas curvas e FOV dinâmico
+  let feelTime = 0;
+  let impactShake = 0;
+  let carRollDeg = 0;
+  let prevHeading = state.heading;
+  let prevHeightAboveGround = state.heightAboveGround;
+  let prevVerticalSpeed = state.verticalSpeed;
+  const shakeRight = new Vec3();
+  const shakeUp = new Vec3();
+  const tiltQuat = new Quat();
 
   const canvas = (app.graphicsDevice as { canvas?: HTMLCanvasElement } | undefined)?.canvas ?? null;
 
@@ -401,12 +412,28 @@ export function createCameraRig({ app, world, plane, camera, state }: FlightCont
     camera.setPosition(camPos);
     lookTarget.set(planePos.x, planePos.y + 1.45, planePos.z);
     safeLookAt(lookTarget, aimYaw);
+    // Leve inclinação da câmera nas curvas do carro (respeita "reduzir movimento")
+    const reduceMotion = getRuntime(state).settings.reduceMotion;
+    const targetRoll =
+      !reduceMotion && Math.abs(state.speed) > 4 && dt > 0.0005
+        ? clamp((shortestAngleDiff(prevHeading, state.heading) / dt) * 0.055, -3.8, 3.8)
+        : 0;
+    carRollDeg = snap ? 0 : carRollDeg + (targetRoll - carRollDeg) * (1 - Math.exp(-9 * dt));
+    if (Math.abs(carRollDeg) > 0.03) {
+      tiltQuat.setFromAxisAngle(Vec3.FORWARD, carRollDeg);
+      camRot.copy(camera.getRotation()).mul(tiltQuat);
+      camera.setRotation(camRot);
+    }
     if (camera.camera) {
-      const targetFov =
+      const nitroOn = isTunedNitroActive(state);
+      const speedAbs = Math.abs(state.speed);
+      const maxAdd = reduceMotion ? 3.5 : state.vehicle === 'tuned' ? 15 : 6.5;
+      const baseAdd =
         state.vehicle === 'tuned'
-          ? FOV.chase + clamp((Math.abs(state.speed) - 26) / 36, 0, 1) * 11
-          : FOV.chase;
-      camera.camera.fov = snap ? targetFov : camera.camera.fov + (targetFov - camera.camera.fov) * (1 - Math.exp(-8 * dt));
+          ? clamp((speedAbs - 18) / 38, 0, 1) * 10 + (nitroOn ? 5.5 : 0)
+          : clamp((speedAbs - 16) / 32, 0, 1) * 6.5;
+      const targetFov = FOV.chase + Math.min(maxAdd, baseAdd);
+      camera.camera.fov = snap ? targetFov : camera.camera.fov + (targetFov - camera.camera.fov) * (1 - Math.exp(-7 * dt));
     }
   }
 
@@ -451,6 +478,14 @@ export function createCameraRig({ app, world, plane, camera, state }: FlightCont
     }
     camera.setPosition(camPos);
     safeLookAt(lookTarget, isHeli || useMouseAim ? aimYaw : state.heading);
+    if (camera.camera) {
+      const reduceMotion = getRuntime(state).settings.reduceMotion;
+      const speedNorm = isHeli
+        ? clamp((Math.abs(state.speed) - 12) / 42, 0, 1)
+        : clamp((Math.abs(state.speed) - 45) / 100, 0, 1);
+      const targetFov = FOV.chase + speedNorm * (reduceMotion ? 2.5 : isHeli ? 5.5 : 9.5);
+      camera.camera.fov = snap ? targetFov : camera.camera.fov + (targetFov - camera.camera.fov) * (1 - Math.exp(-6 * dt));
+    }
   }
 
   function updateChase(dt: number, snap: boolean) {
@@ -520,6 +555,38 @@ export function createCameraRig({ app, world, plane, camera, state }: FlightCont
     }
   }
 
+  function applyCameraShake(dt: number) {
+    const reduceMotion = getRuntime(state).settings.reduceMotion;
+    if (reduceMotion) {
+      impactShake = 0;
+      return;
+    }
+
+    feelTime = (feelTime + Math.max(dt, 0)) % 1000;
+    impactShake *= Math.exp(-7.5 * Math.max(dt, 0));
+    if (impactShake < 0.005) impactShake = 0;
+
+    let speedRumble = 0;
+    if (state.vehicle === 'tuned' && !state.crashed) {
+      const speedNorm = clamp((Math.abs(state.speed) - 18) / 42, 0, 1);
+      speedRumble = speedNorm * 0.055 + (isTunedNitroActive(state) ? 0.095 : 0);
+    }
+
+    const amp = Math.min(0.45, speedRumble + impactShake * 0.36);
+    if (amp <= 0.002) return;
+
+    const sx = (Math.sin(feelTime * 47.3) * 0.6 + Math.cos(feelTime * 83.1) * 0.4) * amp;
+    const sy = (Math.cos(feelTime * 59.7) * 0.65 + Math.sin(feelTime * 97.3) * 0.35) * amp * 0.85;
+    camRot.copy(camera.getRotation());
+    camRot.transformVector(Vec3.RIGHT, shakeRight);
+    camRot.transformVector(Vec3.UP, shakeUp);
+    camPos.copy(camera.getPosition());
+    camPos.x += shakeRight.x * sx + shakeUp.x * sy;
+    camPos.y += shakeRight.y * sx + shakeUp.y * sy;
+    camPos.z += shakeRight.z * sx + shakeUp.z * sy;
+    camera.setPosition(camPos);
+  }
+
   function applyActiveMode(dt: number, snap: boolean) {
     if (activeMode === 'cockpit' && isAircraft(state.vehicle)) {
       updateCockpit(dt, snap);
@@ -528,6 +595,7 @@ export function createCameraRig({ app, world, plane, camera, state }: FlightCont
     } else {
       updateChase(dt, snap);
     }
+    if (!snap) applyCameraShake(dt);
   }
 
   // Inicializa câmera, mira, FOV e visibilidade externa no quadro zero.
@@ -604,16 +672,33 @@ export function createCameraRig({ app, world, plane, camera, state }: FlightCont
       readVehicleRotation(planeRot);
 
       if (state.crashed) {
-        if (!wasCrashed) wasCrashed = true;
+        if (!wasCrashed) {
+          wasCrashed = true;
+          impactShake = 1.0;
+        }
         updateAimState(dt);
         if (modeSwitched) {
           applyActiveMode(dt, true);
         } else if (activeMode !== 'cockpit') {
           safeLookAt(planePos, state.heading);
+          applyCameraShake(dt);
         }
         snapNext = false;
         lastPlanePos.copy(planePos);
+        prevHeading = state.heading;
+        prevHeightAboveGround = state.heightAboveGround;
+        prevVerticalSpeed = state.verticalSpeed;
         return;
+      }
+
+      // Detecta pouso forte do helicóptero ou A-29 para tremor curto
+      if (
+        isAircraft(state.vehicle) &&
+        prevHeightAboveGround > 0.75 &&
+        state.heightAboveGround <= 0.45 &&
+        prevVerticalSpeed < -2.4
+      ) {
+        impactShake = Math.max(impactShake, clamp((-prevVerticalSpeed - 2.0) / 7.5, 0.25, 0.92));
       }
 
       if (wasCrashed) {
@@ -629,6 +714,9 @@ export function createCameraRig({ app, world, plane, camera, state }: FlightCont
       updateAimState(dt);
       applyActiveMode(dt, snapNext);
       snapNext = false;
+      prevHeading = state.heading;
+      prevHeightAboveGround = state.heightAboveGround;
+      prevVerticalSpeed = state.verticalSpeed;
     },
     destroy() {
       if (destroyed) return;
