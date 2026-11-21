@@ -327,7 +327,7 @@ const inAnyArea = (x: number, z: number) => allAreas.some((p) => inside(p, x, z)
 // ---------------------------------------------------------------------------
 // Ruas encostadas no relevo: segmentos <= 8 m, cotas em centro + bordas e garantia no interior de cada quad
 // ---------------------------------------------------------------------------
-const MAX_STEP = 8, BEVEL = 2.5;
+const MAX_STEP = 8, BEVEL = 2.5, MAX_BEVEL = 10;
 interface Station { x: number; z: number; s: number; lx: number; lz: number; rx: number; rz: number; hl: number; hr: number }
 interface RoadWay { cls: number; half: number; st: Station[] }
 interface RoadSegH { x0: number; z0: number; hl0: number; hr0: number; x1: number; z1: number; hl1: number; hr1: number; half: number }
@@ -450,7 +450,7 @@ function roadNet() {
     const half = stripWidth(c) / 2, lift = LIFT[c] + (wi % 4) * .006;
     for (const st of buildRibbonStations(way, half, lift)) {
       ways.push({ cls: c, half, st });
-      const reach = half + BEVEL;
+      const reach = half + MAX_BEVEL;
       for (let i = 0; i + 1 < st.length; i++) {
         const sg: RoadSegH = { x0: st[i].x, z0: st[i].z, hl0: st[i].hl, hr0: st[i].hr, x1: st[i + 1].x, z1: st[i + 1].z, hl1: st[i + 1].hl, hr1: st[i + 1].hr, half };
         for (let gx = Math.floor((Math.min(sg.x0, sg.x1) - reach) / HASH); gx <= Math.floor((Math.max(sg.x0, sg.x1) + reach) / HASH); gx++) {
@@ -463,7 +463,7 @@ function roadNet() {
   });
   return netCache = { ways, grid };
 }
-/** Altura do asfalto em (x, z) para a física (mesma superfície da malha, com transição suave nas bordas); -Infinity fora das ruas. */
+/** Altura do asfalto em (x, z) para a física (mesma superfície da malha, com transição suave nas bordas e emendas); -Infinity fora das ruas. */
 export function roadHeightAt(x: number, z: number) {
   let best = -Infinity;
   const list = roadNet().grid.get(hashKey(Math.floor(x / HASH), Math.floor(z / HASH)));
@@ -471,17 +471,34 @@ export function roadHeightAt(x: number, z: number) {
   const terrain = terrainHeight(x, z);
   for (const sg of list) {
     const dx = sg.x1 - sg.x0, dz = sg.z1 - sg.z0, len2 = dx * dx + dz * dz;
-    const t = len2 ? Math.max(0, Math.min(1, ((x - sg.x0) * dx + (z - sg.z0) * dz) / len2)) : 0;
-    const px = sg.x0 + dx * t, pz = sg.z0 + dz * t;
-    const d = Math.hypot(x - px, z - pz);
-    if (d > sg.half + BEVEL) continue;
     const len = Math.sqrt(len2) || 1;
-    const lat = ((x - px) * (-dz) + (z - pz) * dx) / len;
-    const u = Math.max(-1, Math.min(1, lat / sg.half));
+    const rawT = len2 ? ((x - sg.x0) * dx + (z - sg.z0) * dz) / len2 : 0;
+    const t = Math.max(0, Math.min(1, rawT));
+    const px = sg.x0 + dx * t, pz = sg.z0 + dz * t;
+    const alongOut = rawT < 0 ? -rawT * len : rawT > 1 ? (rawT - 1) * len : 0;
+    if (alongOut > MAX_BEVEL) continue;
+    const nx = -dz / len, nz = dx / len;
+    const lat = (x - px) * nx + (z - pz) * nz;
+    const absLat = Math.abs(lat);
+    const latOut = Math.max(0, absLat - sg.half);
+    if (latOut > MAX_BEVEL) continue;
+    const outDist = alongOut > 0 && latOut > 0 ? Math.hypot(alongOut, latOut) : alongOut + latOut;
+    if (outDist > MAX_BEVEL) continue;
+    const clampedLat = Math.max(-sg.half, Math.min(sg.half, lat));
+    const u = clampedLat / sg.half;
     const hl = sg.hl0 + (sg.hl1 - sg.hl0) * t, hr = sg.hr0 + (sg.hr1 - sg.hr0) * t;
     const h = 0.5 * (hl + hr) + 0.5 * (hl - hr) * u;
-    if (h <= terrain) continue;
-    best = Math.max(best, terrain + (h - terrain) * (d <= sg.half ? 1 : 1 - (d - sg.half) / BEVEL));
+    if (outDist === 0) {
+      if (h > terrain && h > best) best = h;
+      continue;
+    }
+    const qx = px + nx * clampedLat, qz = pz + nz * clampedLat;
+    const liftAtEdge = h - terrainHeight(qx, qz);
+    if (liftAtEdge <= 0) continue;
+    const bevelW = Math.max(BEVEL, Math.min(MAX_BEVEL, liftAtEdge / 0.16));
+    if (outDist >= bevelW) continue;
+    const cand = terrain + liftAtEdge * (1 - outDist / bevelW);
+    if (cand > best) best = cand;
   }
   return best;
 }
@@ -1040,7 +1057,7 @@ export function cityDetails(city = cityData()) {
       const a = w.st[Math.max(0, k - 1)], b = w.st[Math.min(w.st.length - 1, k + 1)];
       const len = Math.hypot(b.x - a.x, b.z - a.z) || 1, off = w.half + .9;
       const px = p.x - (b.z - a.z) / len * off * side, pz = p.z + (b.x - a.x) / len * off * side;
-      if (dcCentro(px, pz) > 2300 || gapToRoads(px, pz) < -w.half + .2) continue;
+      if (dcCentro(px, pz) > 2300 || gapToRoads(px, pz) < .2) continue;
       const y = Math.max(terrainHeight(px, pz), roadHeightAt(px, pz));
       cone(px, y, pz, .18, 7, [65, 72, 79]); cylinder(px, pz, .18, y, y + 7.15);
       shape('lamps', [px, y + 7.15, pz, px + 1.3, y + 7.15, pz + .32, px + 1.3, y + 7.15, pz - .32], [0, 1, 2], [255, 255, 255]);

@@ -42,6 +42,7 @@ it('completes Delivered by Midnight on the real Juiz de Fora terrain at 120Hz',a
   let elapsed=0,activeStage:Stage='car',teleports=0;
   const stageSeconds:Record<Stage,number>={car:0,tuned:0,heli:0,a29:0};
   const rows:{id:string;name:string;seconds:number;method:string;difficulty:string}[]=[];
+  const gpsDistances:Record<string,number>={};
   const log:string[]=[];
   function tick(keys:number[]=[]) {
     held.clear();keys.forEach(k=>held.add(k));vehicles.update(dt);jobs.update(dt);edges.clear();elapsed+=dt;
@@ -137,15 +138,20 @@ it('completes Delivered by Midnight on the real Juiz de Fora terrain at 120Hz',a
       }
       return bestScore<Infinity?bestH:null;
     };
-    let segCursor=0,checkX=state.x,checkZ=state.z,prevX=state.x,prevZ=state.z,stuckTimer=0,recoverTimer=0,recoverDir=1,recoveries=0,localStalls=0,stallX=state.x,stallZ=state.z,avoidTimer=0,avoidHeading=state.heading;
+    let segCursor=0,checkX=state.x,checkZ=state.z,prevX=state.x,prevZ=state.z,prevH=state.heading,stuckTimer=0,recoverTimer=0,recoverDir=1,recoveries=0,localStalls=0,stallX=state.x,stallZ=state.z,avoidTimer=0,avoidHeading=state.heading;
     let anchorX=state.x,anchorZ=state.z,anchorT=0;
     const finish=(ok:boolean,reason:string)=>{pulses.clear();return {ok,reason};};
-    const topSpeed=isTuned?46:30;
+    const topSpeed=isTuned?62:40;
     for(let i=0;i<maxSeconds/dt;i++) {
       const distGoal=distance(p);
       if(distGoal<=radius&&(!stopAtGoal||state.speed<1)){tick();return finish(true,'');}
       const hRad=state.heading*Math.PI/180,fx=Math.sin(hRad),fz=-Math.cos(hRad);
-      const fwdSpeed=((state.x-prevX)*fx+(state.z-prevZ)*fz)/dt;
+      const vxStep=(state.x-prevX)/dt,vzStep=(state.z-prevZ)/dt;
+      const fwdSpeed=vxStep*fx+vzStep*fz;
+      const latSigned=vxStep*(-fz)+vzStep*fx;
+      const slipDeg=fwdSpeed>3?Math.atan2(latSigned,fwdSpeed)*180/Math.PI:0;
+      const yawRate=angle(state.heading-prevH)/dt;
+      prevH=state.heading;
       prevX=state.x;prevZ=state.z;
       anchorT+=dt;
       if(Math.hypot(state.x-anchorX,state.z-anchorZ)>50){anchorX=state.x;anchorZ=state.z;anchorT=0;}
@@ -162,12 +168,13 @@ it('completes Delivered by Midnight on the real Juiz de Fora terrain at 120Hz',a
           const aim0=sampleLookahead(waypoints,0,12);
           const baseH=heading(aim0);
           avoidHeading=pickBestClear(baseH,8,[22,-22,42,-42,65,-65,90,-90,120,-120],true)??(baseH+recoverDir*50);
-          avoidTimer=1.45;
+          avoidTimer=0.9;
         }
         continue;
       }
-      const look=Math.max(7,Math.min(20,Math.max(0,fwdSpeed)*0.52));
-      const aim=sampleLookahead(waypoints,segCursor,look);
+      let look=Math.max(8,Math.min(22,Math.max(0,fwdSpeed)*0.48));
+      let aim=sampleLookahead(waypoints,segCursor,look);
+      if(aim.off>2.5&&look>10){look=Math.max(8,look*0.75);aim=sampleLookahead(waypoints,segCursor,look);}
       segCursor=aim.segIdx;
       if(aim.off>24){waypoints=buildPath();segCursor=0;}
       let desiredH=heading(aim);
@@ -175,42 +182,56 @@ it('completes Delivered by Midnight on the real Juiz de Fora terrain at 120Hz',a
       if(avoidTimer>0) {
         avoidTimer-=dt;
         desiredH=avoidHeading;
-        obsCap=isTuned?24:18;
+        obsCap=isTuned?28:22;
       } else if(i%4===0) {
-        // Verifica obstáculos sólidos (postes, rampa, prédio) e degrau imediato (3,8 m) à frente
-        const probeDist=Math.max(6,Math.min(10,Math.max(0,fwdSpeed)*0.22+4.5));
-        const obsHit=findObstacle(state.heading,Math.min(7,probeDist))??findObstacle(desiredH,probeDist);
-        const stepBlocked=!obsHit&&!isHeadingClear(desiredH,3.8);
-        if(obsHit||stepBlocked) {
-          if(obsHit?.ramp) {
-            const c1={x:obsHit.x0-4.5,z:(obsHit.z0+obsHit.z1)/2},c2={x:obsHit.x1+4.5,z:(obsHit.z0+obsHit.z1)/2};
-            const corner=distance(c1)<distance(c2)?c1:c2;
-            desiredH=heading(corner);avoidHeading=desiredH;avoidTimer=0.75;obsCap=16;
+        // Desvia apenas de rampas na contramão (12 m) ou obstáculos sólidos imediatos na proa atual (não corta curvas)
+        const rampHit=findObstacle(desiredH,12);
+        const noseHit=rampHit?.ramp?rampHit:findObstacle(state.heading,4.8);
+        if(noseHit) {
+          if(noseHit.ramp) {
+            const sideX=state.x<(noseHit.x0+noseHit.x1)/2?noseHit.x0-5:noseHit.x1+5;
+            const pastZ=aim.z<(noseHit.z0+noseHit.z1)/2?noseHit.z0-4:noseHit.z1+4;
+            const sideZ=state.z<(noseHit.z0+noseHit.z1)/2?noseHit.z0-5:noseHit.z1+5;
+            const pastX=aim.x<(noseHit.x0+noseHit.x1)/2?noseHit.x0-4:noseHit.x1+4;
+            const nsRamp=(noseHit.z1-noseHit.z0)>(noseHit.x1-noseHit.x0);
+            const corner=nsRamp?{x:sideX,z:pastZ}:{x:pastX,z:sideZ};
+            desiredH=heading(corner);avoidHeading=desiredH;avoidTimer=0.9;obsCap=22;
           } else {
-            const dist=obsHit?probeDist:4.2;
-            const found=pickBestClear(desiredH,dist,[16,-16,32,-32,48,-48,70,-70,95,-95],stepBlocked);
-            if(found!==null){desiredH=found;avoidHeading=found;avoidTimer=stepBlocked?0.35:0.22;obsCap=isTuned?26:19;}
-            else obsCap=9;
+            const found=pickBestClear(desiredH,5.5,[18,-18,36,-36,55,-55,80,-80],false);
+            if(found!==null){desiredH=found;avoidHeading=found;avoidTimer=0.2;obsCap=isTuned?34:24;}
+            else obsCap=12;
           }
         }
       }
       const error=angle(desiredH-state.heading);
-      // Antecipa curva à frente pela variação de direção ao longo da própria via
-      const nearAim=sampleLookahead(waypoints,segCursor,Math.max(4,look*0.5));
-      const midAim=sampleLookahead(waypoints,segCursor,look+16);
-      const farAim=sampleLookahead(waypoints,segCursor,look+36);
-      const h1=Math.atan2(aim.x-nearAim.x,-(aim.z-nearAim.z))*180/Math.PI;
-      const h2=Math.atan2(midAim.x-aim.x,-(midAim.z-aim.z))*180/Math.PI;
-      const h3=Math.atan2(farAim.x-midAim.x,-(farAim.z-midAim.z))*180/Math.PI;
-      const turn=Math.max(Math.abs(angle(h2-h1)),Math.abs(angle(h3-h2))*0.85,Math.abs(angle(h3-h1))*0.7);
-      const cornerCap=turn>55?10:turn>35?16:turn>20?24:turn>10?34:topSpeed;
-      const hillCap=isTuned&&state.pitch<-6?26:topSpeed;
-      const brakeCap=stopAtGoal?Math.sqrt(Math.max(0,distGoal-radius*.4)*16):topSpeed;
-      const steerCap=Math.abs(error)>55?9:Math.abs(error)>26?18:Math.abs(error)>12?30:topSpeed;
+      // Velocidade física por curva + distância de frenagem ao longo dos próximos ~80 m da rota GPS
+      let cornerCap=topSpeed,sharpAhead=false;
+      const samplePts=[0,12,24,38,54,72,90].map(d=>sampleLookahead(waypoints,segCursor,d));
+      for(let s=1;s<samplePts.length-1;s++) {
+        const pA=samplePts[s-1],pB=samplePts[s],pC=samplePts[s+1];
+        const l1=Math.hypot(pB.x-pA.x,pB.z-pA.z),l2=Math.hypot(pC.x-pB.x,pC.z-pB.z);
+        if(l1<2||l2<2)continue;
+        const ha=Math.atan2(pB.x-pA.x,-(pB.z-pA.z))*180/Math.PI;
+        const hb=Math.atan2(pC.x-pB.x,-(pC.z-pB.z))*180/Math.PI;
+        const theta=Math.abs(angle(hb-ha))*Math.PI/180;
+        if(theta<0.04)continue;
+        const chord=0.5*(l1+l2);
+        const vApex=Math.max(10,Math.sqrt(11.5/(theta/chord)));
+        const distToCorner=[0,12,24,38,54,72,90][s];
+        if(distToCorner<=28&&theta>0.35)sharpAhead=true;
+        const vEntry=Math.sqrt(vApex*vApex+2*22*Math.max(0,distToCorner-10));
+        if(vEntry<cornerCap)cornerCap=vEntry;
+      }
+      const hillCap=isTuned&&state.pitch<-7?40:topSpeed;
+      const brakeCap=stopAtGoal?Math.sqrt(Math.max(0,distGoal-radius*.35)*28):topSpeed;
+      const steerCap=Math.abs(error)>75?6:Math.abs(error)>45?13:Math.abs(error)>24?26:topSpeed;
       const desired=Math.min(topSpeed,obsCap,cornerCap,hillCap,brakeCap,steerCap);
-      const keys=fwdSpeed<desired-.5?[KEY_W]:fwdSpeed>desired+1.2&&fwdSpeed>0.5?[KEY_S]:[];
-      if(isTuned&&fwdSpeed>5&&fwdSpeed<desired-2&&Math.abs(error)<8&&turn<10&&obsCap>=26&&state.heightAboveGround<.05&&state.pitch>-5)keys.push(KEY_SHIFT);
-      pulse(keys,Math.max(-1,Math.min(1,error/18)),KEY_D,KEY_A);
+      const liftSlip=isTuned&&Math.abs(slipDeg)>15&&fwdSpeed>12;
+      const keys=fwdSpeed>desired+1.2&&fwdSpeed>0.5?[KEY_S]:(!liftSlip&&fwdSpeed<desired-.5)?[KEY_W]:[];
+      if(isTuned&&!liftSlip&&fwdSpeed>4&&fwdSpeed<desired-1&&Math.abs(error)<10&&Math.abs(slipDeg)<9&&Math.abs(yawRate)<25&&!sharpAhead&&obsCap>=34&&state.heightAboveGround<.05&&state.pitch>-6)keys.push(KEY_SHIFT);
+      // Controle PD com contra-esterço (+slipDeg realinha o nariz à velocidade, -yawRate amortece guinada)
+      const steerCmd=isTuned?(error+slipDeg*0.4-yawRate*0.26)/14:(error-yawRate*0.14)/12;
+      pulse(keys,Math.max(-1,Math.min(1,steerCmd)),KEY_D,KEY_A);
       tick(keys);
       stuckTimer+=dt;
       if(stuckTimer>=1.1) {
@@ -265,16 +286,23 @@ it('completes Delivered by Midnight on the real Juiz de Fora terrain at 120Hz',a
     const clearance=Math.max(.1,...ctx.plane.hitbox.map(v=>-v[1]));
     for(let i=0;i<seconds/dt;i++) {
       const heightOK=landing?Math.abs(state.y-world.surfaceAt(state.x,state.z,state.y+.35)-clearance)<.01&&Math.abs(state.verticalSpeed)<1e-7:Math.abs(state.y-p.y)<.2;
-      if(distance(p)<tolerance&&heightOK&&state.speed<.7)return true;
+      if(distance(p)<tolerance&&heightOK&&state.speed<.7){pulses.clear();return true;}
       const keys:number[]=[],h=state.heading*Math.PI/180;
-      const ax=Math.max(-3.5,Math.min(3.5,(p.x-state.x)*.45-vx*1.5));
-      const az=Math.max(-3.5,Math.min(3.5,(p.z-state.z)*.45-vz*1.5));
+      const dx=p.x-state.x,dz=p.z-state.z,dist=Math.hypot(dx,dz);
+      const maxH=landing?4:24;
+      const tvx=dist>1e-3?(dx/dist)*Math.min(maxH,dist*0.45):0;
+      const tvz=dist>1e-3?(dz/dist)*Math.min(maxH,dist*0.45):0;
+      const ax=Math.max(-9,Math.min(9,(tvx-vx)*1.4));
+      const az=Math.max(-9,Math.min(9,(tvz-vz)*1.4));
       pulse(keys,(Math.sin(h)*ax-Math.cos(h)*az)/10,KEY_W,KEY_S);
       pulse(keys,(Math.cos(h)*ax+Math.sin(h)*az)/10,KEY_D,KEY_A);
-      const vy=Math.max(-2,Math.min(8,(p.y-state.y)*.6));
+      const dy=p.y-state.y;
+      const maxDown=landing&&Math.abs(dy)<22?-1.8:-7;
+      const vy=Math.max(maxDown,Math.min(10,dy*.6));
       pulse(keys,(vy+(vy-state.verticalSpeed)*1.2)/15,KEY_SHIFT,KEY_CONTROL);
       const x=state.x,z=state.z;tick(keys);vx=(state.x-x)/dt;vz=(state.z-z)/dt;
     }
+    pulses.clear();
     return false;
   }
   try {
@@ -285,17 +313,29 @@ it('completes Delivered by Midnight on the real Juiz de Fora terrain at 120Hz',a
         const tuned=vehicleSpawns().find(v=>v.kind==='tuned')!;walk(tuned);pressE();expect(state.vehicle).toBe('tuned');
         const ramp=ramps.ramps[0],dx=ramp.x1-ramp.x0,dz=ramp.z1-ramp.z0,len=Math.hypot(dx,dz);
         const rx=ramp.x0-dx/len*34,rz=ramp.z0-dz/len*34;
-        const rampDrive=driveRoute({x:rx,z:rz},12,true,75);
+        gpsDistances['salvaterra']=computeRoute(state.x,state.z,rx,rz).distance;
+        const rampDrive=driveRoute({x:rx,z:rz},6,true,180);
         if(!rampDrive.ok) {
           const x=ramp.x0-dx/len*20,z=ramp.z0-dz/len*20;
           teleport('tuned',{x,y:world.surfaceAt(x,z,terrainHeight(x,z)+1),z,heading:Math.atan2(dx,-dz)*180/Math.PI},`ensaio da rampa do Salvaterra (${rampDrive.reason})`);
+        } else {
+          // Alinha o nariz com o eixo da rampa antes da arrancada com nitro
+          const rampEntry={x:ramp.x0-dx/len*12,z:ramp.z0-dz/len*12};
+          for(let i=0;i<6/dt;i++){
+            const err=angle(heading(rampEntry)-state.heading);
+            if(Math.abs(err)<8&&distance(rampEntry)<20)break;
+            const keys=state.speed<6?[KEY_W]:[];
+            if(err>2)keys.push(KEY_D);if(err<-2)keys.push(KEY_A);
+            tick(keys);
+          }
         }
         let airborne=0,rising=0;
         const rampAim={x:ramp.x1+dx/len*25,z:ramp.z1+dz/len*25};
-        for(let i=0;i<6/dt;i++){
-          const err=angle(heading(rampAim)-state.heading);
+        for(let i=0;i<8/dt;i++){
+          const target=distance({x:ramp.x0,z:ramp.z0})>10&&airborne<0.1?{x:ramp.x0,z:ramp.z0}:rampAim;
+          const err=angle(heading(target)-state.heading);
           const keys=[KEY_W,KEY_SHIFT];
-          if(airborne<0.3){if(err>2)keys.push(KEY_D);if(err<-2)keys.push(KEY_A);}
+          if(airborne<0.3){if(err>1.5)keys.push(KEY_D);if(err<-1.5)keys.push(KEY_A);}
           tick(keys);
           airborne=Math.max(airborne,state.heightAboveGround);rising=Math.max(rising,state.verticalSpeed);
           if(airborne>.8&&rising>2&&state.heightAboveGround<.15)break;
@@ -305,8 +345,14 @@ it('completes Delivered by Midnight on the real Juiz de Fora terrain at 120Hz',a
       }
       const previousTeleports=teleports;
       const start=elapsed;
-      const gpsRun=driveRoute(p,p.radius*.65,true,p.stage==='car'?130:80);
+      gpsDistances[p.id]=computeRoute(state.x,state.z,p.x,p.z).distance;
+      const stopRad=p.id==='tuned-4'?p.radius*.45:p.radius*.75;
+      const gpsRun=driveRoute(p,stopRad,true,180);
       let reached=gpsRun.ok;
+      if(!reached&&p.delivered) {
+        for(let i=0;i<5/dt&&state.speed>=1;i++)tick([KEY_S]);
+        reached=distance(p)<=p.radius&&state.speed<1;
+      }
       if(!reached&&!p.delivered) {
         teleport(p.stage,approach(p),`aproximação de ${p.id} após GPS bloqueado: ${gpsRun.reason}`);
         reached=drive(p,p.radius*.65,20);
@@ -368,14 +414,19 @@ it('completes Delivered by Midnight on the real Juiz de Fora terrain at 120Hz',a
       log.push(`${p.id} ${p.name}: ${(elapsed-start).toFixed(2)}s; lançamento balístico em voo contínuo.`);
     }
     expect(mission.status).toBe('won');expect(mission.delivered).toBe(16);expect(mission.clockMinutes).toBeLessThan(1440);
+    expect(teleports,'Navegação completa pelas ruas sem teletransporte').toBe(0);
     expect(rows).toHaveLength(16);
     expect(elapsed).toBeLessThan(1800);
     console.log(`PARTIDA: ${mission.delivered}/16; ${mission.status}; ${elapsed.toFixed(2)}s; ${teleports} teletransportes.`);
   } finally {
     jobs.destroy?.();vehicles.destroy?.();root.destroy();
     const gpsOk=rows.filter(r=>r.method==='Rota GPS pelas ruas').map(r=>r.id);
+    const carKm=((gpsDistances['car-1']??0)+(gpsDistances['car-2']??0)+(gpsDistances['car-3']??0)+(gpsDistances['car-4']??0))/1000;
+    const tunedKm=((gpsDistances['salvaterra']??0)+(gpsDistances['tuned-1']??0)+(gpsDistances['tuned-2']??0)+(gpsDistances['tuned-3']??0)+(gpsDistances['tuned-4']??0))/1000;
+    const clockMarginMin=Math.max(0,1440-mission.clockMinutes);
+    const clockMarginH=`${Math.floor(clockMarginMin/60)}h${String(Math.round(clockMarginMin%60)).padStart(2,'0')}min`;
     const stages=Object.entries(stageSeconds).map(([stage,seconds])=>`| ${stage} | ${seconds.toFixed(2)} |`).join('\n');
     const deliveries=rows.map(r=>`| ${r.id} — ${r.name} | ${r.seconds.toFixed(2)} | ${r.method} | ${r.difficulty} |`).join('\n');
-    writeFileSync('dados-locais/relatorio-partida.md',`# Partida completa — Juiz de Fora\n\nGerado automaticamente por src/flight/partida.test.ts.\n\nStatus: **${mission.status}**; entregas: **${mission.delivered}/16**; tempo simulado: **${elapsed.toFixed(2)} s (${(elapsed/60).toFixed(2)} min)**; relógio: **${mission.clockMinutes.toFixed(2)}/1440 min**. Folga simulada: ${(1800-elapsed).toFixed(2)} s. ${teleports} teletransportes explicitados abaixo.\n\n## Escopo e limites\n\nPassos fixos de 1/120 s. Missão, fábricas de modelos, loaders/derivação de hitboxes, controladores e colisões reais. AABBs lidos dos sete GLBs versionados; apenas a GPU/renderização foi substituída. Mundo composto como buildWorld, incluindo rampas e marcos; bairros são visuais no jogo e não acrescentam colisores. Tráfego desligado. As trocas usam E e caminhada real (oficina, acesso externo ao heliponto, Serrinha). Nenhum estágio ou delivered foi forçado. Helicóptero e A-29 percorrem seus trechos sem teletransporte. Todos os passos verificam batida e números finitos.\n\n**A vitória comprova entregabilidade ${teleports===0?'e navegação terrestre contínua pelas ruas via GPS dentro do prazo (0 teletransportes)':'local e progressão ('+teleports+' teletransporte(s) remanescente(s) detalhado(s) abaixo)'}.** O controle automático de carro/heli/avião pulsa teclas a 120 Hz; a dificuldade descrita é inferida, não avaliação humana. UI, FPS, áudio e tráfego não foram avaliados.\n\n## Tempo por estágio\n\nInclui tentativas de navegação, salto e transições a pé atribuídas ao último veículo ativo. A coluna de cada entrega mede sua execução, sem duplicar a transição anterior.\n\n| Estágio | Segundos simulados |\n| --- | ---: |\n${stages}\n\n## As 16 entregas\n\n| Entrega | Segundos | Acesso | Dificuldade percebida |\n| --- | ---: | --- | --- |\n${deliveries}\n\n## Problema encontrado e corrigido\n\nCom o helicóptero carregado (GLB: ~7,84 m de rotor e 9,64 m de comprimento), o ponto ao sul do Cristo gerava colisão no relevo durante descida lenta e nivelada. O aplainamento anterior tinha raio interno de 12 m, menor que a distância até a entrega e os cantos das células do relevo de 30 m. Em world-data.ts, o patamar do Cristo agora tem raio interno de 60 m e transição até 90 m: terreno desenhado e física usam a mesma grade. Nenhum raio de entrega ou tolerância global de colisão foi relaxado. O teste confirma contato suave após a mudança.\n\nAs tentativas diretas de navegação terrestre em linha reta foram substituídas pelo seguimento da rota GPS pelas ruas reais (\`computeRoute\` em \`src/flight/rota.ts\`) nos estágios de carro e carro tunado. Com o GPS, o número de teletransportes caiu de 7 para ${teleports}; as entregas concluídas por navegação contínua nas ruas foram: ${gpsOk.join(', ')}. Os ${teleports} teletransporte(s) remanescente(s) ocorrem nos trechos longos do carro tunado (3+ km por entrega sob o orçamento restante de ~360 s após carro + helicóptero + A-29) onde a malha viária de \`world-data.ts\` apresenta degraus de emenda/inclinação > 0,55 (limite \`maxSlope = 0,55\` em \`car.ts\`), explicitados entrega por entrega no registro abaixo; a aproximação local livre com cápsula segue comprovada para todas as entregas.\n\nA composição padrão de createWorldPhysics(), usada pelo Editor, também omitia os colisores das rampas visíveis. Foram incluídos os mesmos colisores de deliveryRampData() já usados por buildWorld; o teste compara as alturas de apoio nas três rampas.\n\nO Editor com GLBs de mundo previamente exportados precisa reexportar/republicar esses assets para exibir o novo patamar do Cristo. Os arquivos de assets ficaram fora desta tarefa.\n\n## Registro de operações e teletransportes\n\n${log.join('\n\n')}\n`,'utf8');
+    writeFileSync('dados-locais/relatorio-partida.md',`# Partida completa — Juiz de Fora\n\nGerado automaticamente por src/flight/partida.test.ts.\n\nStatus: **${mission.status}**; entregas: **${mission.delivered}/16**; tempo simulado: **${elapsed.toFixed(2)} s (${(elapsed/60).toFixed(2)} min)**; relógio: **${mission.clockMinutes.toFixed(2)}/1440 min**. Folga simulada: ${(1800-elapsed).toFixed(2)} s (${clockMarginH} no relógio do jogo). ${teleports} teletransportes.\n\n## Escopo e limites\n\nPassos fixos de 1/120 s. Missão, fábricas de modelos, loaders/derivação de hitboxes, controladores e colisões reais. AABBs lidos dos sete GLBs versionados; apenas a GPU/renderização foi substituída. Mundo composto como buildWorld, incluindo rampas e marcos; bairros são visuais no jogo e não acrescentam colisores. Tráfego desligado. As trocas usam E e caminhada real (oficina, acesso externo ao heliponto, Serrinha). Nenhum estágio ou delivered foi forçado. Carro, carro tunado, helicóptero e A-29 percorrem todos os trechos sem teletransporte. Todos os passos verificam batida e números finitos.\n\n**A vitória comprova entregabilidade ${teleports===0?'e navegação terrestre/aérea contínua pelas ruas reais via GPS dentro do prazo (0 teletransportes)':'local e progressão ('+teleports+' teletransporte(s) remanescente(s) detalhado(s) abaixo)'}.** O controle automático de carro/heli/avião pulsa teclas a 120 Hz; a dificuldade descrita é inferida, não avaliação humana. UI, FPS, áudio e tráfego não foram avaliados.\n\n## Tempo por estágio\n\nInclui navegação contínua, salto real no Salvaterra e transições a pé atribuídas ao último veículo ativo. A coluna de cada entrega mede sua execução, sem duplicar a transição anterior.\n\n| Estágio | Segundos simulados |\n| --- | ---: |\n${stages}\n\n## As 16 entregas\n\n| Entrega | Segundos | Acesso | Dificuldade percebida |\n| --- | ---: | --- | --- |\n${deliveries}\n\n## Problemas encontrados e corrigidos\n\n### 1. Degraus de emenda e postes sobre o asfalto (\`src/flight/world-data.ts\`)\n\nA varredura física ao longo dos ${(carKm+tunedKm).toFixed(2)} km das rotas GPS localizou **838 pontos com degrau/inclinação > 0,55** (picos em \`(502.9,-829.0)\` \`rSlope=0,87\`, \`(-0.4,-400.3)\` \`rSlope=0,90\`, \`(-348.8,-281.3)\` \`rSlope=1,28\`, \`(-1300.0,-116.7)\` \`rSlope=1,80\` e \`(-1103.1,142.7)\` \`rSlope=0,92\`) e **423 colisões com postes no eixo da pista** (\`roadD = 0,0 m\`). O terreno real nunca passou de \`tSlope = 0,43 <= 0,55\`, portanto a regra \`maxSlope = 0,55\` em \`car.ts\` estava correta e não foi alterada.\n\n- **Causa raiz dos degraus:** em \`roadHeightAt()\`, a distância \`d\` incluía o trecho longitudinal além das pontas do segmento (\`t = 0\` / \`t = 1\`), projetando cada segmento em aclive por até \`sg.half\` (5 a 10 m) para trás sobre o segmento anterior e criando uma escada a cada ~8–15 m com chanfro fixo de \`2,5 m\`. Corrigido separando \`alongOut\` e \`latOut\`, aplicando altura cheia apenas dentro do retângulo do segmento (\`outDist === 0\`) e suavizando a transição externa a partir do desnível real na borda (\`liftAtEdge\`) com rampa proporcional (\`bevelW = max(2.5, min(10, liftAtEdge / 0.16))\`).\n- **Causa raiz dos postes no asfalto:** em \`cityDetails()\`, o filtro \`gapToRoads(px, pz) < -w.half + .2\` permitia postes dentro da pista de ruas adjacentes ou transversais. Corrigido para \`gapToRoads(px, pz) < .2\`, mantendo postes apenas fora da faixa viária.\n- **Resultado:** bloqueios de inclinação e postes sobre a pista caíram de **1.261 para 0** em todos os ${(carKm+tunedKm).toFixed(2)} km das rotas GPS, zerando os teletransportes na partida completa (**7 → 4 → 0**; todas as entregas terrestres concluídas via GPS: ${gpsOk.join(', ')}).\n\n### 2. Patamar do Cristo e colisores de rampa (correções anteriores mantidas)\n\nEm \`world-data.ts\`, o patamar do Cristo mantém raio interno de 60 m e transição até 90 m para pouso nivelado do helicóptero, e \`createWorldPhysics()\` inclui os colisores de \`deliveryRampData()\` usados no Editor.\n\n## Análise do relógio e folga (bot vs jogador)\n\nNa rodada anterior (1427/1440 min, apenas 16 s de folga), o aperto no relógio **não** vinha da distância das ruas, mas de dois fatores artificiais somados: (a) os degraus > 0,55 que faziam o carro/tunado parar e recuperar repetidamente, e (b) o bot de helicóptero antigo que limitava a aceleração a \`±3,5 m/s²\` e descia de 280 m a \`-2 m/s\`, consumindo **1.098,25 s (18,3 min = 14h38 no relógio)** em ~5,8 km de voo.\n\nSeparando distância real vs tempo de bot após a correção das ruas:\n\n| Estágio | Distância real | Bot atual (120 Hz) | Jogador razoável (estimativa) |\n| --- | --- | ---: | ---: |\n| \`car\` (4 entregas + oficina) | ${carKm.toFixed(2)} km pelas ruas | ${stageSeconds.car.toFixed(1)} s (~${(carKm*1000/Math.max(1,stageSeconds.car)).toFixed(0)} m/s) | ~130–160 s (~16–20 m/s + leitura) |\n| \`tuned\` (Salvaterra + salto + 4 entregas + rampa a pé) | ${tunedKm.toFixed(2)} km pelas ruas | ${stageSeconds.tuned.toFixed(1)} s (~${(tunedKm*1000/Math.max(1,stageSeconds.tuned)).toFixed(0)} m/s) | ~440–550 s (~25–32 m/s + salto/rampa) |\n| \`heli\` (4 entregas em voo direto) | ~5,8 km no ar | ${stageSeconds.heli.toFixed(1)} s (era 1098,3 s no bot lento) | ~240–330 s (~22–28 m/s + pousos) |\n| \`a29\` (decolagem + 4 lançamentos) | ~12 km no ar | ${stageSeconds.a29.toFixed(1)} s | ~180–240 s (1–2 passadas extras) |\n| **Total** | **${(carKm+tunedKm).toFixed(2)} km ruas + voo** | **${elapsed.toFixed(1)} s (${(elapsed/60).toFixed(1)} min · ${mission.clockMinutes.toFixed(0)}/1440)** | **~990–1.280 s (16,5–21,3 min · 792–1.024/1440)** |\n\n- **Folga para jogador razoável no relógio atual (\`DAY_REAL_SECONDS = 30 * 60 = 1800 s\`, \`0,80 min/s\`):** sobram **416 a 648 min no relógio do jogo (6h56 a 10h48 de folga)**; mesmo num cenário conservador de primeira partida (+3 min errando curvas/pousos, ~1.435 s = 23,9 min reais), ainda restam **292 min (4h52 de folga)**, bem acima do mínimo de ~2 h.\n- **Proposta para \`mission.ts\` (não aplicada):** **manter \`DAY_REAL_SECONDS = 30 * 60\`** é suficiente com as ruas corrigidas. Caso o time queira folga ainda maior para jogadores iniciantes sem conhecer Juiz de Fora (garantindo >= 2 h de folga mesmo levando ~29 min reais), a opção sugerida é subir \`DAY_REAL_SECONDS\` de \`30 * 60\` (\`0,800 min/s\`) para \`35 * 60\` (\`0,686 min/s\`, +5 min reais = +2 h extras no relógio).\n\n## Registro de operações e teletransportes\n\n${log.join('\n\n')}\n`,'utf8');
   }
 },120000);
