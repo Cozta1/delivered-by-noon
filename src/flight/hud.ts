@@ -28,12 +28,14 @@ interface MinimapBlip {
 const VEHICLE_BADGE: Record<VehicleKind, string> = {
   foot: 'A PÉ',
   car: 'CARRO',
+  tuned: 'TUNADO',
   a29: 'A-29',
   heli: 'HELI',
 };
 
 const NEARBY_LABEL: Record<Exclude<VehicleKind, 'foot'>, string> = {
   car: 'carro',
+  tuned: 'carro tunado',
   a29: 'A-29',
   heli: 'helicóptero',
 };
@@ -41,6 +43,7 @@ const NEARBY_LABEL: Record<Exclude<VehicleKind, 'foot'>, string> = {
 const FOOTER_BY_VEHICLE: Record<VehicleKind, string> = {
   foot: 'W/A/S/D andar · Espaço pular · Mouse gira câmera · E entrar em veículo · C câmera · Esc/P pausa',
   car: 'W/S acelerar/ré · A/D virar · Espaço freio de mão · Mouse olha ao redor · E sair · C câmera · R reiniciar · Esc/P pausa',
+  tuned: 'W/S acelerar/ré · A/D virar · Espaço freio de mão · Mouse olha ao redor · E sair · C câmera · R reiniciar · Esc/P pausa',
   a29: 'Mouse mira · M mouse/teclado · W/S arfagem · A/D rolagem · Q/E leme · Shift/Ctrl acel · F fumaça · E sair · C câmera · Esc/P pausa',
   heli: 'W/S inclinar · A/D lateral · Q/E girar · Shift/Ctrl coletivo · Mouse mira · E sair · C câmera · R reiniciar · Esc/P pausa',
 };

@@ -12,7 +12,7 @@ import type { World } from './world';
  * O que o jogador controla agora: a pé ou um veículo (Etapa 4, mundo aberto de veículos).
  * Escrito SÓ pelo gerenciador de veículos (vehicles.ts); câmeras, HUD, áudio e cabine leem.
  */
-export type VehicleKind = 'foot' | 'car' | 'a29' | 'heli';
+export type VehicleKind = 'foot' | 'car' | 'tuned' | 'a29' | 'heli';
 
 /** Veículo existente no mundo (estacionado ou em uso). `variant` escolhe o modelo do carro. */
 export interface VehicleSpawn {
@@ -103,6 +103,67 @@ export function createFlightState(): FlightState {
 /** Ponto de nascimento: sobre o mar, ao sul da cidade, voando para o norte. */
 export const SPAWN = { x: 0, y: 180, z: 720, heading: 0, speed: 70 };
 
+// ---------------------------------------------------------------------------
+// Delivered by Midnight: missão de entregas (ver brain/decisoes/0005-delivered-by-midnight.md)
+// ---------------------------------------------------------------------------
+
+/** Estágios da progressão, do veículo mais comum ao mais maluco. */
+export type Stage = 'car' | 'tuned' | 'heli' | 'a29';
+export const STAGE_ORDER: Stage[] = ['car', 'tuned', 'heli', 'a29'];
+
+/** Um ponto de entrega. Escrito pelo sistema de missão (mission.ts, Codex); HUD, marcadores e minimapa leem. */
+export interface DeliveryPoint {
+  id: string;
+  stage: Stage;
+  /** Nome curto e original do destinatário/lugar (aparece no HUD). */
+  name: string;
+  x: number;
+  y: number;
+  z: number;
+  /** Raio (m) em que a entrega conta. */
+  radius: number;
+  /** true = entrega por lançamento aéreo (A-29): solta a caixa com Espaço sobre o alvo. */
+  airDrop?: boolean;
+  /** true = a última entrega do estágio, feita onde está o próximo veículo. */
+  leadsToNext?: boolean;
+  delivered: boolean;
+}
+
+export interface MissionState {
+  status: 'intro' | 'playing' | 'won' | 'lost';
+  /** Relógio do jogo em minutos: 0 = 00:00 (início); 1440 = 24:00 (prazo final). */
+  clockMinutes: number;
+  /** Estágio mais avançado liberado. */
+  stage: Stage;
+  deliveries: DeliveryPoint[];
+  /** Encomendas a bordo: o estágio do veículo atual quando o jogador entrou nele (null a pé ou já entregues). */
+  carrying: Stage | null;
+  /** Entrega destacada agora (a mais próxima pendente do que está a bordo). */
+  nextDeliveryId: string | null;
+  /** Mensagem curta para o HUD (ex.: "Entregue! +150") e quanto tempo ainda mostrar (s). */
+  message: string | null;
+  messageTimer: number;
+  delivered: number;
+  total: number;
+  score: number;
+}
+
+export function createMissionState(): MissionState {
+  return {
+    status: 'intro',
+    clockMinutes: 0,
+    stage: 'car',
+    deliveries: [],
+    carrying: null,
+    nextDeliveryId: null,
+    message: null,
+    messageTimer: 0,
+    delivered: 0,
+    total: 0,
+    score: 0,
+  };
+}
+
 /** Contexto entregue a cada módulo na inicialização. */
 export interface FlightContext {
   app: AppBase;
@@ -111,6 +172,8 @@ export interface FlightContext {
   /** Câmera principal (um único Entity com componente camera). */
   camera: Entity;
   state: FlightState;
+  /** Estado da missão (criado pelo game.ts; escrito só pelo mission.ts). */
+  mission?: MissionState;
 }
 
 /** Interface comum dos módulos: criados uma vez, atualizados todo quadro pelo main.ts. */

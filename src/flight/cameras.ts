@@ -17,6 +17,7 @@ const FOV: Record<CameraMode, number> = {
 const VEHICLE_CAMERAS: Record<VehicleKind, readonly CameraMode[]> = {
   foot: ['chase', 'top'],
   car: ['chase', 'top'],
+  tuned: ['chase', 'top'],
   a29: ['chase', 'top', 'cockpit'],
   heli: ['chase', 'top', 'cockpit'],
 };
