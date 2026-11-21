@@ -5,6 +5,7 @@ import {
   Color,
   Entity,
   FOG_LINEAR,
+  type MeshInstance,
   PIXELFORMAT_SRGBA8,
   StandardMaterial,
   TONEMAP_ACES,
@@ -19,6 +20,7 @@ import { createDayNight } from './daynight';
 import { createHud, isTunedNitroActive } from './hud';
 import { createMarkers } from './markers';
 import { createMissionSystem, startMission } from './mission';
+import { enableFrustumCulling } from './models/glb';
 import { clearSmoke, createSmoke } from './smoke';
 import {
   STAGE_ORDER,
@@ -29,6 +31,7 @@ import {
   type MissionState,
   type Stage,
 } from './types';
+import { createLoadingScreen, type LoadingScreenHandle } from './ui/loading';
 import { createGameMenus } from './ui/menus';
 import {
   clearRuntime,
@@ -63,6 +66,8 @@ export interface FlightSimOptions {
   showMinimap?: boolean;
   /** Exibe um contador leve de FPS no canto da tela. */
   showFps?: boolean;
+  /** Tela de carregamento pré-montada (opcional, usada por main.ts e scripts do Editor). */
+  loadingScreen?: LoadingScreenHandle;
 }
 
 export interface FlightSimHandle {
@@ -85,11 +90,98 @@ function normalizeDifficulty(v: unknown): DifficultyLevel {
   return v === 'facil' || v === 'normal' || v === 'dificil' ? v : 'normal';
 }
 
-const QUALITY_CONFIG: Record<QualityLevel, { pixelRatio: number; fogStart: number; fogEnd: number; clouds: number }> = {
-  low: { pixelRatio: 0.75, fogStart: 600, fogEnd: 2300, clouds: 0 },
-  medium: { pixelRatio: 1.25, fogStart: 800, fogEnd: 3300, clouds: 0.5 },
-  high: { pixelRatio: 2, fogStart: 900, fogEnd: 4200, clouds: 1 },
+const QUALITY_CONFIG: Record<
+  QualityLevel,
+  { pixelRatio: number; fogStart: number; fogEnd: number; clouds: number; detailDistance: number }
+> = {
+  low: { pixelRatio: 1.0, fogStart: 600, fogEnd: 2300, clouds: 0, detailDistance: 900 },
+  medium: { pixelRatio: 1.25, fogStart: 800, fogEnd: 3300, clouds: 0.5, detailDistance: 1400 },
+  high: { pixelRatio: 1.5, fogStart: 900, fogEnd: 4200, clouds: 1, detailDistance: Infinity },
 };
+
+const DETAIL_CULL_PATTERN = /^(bairros|casas|lampadas dos postes|cloud|nuve|mundo-bairros|mundo-casas|mundo-nuvens|detalhe)/i;
+const PROTECTED_ENTITY_PATTERN = /(terrain|terreno|sea|mar|sky|ceu|céu|roads|ground|uniacademia|aeroporto|pista|hangar|cristo|oficina|heliponto|deliverymarker|finaldelivery)/i;
+
+function isPerfDiagEnabled(): boolean {
+  try {
+    if (typeof window === 'undefined' || !window.location?.search) return false;
+    return new URLSearchParams(window.location.search).get('perf') === '1';
+  } catch {
+    return false;
+  }
+}
+
+function distanceToAabb(pos: Vec3, mi: MeshInstance): number {
+  const aabb = mi.aabb;
+  if (!aabb) return 0;
+  const min = aabb.getMin();
+  const max = aabb.getMax();
+  const dx = pos.x < min.x ? min.x - pos.x : pos.x > max.x ? pos.x - max.x : 0;
+  const dy = pos.y < min.y ? min.y - pos.y : pos.y > max.y ? pos.y - max.y : 0;
+  const dz = pos.z < min.z ? min.z - pos.z : pos.z > max.z ? pos.z - max.z : 0;
+  return Math.hypot(dx, dy, dz);
+}
+
+function collectDetailMeshInstances(root: Entity, out: Array<{ mi: MeshInstance; altitudeCap: number }>, inDetailBranch = false): void {
+  const name = root.name || '';
+  if (PROTECTED_ENTITY_PATTERN.test(name)) return;
+  const matchesDetail = inDetailBranch || DETAIL_CULL_PATTERN.test(name);
+  if (matchesDetail) {
+    const isTinyDetail = /^(casas|lampadas dos postes|detalhe)/i.test(name);
+    const altitudeCap = isTinyDetail ? 260 : 520;
+    const renderMis = root.render?.meshInstances;
+    if (renderMis) {
+      for (let i = 0; i < renderMis.length; i++) {
+        if (renderMis[i]) out.push({ mi: renderMis[i], altitudeCap });
+      }
+    }
+    const modelMis = root.model?.meshInstances;
+    if (modelMis) {
+      for (let i = 0; i < modelMis.length; i++) {
+        if (modelMis[i]) out.push({ mi: modelMis[i], altitudeCap });
+      }
+    }
+  }
+  const children = root.children;
+  for (let i = 0; i < children.length; i++) {
+    collectDetailMeshInstances(children[i] as Entity, out, matchesDetail);
+  }
+}
+
+function readRenderPerfStats(app: AppBase): { drawCalls: number; visibleMeshInstances: number } {
+  const stats = (app as { stats?: { drawCalls?: { total?: number; forward?: number; shadow?: number } } }).stats;
+  const gd = app.graphicsDevice as { _drawCallsPerFrame?: number } | undefined;
+  let drawCalls = 0;
+  if (typeof stats?.drawCalls?.total === 'number' && stats.drawCalls.total > 0) {
+    drawCalls = stats.drawCalls.total;
+  } else if (typeof gd?._drawCallsPerFrame === 'number' && gd._drawCallsPerFrame > 0) {
+    drawCalls = gd._drawCallsPerFrame;
+  } else if (stats?.drawCalls) {
+    drawCalls = (stats.drawCalls.forward ?? 0) + (stats.drawCalls.shadow ?? 0);
+  }
+
+  let visibleMeshInstances = 0;
+  const layers = (app.scene as { layers?: { layerList?: Array<{ meshInstances?: MeshInstance[] }> } } | undefined)
+    ?.layers?.layerList;
+  if (Array.isArray(layers)) {
+    const seen = new Set<MeshInstance>();
+    for (let i = 0; i < layers.length; i++) {
+      const mis = layers[i]?.meshInstances;
+      if (!mis) continue;
+      for (let j = 0; j < mis.length; j++) {
+        const mi = mis[j];
+        if (!mi || seen.has(mi)) continue;
+        seen.add(mi);
+        if (mi.visible && (mi as { visibleThisFrame?: boolean }).visibleThisFrame !== false) {
+          visibleMeshInstances++;
+        }
+      }
+    }
+  } else {
+    visibleMeshInstances = stats?.drawCalls?.forward ?? 0;
+  }
+  return { drawCalls, visibleMeshInstances };
+}
 
 const SCENE_ENTITY_NAMES = {
   world: 'Mundo',
@@ -219,6 +311,13 @@ export function startFlightSim(
   app.scene.fog.color = SKY_HORIZON.clone();
   app.scene.fog.start = 900;
   app.scene.fog.end = 4200;
+
+  const loadingScreen: LoadingScreenHandle =
+    initialOptions?.loadingScreen ?? createLoadingScreen(typeof document !== 'undefined' ? uiRoot : null);
+  loadingScreen.attachApp(app);
+  loadingScreen.setStage('world', 'Carregando relevo, bairros e texturas de Juiz de Fora…', false);
+  loadingScreen.setStage('vehicles', 'Carregando veículos e fachada da UniAcademia…', false);
+  loadingScreen.setStage('minimap', 'Montando minimapa de Juiz de Fora…', false);
 
   const simRoot = new Entity('FlightSimRoot');
   app.root.addChild(simRoot);
@@ -379,22 +478,29 @@ export function startFlightSim(
 
   const materials = new Set([...world.materials, ...plane.materials]);
   const textures = new Set(world.textures);
+  loadingScreen.setStage(
+    'world',
+    `Juiz de Fora, bairros e ${Math.max(1, textures.size)} texturas prontos`,
+    true,
+  );
 
-  let simOptions: Required<FlightSimOptions> = {
+  const persistedSettings = loadSettings();
+  let simOptions: Required<Omit<FlightSimOptions, 'loadingScreen'>> = {
     dayDurationMinutes: clampNum(initialOptions?.dayDurationMinutes, 30, 2, 60),
     difficulty: normalizeDifficulty(initialOptions?.difficulty),
-    mouseSensitivity: clampNum(initialOptions?.mouseSensitivity, loadSettings().mouseSensitivity, 0.05, 0.4),
-    musicVolume: clampNum(initialOptions?.musicVolume, loadSettings().musicVolume, 0, 1),
-    sfxVolume: clampNum(initialOptions?.sfxVolume, loadSettings().sfxVolume, 0, 1),
+    mouseSensitivity: clampNum(initialOptions?.mouseSensitivity, persistedSettings.mouseSensitivity, 0.05, 0.4),
+    musicVolume: clampNum(initialOptions?.musicVolume, persistedSettings.musicVolume, 0, 1),
+    sfxVolume: clampNum(initialOptions?.sfxVolume, persistedSettings.sfxVolume, 0, 1),
     showMinimap: typeof initialOptions?.showMinimap === 'boolean' ? initialOptions.showMinimap : true,
-    showFps: typeof initialOptions?.showFps === 'boolean' ? initialOptions.showFps : false,
+    showFps: typeof initialOptions?.showFps === 'boolean' ? initialOptions.showFps : persistedSettings.showFps,
   };
 
   let settings: GameSettings = {
-    ...loadSettings(),
+    ...persistedSettings,
     ...(initialOptions?.mouseSensitivity !== undefined ? { mouseSensitivity: simOptions.mouseSensitivity } : {}),
     ...(initialOptions?.musicVolume !== undefined ? { musicVolume: simOptions.musicVolume } : {}),
     ...(initialOptions?.sfxVolume !== undefined ? { sfxVolume: simOptions.sfxVolume } : {}),
+    ...(initialOptions?.showFps !== undefined ? { showFps: simOptions.showFps } : {}),
   };
   const state = createFlightState();
   state.controlMode = settings.defaultControlMode;
@@ -405,12 +511,14 @@ export function startFlightSim(
 
   // Ordem fixa: veículos/voo → missão → dia/noite → câmeras → marcadores → cabine → HUD → fumaça
   const flightModule: FlightModule = createVehicleSystem(ctx);
+  loadingScreen.setStage('vehicles', 'Veículos e fachada da UniAcademia prontos', true);
   const missionModule: FlightModule = createMissionSystem(ctx);
   const dayNightModule = createDayNight(ctx, sun);
   const cameraRig = createCameraRig(ctx);
   const markersModule = createMarkers(ctx, uiRoot);
   const cockpitModule = createCockpit(ctx, uiRoot);
   const hudModule = createHud(ctx, uiRoot);
+  loadingScreen.setStage('minimap', 'Minimapa de Juiz de Fora pronto', true);
   const smokeModule = createSmoke(ctx);
 
   // Guarda os raios originais das entregas para poder reajustar a dificuldade ao vivo pelo Editor
@@ -437,22 +545,49 @@ export function startFlightSim(
   }
   applyMinimapVisibility();
 
-  // Contador leve de FPS (controlado pelo atributo showFps do Editor)
+  // Contador leve de FPS com média dos últimos segundos + pior quadro (atributo do Editor e Opções)
   let fpsEl: HTMLDivElement | null = null;
-  let fpsFrames = 0;
-  let fpsElapsed = 0;
+  const fpsSamples: Array<{ t: number; dtMs: number }> = [];
+  let fpsClockSec = 0;
+  let fpsRefreshAccum = 0;
+  const perfDiag = isPerfDiagEnabled();
+  let perfElapsed = 0;
+  let perfFrames = 0;
+  let perfWorstMs = 0;
+
   if (typeof document !== 'undefined') {
     fpsEl = document.createElement('div');
     fpsEl.className = 'hud-fps-counter';
-    fpsEl.style.cssText =
-      'position:fixed;right:16px;bottom:44px;z-index:120;padding:4px 9px;border-radius:6px;' +
-      'background:rgba(10,14,24,0.78);color:#8ff5c6;border:1px solid rgba(143,245,198,0.35);' +
-      'font:700 11px/1.2 ui-monospace,SFMono-Regular,Consolas,monospace;letter-spacing:0.04em;' +
-      'pointer-events:none;user-select:none;';
-    fpsEl.textContent = '-- FPS';
-    fpsEl.hidden = !simOptions.showFps;
+    fpsEl.textContent = '-- FPS · pior -- ms';
+    fpsEl.hidden = !settings.showFps;
     uiRoot.appendChild(fpsEl);
   }
+
+  // Frustum culling ligado em tudo + cache de detalhes para culling por distância (sem tocar em terreno/vias/marcos)
+  const detailTargets: Array<{ mi: MeshInstance; altitudeCap: number }> = [];
+  let detailCullTick = 0;
+  function refreshPerformanceTargets() {
+    enableFrustumCulling(app.root);
+    detailTargets.length = 0;
+    collectDetailMeshInstances(app.root, detailTargets);
+  }
+  function updateDetailDistanceCulling() {
+    const maxDist = QUALITY_CONFIG[settings.quality].detailDistance;
+    if (!Number.isFinite(maxDist)) {
+      for (let i = 0; i < detailTargets.length; i++) {
+        detailTargets[i].mi.visible = true;
+      }
+      return;
+    }
+    const camPos = camera.getPosition();
+    for (let i = 0; i < detailTargets.length; i++) {
+      const { mi, altitudeCap } = detailTargets[i];
+      const dist = distanceToAabb(camPos, mi);
+      const tooHigh = settings.quality === 'low' && camPos.y > altitudeCap && dist === 0;
+      mi.visible = dist <= maxDist && !tooHigh;
+    }
+  }
+  refreshPerformanceTargets();
 
   const audio = createFlightAudio(settings);
 
@@ -483,7 +618,7 @@ export function startFlightSim(
 
     if (graphicsDevice && typeof graphicsDevice.maxPixelRatio === 'number') {
       const nativeDpr = typeof window !== 'undefined' ? window.devicePixelRatio || 1 : 1;
-      graphicsDevice.maxPixelRatio = quality === 'high' ? Math.min(nativeDpr, cfg.pixelRatio) : cfg.pixelRatio;
+      graphicsDevice.maxPixelRatio = Math.min(nativeDpr, cfg.pixelRatio);
       (app as { resizeCanvas?: () => void }).resizeCanvas?.();
     }
 
@@ -492,6 +627,7 @@ export function startFlightSim(
       else if (cfg.clouds >= 1) cloudEntities[i].enabled = true;
       else cloudEntities[i].enabled = cloudEntities.length === 1 ? true : i % 2 === 0;
     }
+    updateDetailDistanceCulling();
   }
 
   function setPlaneExteriorVisible(visible: boolean) {
@@ -634,6 +770,14 @@ export function startFlightSim(
   function applyUpdatedSettings(next: GameSettings) {
     const controlChanged = next.defaultControlMode !== settings.defaultControlMode;
     settings = { ...next };
+    simOptions.showFps = settings.showFps;
+    if (fpsEl) {
+      fpsEl.hidden = !settings.showFps;
+      if (settings.showFps) {
+        fpsSamples.length = 0;
+        fpsRefreshAccum = 0;
+      }
+    }
     saveSettings(settings);
     setRuntimeSettings(state, settings);
     audio.applySettings(settings);
@@ -646,6 +790,7 @@ export function startFlightSim(
     cockpitModule.update(0);
   }
 
+  let isLoading = true;
   const menus = createGameMenus(uiRoot, settings, {
     onStartFlight: beginMissionPlay,
     onResume: resumeFlight,
@@ -658,13 +803,14 @@ export function startFlightSim(
       else audio.playClick();
     },
   });
+  menus.setHiddenByLoading(true);
 
   function onPointerDown() {
     audio.unlock();
   }
 
   function onKeyDown(e: KeyboardEvent) {
-    if (destroyed) return;
+    if (destroyed || isLoading) return;
     audio.unlock();
     if (e.repeat) return;
 
@@ -735,15 +881,56 @@ export function startFlightSim(
   cockpitModule.update(0);
   hudModule.update(0);
 
+  // Só revela o menu inicial depois que todos os GLBs e texturas terminarem de carregar
+  loadingScreen.finishSetup(() => {
+    if (destroyed) return;
+    isLoading = false;
+    refreshPerformanceTargets();
+    updateDetailDistanceCulling();
+    menus.setHiddenByLoading(false);
+  });
+
   const onUpdate = (rawDt: number) => {
-    if (fpsEl && simOptions.showFps && Number.isFinite(rawDt) && rawDt > 0) {
-      fpsFrames++;
-      fpsElapsed += rawDt;
-      if (fpsElapsed >= 0.35) {
-        const fps = Math.round(fpsFrames / fpsElapsed);
-        fpsEl.textContent = `${fps} FPS`;
-        fpsFrames = 0;
-        fpsElapsed = 0;
+    if (Number.isFinite(rawDt) && rawDt > 0) {
+      const dtMs = rawDt * 1000;
+      if (fpsEl && settings.showFps) {
+        fpsClockSec += rawDt;
+        fpsSamples.push({ t: fpsClockSec, dtMs });
+        const cutoff = fpsClockSec - 3.0;
+        while (fpsSamples.length > 1 && fpsSamples[0].t < cutoff) {
+          fpsSamples.shift();
+        }
+        fpsRefreshAccum += rawDt;
+        if (fpsRefreshAccum >= 0.3) {
+          fpsRefreshAccum = 0;
+          let sumMs = 0;
+          let worstMs = 0;
+          for (let i = 0; i < fpsSamples.length; i++) {
+            const ms = fpsSamples[i].dtMs;
+            sumMs += ms;
+            if (ms > worstMs) worstMs = ms;
+          }
+          const avgFps = sumMs > 0 ? Math.round((fpsSamples.length * 1000) / sumMs) : 0;
+          fpsEl.textContent = `${avgFps} FPS · pior ${Math.round(worstMs)} ms`;
+        }
+      }
+
+      if (perfDiag) {
+        perfElapsed += rawDt;
+        perfFrames++;
+        if (dtMs > perfWorstMs) perfWorstMs = dtMs;
+        if (perfElapsed >= 5.0) {
+          const avgFps = perfFrames / perfElapsed;
+          const worstFps = perfWorstMs > 0 ? 1000 / perfWorstMs : 0;
+          const { drawCalls, visibleMeshInstances } = readRenderPerfStats(app);
+          const dpr = graphicsDevice?.maxPixelRatio ?? (typeof window !== 'undefined' ? window.devicePixelRatio || 1 : 1);
+          console.log(
+            `[PERF] FPS médio: ${avgFps.toFixed(1)} | Pior quadro: ${perfWorstMs.toFixed(1)} ms (${worstFps.toFixed(0)} FPS) | Draw calls: ${drawCalls} | Mesh instances visíveis: ${visibleMeshInstances} | Qualidade: ${settings.quality} (DPR ${dpr.toFixed(2)})`,
+          );
+          perfElapsed = 0;
+          perfFrames = 0;
+          perfWorstMs = 0;
+        }
       }
     }
     const dt = Math.min(rawDt, 0.05);
@@ -847,6 +1034,12 @@ export function startFlightSim(
     }
     // Na pausa e no fim de jogo: nenhum módulo de simulação/missão/dia-noite/marcadores atualiza (tudo congelado)
 
+    // Culling por distância para detalhes pequenos e bairros (6 Hz; nunca esconde terreno, vias nem marcos)
+    detailCullTick = (detailCullTick + 1) % 10;
+    if (detailCullTick === 0) {
+      updateDetailDistanceCulling();
+    }
+
     world.sky.setPosition(camera.getPosition());
     audio.update(dt, mode, state, mission, mode === 'playing' && isTunedNitroActive(state));
   };
@@ -873,8 +1066,8 @@ export function startFlightSim(
       if (fpsEl) {
         fpsEl.hidden = !simOptions.showFps;
         if (simOptions.showFps) {
-          fpsFrames = 0;
-          fpsElapsed = 0;
+          fpsSamples.length = 0;
+          fpsRefreshAccum = 0;
         }
       }
       settings = {
@@ -882,6 +1075,7 @@ export function startFlightSim(
         mouseSensitivity: simOptions.mouseSensitivity,
         musicVolume: simOptions.musicVolume,
         sfxVolume: simOptions.sfxVolume,
+        showFps: simOptions.showFps,
       };
       setRuntimeSettings(state, settings);
       menus.syncSettings(settings);
@@ -893,6 +1087,7 @@ export function startFlightSim(
       destroyed = true;
 
       app.off('update', onUpdate);
+      loadingScreen.destroy();
       fpsEl?.remove();
       fpsEl = null;
       if (typeof window !== 'undefined') {

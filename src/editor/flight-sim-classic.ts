@@ -9,6 +9,7 @@ import {
   type FlightSimHandle,
   type FlightSimOptions,
 } from '../flight/game';
+import { createLoadingScreen, type LoadingScreenHandle } from '../flight/ui/loading';
 
 type ClassicScript = {
   app: AppBase;
@@ -110,6 +111,8 @@ SimuladorVoo.prototype.initialize = function (this: ClassicScript) {
   let styleEl: HTMLStyleElement | null = null;
   let uiEl: HTMLDivElement | null = null;
   let sim: FlightSimHandle | null = null;
+  let loading: LoadingScreenHandle | null = null;
+  let mountRaf: number | null = null;
 
   const readOptions = (): FlightSimOptions => ({
     dayDurationMinutes: this.dayDurationMinutes,
@@ -126,8 +129,14 @@ SimuladorVoo.prototype.initialize = function (this: ClassicScript) {
   };
 
   const unmount = () => {
+    if (mountRaf !== null && typeof cancelAnimationFrame === 'function') {
+      cancelAnimationFrame(mountRaf);
+      mountRaf = null;
+    }
     sim?.destroy();
     sim = null;
+    loading?.destroy();
+    loading = null;
     uiEl?.remove();
     uiEl = null;
     styleEl?.remove();
@@ -161,7 +170,21 @@ SimuladorVoo.prototype.initialize = function (this: ClassicScript) {
       return;
     }
 
-    sim = startFlightSim(this.app, ui, readOptions());
+    const loadingScreen = createLoadingScreen(ui);
+    loading = loadingScreen;
+    loadingScreen.setStage('editor', 'Preparando cena do PlayCanvas Editor…', true);
+
+    const startNow = () => {
+      mountRaf = null;
+      if (sim || this.enabled === false || uiEl !== ui) return;
+      sim = startFlightSim(this.app, ui, { ...readOptions(), loadingScreen });
+    };
+
+    if (typeof requestAnimationFrame === 'function') {
+      mountRaf = requestAnimationFrame(startNow);
+    } else {
+      startNow();
+    }
   };
 
   this.on('disable', unmount);

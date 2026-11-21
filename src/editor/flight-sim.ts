@@ -6,6 +6,7 @@ import {
   type FlightSimHandle,
   type FlightSimOptions,
 } from '../flight/game';
+import { createLoadingScreen, type LoadingScreenHandle } from '../flight/ui/loading';
 
 /**
  * Opções de dificuldade expostas no Inspector do PlayCanvas Editor.
@@ -94,6 +95,8 @@ export class FlightSim extends Script {
   private styleEl: HTMLStyleElement | null = null;
   private uiEl: HTMLDivElement | null = null;
   private sim: FlightSimHandle | null = null;
+  private loading: LoadingScreenHandle | null = null;
+  private mountRaf: number | null = null;
 
   private readOptions(): FlightSimOptions {
     return {
@@ -141,12 +144,32 @@ export class FlightSim extends Script {
       return;
     }
 
-    this.sim = startFlightSim(this.app, ui, this.readOptions());
+    const loadingScreen = createLoadingScreen(ui);
+    this.loading = loadingScreen;
+    loadingScreen.setStage('editor', 'Preparando cena do PlayCanvas Editor…', true);
+
+    const startNow = () => {
+      this.mountRaf = null;
+      if (this.sim || !this.enabled || this.uiEl !== ui) return;
+      this.sim = startFlightSim(this.app, ui, { ...this.readOptions(), loadingScreen });
+    };
+
+    if (typeof requestAnimationFrame === 'function') {
+      this.mountRaf = requestAnimationFrame(startNow);
+    } else {
+      startNow();
+    }
   }
 
   private unmountSim() {
+    if (this.mountRaf !== null && typeof cancelAnimationFrame === 'function') {
+      cancelAnimationFrame(this.mountRaf);
+      this.mountRaf = null;
+    }
     this.sim?.destroy();
     this.sim = null;
+    this.loading?.destroy();
+    this.loading = null;
     this.uiEl?.remove();
     this.uiEl = null;
     this.styleEl?.remove();

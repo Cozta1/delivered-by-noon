@@ -143,7 +143,21 @@ flowchart TD
 
 ---
 
-## 12. Testes automáticos (Vitest) e publicação no Editor
+## 12. Desempenho, tela de carregamento e diagnóstico (`?perf=1`)
+
+- **Onde fica no código:** `src/flight/ui/loading.ts` (tela de carregamento), `src/flight/models/glb.ts` (rastreamento real de GLBs e frustum culling), `src/flight/game.ts` (qualidade/DPR, culling por distância, medidor de FPS e `?perf=1`) e `src/flight/ui/menus.ts` / `settings.ts` (opções de qualidade e **Mostrar FPS**).
+- **O que faz:**
+  - **Tela de carregamento real:** exibe o visual noturno de *Delivered by Midnight* imediatamente antes de montar o mundo, soma o progresso real dos GLBs e texturas carregando (mundo, bairros, veículos, UniAcademia e assets do Editor), mostra o item atual + uma dica curta por vez e só abre o menu inicial quando tudo termina.
+  - **Qualidade e limite de resolução (`devicePixelRatio`):** aplica o teto escolhido nas Opções em `graphicsDevice.maxPixelRatio` — **Baixa = `1,0`**, **Média = `1,25`**, **Alta = `1,5`** — evitando renderização 2x/3x desnecessária em telas Retina/HiDPI.
+  - **Frustum culling + culling por distância:** mantém `cull = true` em todas as malhas e `MeshInstance`s (inclusive GLBs carregados depois). Nas qualidades **Baixa** (`~900 m`) e **Média** (`~1.400 m`), oculta detalhes pequenos e bairros distantes sem nunca esconder o terreno, as vias principais nem os marcos (UniAcademia, aeroporto, Cristo). Sem sombras extras nem luzes dinâmicas novas.
+  - **Medidor de FPS no canto:** ativado pelo atributo **Mostrar FPS** no Editor ou em **Opções → Mostrar FPS**, exibe a média dos últimos 3 segundos e o pior quadro em ms (`60 FPS · pior 19 ms`).
+  - **Modo de diagnóstico `?perf=1`:** ao abrir o jogo com `?perf=1` na URL (ex.: `http://localhost:5173/?perf=1` ou na aba de Launch do Editor), registra no Console a cada **5 segundos**: FPS médio, pior quadro (ms e FPS), número de *draw calls*, número de *mesh instances* visíveis e qualidade/DPR ativos.
+- **Como explicar em 30 segundos:**
+  > "Para garantir 60 FPS estáveis e carregamento limpo, criamos uma tela de carregamento que mede o progresso real dos GLBs e texturas antes de liberar o menu. Na renderização, limitamos o `devicePixelRatio` por qualidade (1,0 / 1,25 / 1,5), mantemos frustum culling em tudo, escondemos detalhes pequenos distantes nas qualidades baixa e média sem sumir com vias ou marcos, e incluímos medidor de FPS e diagnóstico `?perf=1` no console a cada 5 segundos."
+
+---
+
+## 13. Testes automáticos (Vitest) e publicação no Editor
 
 - **Onde fica no código:** `src/flight/**/*.test.ts` (12 arquivos de teste, 100 testes automatizados) e `scripts/publicar-editor.mjs` + `vite.editor*.config.ts`.
 - **O que faz:** Os testes em **Vitest** verificam automaticamente a física do avião (decolagem, voo nivelado, estol, loop), do helicóptero (pairado sem deriva, velocidade, giro), dos carros (aceleração, frenagem, drift e nitro), a integridade do mapa e dos bairros de Juiz de Fora, as 16 entregas da missão, a troca de veículos com `E` e a rampa do heliponto. Para publicar no PlayCanvas Editor, `npm run build:editor` gera os scripts prontos e `npm run publicar:editor` sobe automaticamente scripts e GLBs pela REST API oficial do PlayCanvas.

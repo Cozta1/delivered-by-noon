@@ -139,6 +139,82 @@ export function findGlbContainerAsset(app: AppBase, filename: string): Asset | n
   return matches?.[0] ?? null;
 }
 
+export interface GlbLoadItem {
+  id: string;
+  filename: string;
+  done: boolean;
+}
+
+type GlbLoadListener = (items: ReadonlyArray<GlbLoadItem>) => void;
+
+interface GlbLoadRegistry {
+  items: Map<string, GlbLoadItem>;
+  listeners: Set<GlbLoadListener>;
+  seq: number;
+}
+
+const glbRegistries = new WeakMap<AppBase, GlbLoadRegistry>();
+
+function getGlbRegistry(app: AppBase): GlbLoadRegistry {
+  let reg = glbRegistries.get(app);
+  if (!reg) {
+    reg = { items: new Map(), listeners: new Set(), seq: 0 };
+    glbRegistries.set(app, reg);
+  }
+  return reg;
+}
+
+function notifyGlbRegistry(reg: GlbLoadRegistry): void {
+  if (reg.listeners.size === 0) return;
+  const snap = [...reg.items.values()];
+  for (const cb of reg.listeners) cb(snap);
+}
+
+/** Permite à tela de carregamento acompanhar em tempo real os GLBs iniciados por `attachAsyncGlb`. */
+export function subscribeGlbLoads(app: AppBase, listener: GlbLoadListener): () => void {
+  const reg = getGlbRegistry(app);
+  reg.listeners.add(listener);
+  listener([...reg.items.values()]);
+  return () => {
+    reg.listeners.delete(listener);
+  };
+}
+
+function registerGlbTask(app: AppBase, filename: string): () => void {
+  const reg = getGlbRegistry(app);
+  const id = `${filename}#${++reg.seq}`;
+  reg.items.set(id, { id, filename, done: false });
+  notifyGlbRegistry(reg);
+  let finished = false;
+  return () => {
+    if (finished) return;
+    finished = true;
+    const item = reg.items.get(id);
+    if (item) item.done = true;
+    notifyGlbRegistry(reg);
+  };
+}
+
+/** Garante frustum culling ativo em todas as entidades e mesh instances sob `rootNode`. */
+export function enableFrustumCulling(rootNode: Entity): void {
+  if (rootNode.render?.meshInstances) {
+    const mis = rootNode.render.meshInstances;
+    for (let i = 0; i < mis.length; i++) {
+      if (mis[i]) mis[i].cull = true;
+    }
+  }
+  if (rootNode.model?.meshInstances) {
+    const mis = rootNode.model.meshInstances;
+    for (let i = 0; i < mis.length; i++) {
+      if (mis[i]) mis[i].cull = true;
+    }
+  }
+  const children = rootNode.children;
+  for (let i = 0; i < children.length; i++) {
+    enableFrustumCulling(children[i] as Entity);
+  }
+}
+
 export interface AttachGlbOptions {
   app: AppBase;
   root: Entity;
@@ -157,8 +233,11 @@ export function attachAsyncGlb({ app, root, procedural, model, filename, onMount
 
   let destroyed = false;
   let applied = false;
+  const finishLoad = registerGlbTask(app, filename);
+
   root.once('destroy', () => {
     destroyed = true;
+    finishLoad();
   });
 
   function applyResource(resource: ContainerResource) {
@@ -169,6 +248,7 @@ export function attachAsyncGlb({ app, root, procedural, model, filename, onMount
 
     const showExterior = model.exterior.length === 0 ? true : (model.exterior[0].render?.enabled ?? true);
     root.addChild(glbRoot);
+    enableFrustumCulling(glbRoot);
 
     const glbExterior = collectVisualEntities(glbRoot);
     for (let i = 0; i < glbExterior.length; i++) {
@@ -212,10 +292,13 @@ export function attachAsyncGlb({ app, root, procedural, model, filename, onMount
   if (editorAsset) {
     if (editorAsset.resource) {
       applyResource(editorAsset.resource as ContainerResource);
+      finishLoad();
     } else {
       editorAsset.ready((loaded) => {
         if (loaded.resource) applyResource(loaded.resource as ContainerResource);
+        finishLoad();
       });
+      editorAsset.once?.('error', () => finishLoad());
       app.assets.load(editorAsset);
     }
     return;
@@ -227,11 +310,16 @@ export function attachAsyncGlb({ app, root, procedural, model, filename, onMount
     const url = `${base}models/${filename}`;
     try {
       app.assets.loadFromUrl(url, 'container', (err, asset) => {
-        if (err || !asset?.resource) return;
-        applyResource(asset.resource as ContainerResource);
+        if (!err && asset?.resource) {
+          applyResource(asset.resource as ContainerResource);
+        }
+        finishLoad();
       });
     } catch {
       // Sem arquivo ou loader: mantém o fallback procedural
+      finishLoad();
     }
+  } else {
+    finishLoad();
   }
 }

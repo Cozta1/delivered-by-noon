@@ -12,6 +12,7 @@ export interface GameSettings {
   defaultControlMode: 'mouse' | 'keyboard';
   quality: QualityLevel;
   showHud: boolean;
+  showFps: boolean;
 }
 
 export const DEFAULT_SETTINGS: Readonly<GameSettings> = {
@@ -23,6 +24,7 @@ export const DEFAULT_SETTINGS: Readonly<GameSettings> = {
   defaultControlMode: 'mouse',
   quality: 'high',
   showHud: true,
+  showFps: false,
 };
 
 const STORAGE_KEY = 'horizonte-dourado:settings:v1';
@@ -51,6 +53,7 @@ export function sanitizeSettings(raw: Partial<GameSettings> | null | undefined):
     defaultControlMode,
     quality,
     showHud: typeof s.showHud === 'boolean' ? s.showHud : DEFAULT_SETTINGS.showHud,
+    showFps: typeof s.showFps === 'boolean' ? s.showFps : DEFAULT_SETTINGS.showFps,
   };
 }
 

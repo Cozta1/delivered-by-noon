@@ -21,6 +21,7 @@ export interface MenuCallbacks {
 
 export interface GameMenus {
   setMode(mode: GameMode): void;
+  setHiddenByLoading(hidden: boolean): void;
   getScreen(): MenuScreen;
   back(): boolean;
   syncSettings(settings: GameSettings): void;
@@ -102,6 +103,7 @@ export function createGameMenus(
 ): GameMenus {
   let mode: GameMode = 'title';
   let screen: MenuScreen = 'main';
+  let hiddenByLoading = false;
   let settings: GameSettings = { ...initialSettings };
   let stageBannerTimer: ReturnType<typeof setTimeout> | null = null;
 
@@ -330,6 +332,7 @@ export function createGameMenus(
 
   const invertCtrl = makeToggleRow('Inverter eixo Y (mouse)', (v) => patchSettings({ invertY: v }));
   const hudCtrl = makeToggleRow('Mostrar HUD', (v) => patchSettings({ showHud: v }));
+  const fpsCtrl = makeToggleRow('Mostrar FPS', (v) => patchSettings({ showFps: v }));
 
   const controlModeCtrl = makeSegmentRow<'mouse' | 'keyboard'>(
     'Modo de controle do A-29',
@@ -416,12 +419,13 @@ export function createGameMenus(
     sensCtrl.setValue(settings.mouseSensitivity);
     invertCtrl.setChecked(settings.invertY);
     hudCtrl.setChecked(settings.showHud);
+    fpsCtrl.setChecked(settings.showFps);
     controlModeCtrl.setActive(settings.defaultControlMode);
     qualityCtrl.setActive(settings.quality);
   }
 
   function renderView() {
-    const visible = mode !== 'playing';
+    const visible = !hiddenByLoading && mode !== 'playing';
     overlay.hidden = !visible;
     overlay.className = `menu-overlay ${
       mode === 'title' ? 'menu-overlay--title' : mode === 'ended' ? 'menu-overlay--ended' : 'menu-overlay--paused'
@@ -540,6 +544,10 @@ export function createGameMenus(
       if (nextMode !== 'ended') {
         screen = 'main';
       }
+      renderView();
+    },
+    setHiddenByLoading(hidden: boolean) {
+      hiddenByLoading = hidden;
       renderView();
     },
     getScreen() {

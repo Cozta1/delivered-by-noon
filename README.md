@@ -33,6 +33,8 @@ npm test           # roda testes (vitest)
 
 **Como jogar no Editor do PlayCanvas:** veja o guia completo em [`docs/editor.md`](docs/editor.md) — resume: `npm run build:editor` gera `dist-editor/flight-sim.mjs`; publique no Editor via API (`npm run publicar:editor`) ou upload manual; monte a cena com o snippet `scripts/montar-cena-editor.js` no Console (F12); clique **Launch**.
 
+**Diagnóstico de desempenho:** adicione `?perf=1` à URL (ex.: `http://localhost:5173/?perf=1`) para registrar FPS médio, pior quadro, *draw calls* e *mesh instances* visíveis no console a cada 5 s.
+
 ---
 
 ## Controles
