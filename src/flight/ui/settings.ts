@@ -16,6 +16,7 @@ export interface GameSettings {
   showHud: boolean;
   showFps: boolean;
   reduceMotion: boolean;
+  showTips: boolean;
 }
 
 export const DEFAULT_SETTINGS: Readonly<GameSettings> = {
@@ -30,6 +31,7 @@ export const DEFAULT_SETTINGS: Readonly<GameSettings> = {
   showHud: true,
   showFps: false,
   reduceMotion: false,
+  showTips: true,
 };
 
 const STORAGE_KEY = 'horizonte-dourado:settings:v1';
@@ -63,6 +65,7 @@ export function sanitizeSettings(raw: Partial<GameSettings> | null | undefined):
     showHud: typeof s.showHud === 'boolean' ? s.showHud : DEFAULT_SETTINGS.showHud,
     showFps: typeof s.showFps === 'boolean' ? s.showFps : DEFAULT_SETTINGS.showFps,
     reduceMotion: typeof s.reduceMotion === 'boolean' ? s.reduceMotion : DEFAULT_SETTINGS.reduceMotion,
+    showTips: typeof s.showTips === 'boolean' ? s.showTips : DEFAULT_SETTINGS.showTips,
   };
 }
 

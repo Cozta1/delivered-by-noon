@@ -447,6 +447,7 @@ export function createGameMenus(
 
   const invertCtrl = makeToggleRow('Inverter eixo Y (mouse)', (v) => patchSettings({ invertY: v }));
   const hudCtrl = makeToggleRow('Mostrar HUD', (v) => patchSettings({ showHud: v }));
+  const tipsCtrl = makeToggleRow('Mostrar dicas', (v) => patchSettings({ showTips: v }));
   const fpsCtrl = makeToggleRow('Mostrar FPS', (v) => patchSettings({ showFps: v }));
   const reduceMotionCtrl = makeToggleRow('Reduzir movimento (desliga tremores e linhas)', (v) =>
     patchSettings({ reduceMotion: v }),
@@ -537,6 +538,7 @@ export function createGameMenus(
     sensCtrl.setValue(settings.mouseSensitivity);
     invertCtrl.setChecked(settings.invertY);
     hudCtrl.setChecked(settings.showHud);
+    tipsCtrl.setChecked(settings.showTips);
     fpsCtrl.setChecked(settings.showFps);
     reduceMotionCtrl.setChecked(settings.reduceMotion);
     controlModeCtrl.setActive(settings.defaultControlMode);
@@ -567,6 +569,7 @@ export function createGameMenus(
       btnPrimary.textContent = 'Jogar';
       btnPresentation.hidden = false;
       btnRestart.hidden = true;
+      btnControls.textContent = 'Controles';
       btnCredits.hidden = false;
       btnReturnTitle.hidden = true;
     } else if (mode === 'paused') {
@@ -578,6 +581,7 @@ export function createGameMenus(
       btnPresentation.hidden = true;
       btnRestart.textContent = 'Respawn no relógio!';
       btnRestart.hidden = false;
+      btnControls.textContent = 'Rever controles';
       btnCredits.hidden = true;
       btnReturnTitle.hidden = false;
     }

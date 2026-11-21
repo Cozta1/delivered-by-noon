@@ -17,6 +17,7 @@ import { createFlightAudio } from './audio/sound';
 import { createCameraRig } from './cameras';
 import { createCockpit } from './cockpit';
 import { createDayNight } from './daynight';
+import { createDicas } from './dicas';
 import { createEfeitos } from './efeitos';
 import { createHud, isTunedNitroActive } from './hud';
 import { createMarkers } from './markers';
@@ -546,6 +547,7 @@ export function startFlightSim(
   loadingScreen.setStage('minimap', 'Minimapa de Juiz de Fora pronto', true);
   const smokeModule = createSmoke(ctx);
   const efeitosModule = createEfeitos(ctx, uiRoot);
+  const dicasModule = createDicas(ctx, uiRoot);
 
   function syncRuntimeDayDuration() {
     const { timeScale } = DIFFICULTY_PRESETS[simOptions.difficulty];
@@ -781,6 +783,7 @@ export function startFlightSim(
     markersModule.update(0);
     cockpitModule.update(0);
     hudModule.update(0);
+    dicasModule.update(0);
   }
 
   function beginMissionPlay(keepPresentation = false) {
@@ -837,6 +840,7 @@ export function startFlightSim(
     releasePointerLock();
     menus.setMode('paused');
     hudModule.update(0);
+    dicasModule.update(0);
   }
 
   function resumeFlight() {
@@ -847,6 +851,7 @@ export function startFlightSim(
     setRuntimeMode(state, 'playing');
     menus.setMode('playing');
     hudModule.update(0);
+    dicasModule.update(0);
     requestPointerLockForFlight();
   }
 
@@ -870,6 +875,7 @@ export function startFlightSim(
     markersModule.update(0);
     cockpitModule.update(0);
     hudModule.update(0);
+    dicasModule.update(0);
     updateTitleCamera(0);
   }
 
@@ -885,6 +891,7 @@ export function startFlightSim(
     markersModule.update(0);
     cockpitModule.update(0);
     hudModule.update(0);
+    dicasModule.update(0);
   }
 
   function applyUpdatedSettings(next: GameSettings) {
@@ -909,6 +916,7 @@ export function startFlightSim(
       if (state.controlMode === 'keyboard') releasePointerLock();
     }
     hudModule.update(0);
+    dicasModule.update(0);
     cockpitModule.update(0);
   }
 
@@ -1242,6 +1250,7 @@ export function startFlightSim(
       hudModule.update(dt);
       smokeModule.update(dt);
       efeitosModule.update(dt);
+      dicasModule.update(dt);
     } else if (mode === 'ended' && mission.status === 'won') {
       // Fogos de artifício sobre a UniAcademia na tela de vitória
       efeitosModule.update(dt);
@@ -1335,6 +1344,7 @@ export function startFlightSim(
       hudModule.destroy?.();
       smokeModule.destroy?.();
       efeitosModule.destroy?.();
+      dicasModule.destroy?.();
       uiRoot.classList?.remove('reduce-motion');
       clearRuntime(state);
 
