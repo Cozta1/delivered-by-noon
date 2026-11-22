@@ -207,6 +207,8 @@ function readRenderPerfStats(app: AppBase): { drawCalls: number; visibleMeshInst
   return { drawCalls, visibleMeshInstances };
 }
 
+const USE_SCENE_WORLD = false;
+
 const SCENE_ENTITY_NAMES = {
   world: 'Mundo',
   plane: 'A29',
@@ -382,7 +384,15 @@ export function startFlightSim(
   const sceneWorld = findSceneEntity(app.root, SCENE_ENTITY_NAMES.world, simRoot);
   let world: World;
   let cloudEntities: Entity[];
-  if (sceneWorld && hasAnyVisual(sceneWorld)) {
+  // A prévia "Mundo" do Editor vem do primeiro import dos GLBs (o Editor não reimporta o modelo ao atualizar
+  // a fonte), então fica desatualizada: no Launch ela é escondida e o mundo é gerado igual ao local.
+  if (sceneWorld && sceneWorld.enabled) {
+    sceneWorld.enabled = false;
+    restorers.push(() => {
+      if (sceneWorld.parent) sceneWorld.enabled = true;
+    });
+  }
+  if (USE_SCENE_WORLD && sceneWorld && hasAnyVisual(sceneWorld)) {
     const prevWorldEnabled = sceneWorld.enabled;
     sceneWorld.enabled = true;
     const skyMats: StandardMaterial[] = [];
