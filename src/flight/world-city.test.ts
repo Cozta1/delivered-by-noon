@@ -1,8 +1,9 @@
 import { afterEach, expect, it, vi } from 'vitest';
 import { calculateNormals, Entity } from 'playcanvas';
-import { AIRPORT, CITY, CITY_CREDITS, HANGAR, ROAD_CLASSES, UNIACADEMIA, WORKSHOP, airportData, cityData, cityDetails, cityLayout, cityStreetImages, buildingColliders, createWorldPhysics, deliveryRampData, landmarkBoxes, protectedSpots, roadHeightAt, roadJunctions, nearestRoad, terrainData, terrainHeight } from './world-data';
+import { AIRPORT, CITY, CITY_CREDITS, HANGAR, ROAD_CLASSES, UNIACADEMIA, WORKSHOP, airportData, cityData, cityDetails, cityLayout, cityStreetImages, buildingColliders, createWorldPhysics, deliveryRampData, landmarkBoxes, MARCOS, protectedSpots, roadHeightAt, roadJunctions, nearestRoad, terrainData, terrainHeight } from './world-data';
 import { buildWorld } from './world';
 import { deliveryPoints } from './mission';
+import jfRaw from './jf-mundo.json';
 import type { FlightContext } from './types';
 
 vi.mock('playcanvas',async importOriginal=>{
@@ -163,4 +164,35 @@ it('paints each junction as one smooth asphalt disc whose height meets the roads
   expect(steps.length).toBeGreaterThan(3000);
   expect(steps[Math.floor(steps.length*.95)],'95% das emendas do disco').toBeLessThan(.12);
   expect(steps[steps.length-1],'pior emenda').toBeLessThan(.5);
+});
+
+it('smooths OSM corners with a spline that keeps the line ends, and adds sidewalks with a drivable curb ramp downtown',()=>{
+  const raw=(jfRaw as unknown as {vias:Record<string,number[][]>}).vias,lines=cityLayout().roadLines;
+  const turns=(ls:number[][])=>{let sum=0,max=0;for(const l of ls)for(let i=2;i+3<l.length;i+=2){const ax=l[i]-l[i-2],az=l[i+1]-l[i-1],bx=l[i+2]-l[i],bz=l[i+3]-l[i+1],la=Math.hypot(ax,az),lb=Math.hypot(bx,bz);if(la<1e-6||lb<1e-6)continue;const t=Math.acos(Math.max(-1,Math.min(1,(ax*bx+az*bz)/la/lb)));sum+=t>.6?1:0;max=Math.max(max,t);}return {sum,max};};
+  for(const [k,cat] of lines.entries()) {
+    const name=cat.category,before=raw[name];
+    expect(cat.lines).toHaveLength(before.length);
+    cat.lines.forEach((l,i)=>{expect(l[0]).toBe(before[i][0]);expect(l[1]).toBe(before[i][1]);expect(l[l.length-2]).toBe(before[i][before[i].length-2]);expect(l[l.length-1]).toBe(before[i][before[i].length-1]);});
+    if(k>=2)expect(turns(cat.lines).sum,`quinas > 34° em ${name}`).toBeLessThan(turns(before).sum*.8);
+  }
+  // calçada: nas vias do Centro (inclusive em ladeira) o carro nunca encontra subida > maxSlope 0,55 por eixo e há meio-fio de verdade
+  const world=createWorldPhysics(),c=MARCOS.centro;
+  let steep=0,curbs=0,samples=0;
+  for(const cat of lines) for(const l of cat.lines) {
+    if(Math.hypot(l[0]-c[0],l[1]-c[1])>550)continue;
+    for(let i=0;i+3<l.length;i+=6) {
+      const dx=l[i+2]-l[i],dz=l[i+3]-l[i+1],len=Math.hypot(dx,dz)||1,nx=-dz/len,nz=dx/len,half=cat.width/.72/2;
+      let prev=-Infinity;
+      for(let off=-half;off<=half;off+=.1) {
+        const x=l[i]+nx*off,z=l[i+1]+nz*off,g=world.groundAt(x,z);samples++;
+        if(Math.max((world.groundAt(x+.1,z)-g)/.1,(g-world.groundAt(x-.1,z))/.1,(world.groundAt(x,z+.1)-g)/.1,(g-world.groundAt(x,z-.1))/.1)>.55)steep++;
+        if(prev>-Infinity&&Math.abs(g-prev)>.08*.12/.1*.5)curbs++;
+        prev=g;
+      }
+    }
+  }
+  expect(samples).toBeGreaterThan(5000);
+  expect(curbs,'trechos com meio-fio medido na física').toBeGreaterThan(50);
+  // só restam pontos isolados nas bordas dos discos de cruzamento (já existiam antes da calçada: eram 9 no HEAD)
+  expect(steep,'amostras com subida > 0,55 por eixo').toBeLessThanOrEqual(12);
 });

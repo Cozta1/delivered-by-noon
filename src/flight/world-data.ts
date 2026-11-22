@@ -88,12 +88,44 @@ export type RoadClass = typeof ROAD_CLASSES[number];
 /** Largura do asfalto por categoria (m). A faixa desenhada inclui as calçadas (14% de cada lado). */
 const ASPHALT = [15, 13, 11, 9, 7.5];
 const stripWidth = (cls: number) => ASPHALT[cls] / 0.72;
-const LIFT = [.40, .37, .34, .31, .28];
+const LIFT = [.44, .41, .38, .35, .32];
 const RIVER_WIDTH = 12;
 
 interface Segment { x0: number; z0: number; x1: number; z1: number; half: number; cls: number }
 const HASH = 64;
 const hashKey = (gx: number, gz: number) => gx * 4096 + gz;
+/** Catmull-Rom centrípeto: passa por todos os vértices do OSM (pontas e cruzamentos preservados) e arredonda as quinas. */
+function smoothLine(way: number[], step: number): number[] {
+  const n = way.length / 2;
+  if (n < 3) return way;
+  const P = (i: number): [number, number] => {
+    if (i < 0) return [2 * way[0] - way[2], 2 * way[1] - way[3]];
+    if (i >= n) return [2 * way[(n - 1) * 2] - way[(n - 2) * 2], 2 * way[(n - 1) * 2 + 1] - way[(n - 2) * 2 + 1]];
+    return [way[i * 2], way[i * 2 + 1]];
+  };
+  const out = [way[0], way[1]];
+  for (let i = 0; i < n - 1; i++) {
+    const p0 = P(i - 1), p1 = P(i), p2 = P(i + 1), p3 = P(i + 2), len = Math.hypot(p2[0] - p1[0], p2[1] - p1[1]);
+    if (len < 1e-3) continue;
+    const k = Math.ceil(len / step);
+    const dt = (a: [number, number], b: [number, number]) => Math.max(1e-3, Math.hypot(b[0] - a[0], b[1] - a[1]) ** 0.5);
+    const t0 = 0, t1 = t0 + dt(p0, p1), t2 = t1 + dt(p1, p2), t3 = t2 + dt(p2, p3);
+    for (let j = 1; j < k; j++) {
+      const t = t1 + (t2 - t1) * j / k, pt: number[] = [];
+      for (let c = 0; c < 2; c++) {
+        const a1 = ((t1 - t) * p0[c] + (t - t0) * p1[c]) / (t1 - t0), a2 = ((t2 - t) * p1[c] + (t - t1) * p2[c]) / (t2 - t1), a3 = ((t3 - t) * p2[c] + (t - t2) * p3[c]) / (t3 - t2);
+        const b1 = ((t2 - t) * a1 + (t - t0) * a2) / (t2 - t0), b2 = ((t3 - t) * a2 + (t - t1) * a3) / (t3 - t1);
+        pt.push(((t2 - t) * b1 + (t - t1) * b2) / (t2 - t1));
+      }
+      out.push(pt[0], pt[1]);
+    }
+    out.push(p2[0], p2[1]);
+  }
+  return out;
+}
+/** Vias reamostradas com spline (a cada ~8 m): fita, cotas, física, GPS, tráfego e bairros usam estas linhas. */
+const SMOOTH_STEP = 8;
+const VIAS = Object.fromEntries(ROAD_CLASSES.map((c) => [c, (jf.vias[c] as number[][]).map((w) => smoothLine(w, SMOOTH_STEP))])) as Record<RoadClass, number[][]>;
 const segmentGrid = new Map<number, Segment[]>();
 const segments: Segment[] = [];
 function addSegment(s: Segment) {
@@ -106,7 +138,7 @@ function addSegment(s: Segment) {
     list.push(s);
   }
 }
-for (let c = 0; c < ROAD_CLASSES.length; c++) for (const way of jf.vias[ROAD_CLASSES[c]] as number[][]) {
+for (let c = 0; c < ROAD_CLASSES.length; c++) for (const way of VIAS[ROAD_CLASSES[c]]) {
   for (let i = 0; i + 3 < way.length; i += 2) addSegment({ x0: way[i], z0: way[i + 1], x1: way[i + 2], z1: way[i + 3], half: stripWidth(c) / 2, cls: c });
 }
 const RIVER_CLS = 9;
@@ -349,9 +381,12 @@ const inAnyArea = (x: number, z: number) => allAreas.some((p) => inside(p, x, z)
 // Ruas encostadas no relevo: segmentos <= 8 m, cotas em centro + bordas e garantia no interior de cada quad
 // ---------------------------------------------------------------------------
 const MAX_STEP = 8, BEVEL = 2.5, MAX_BEVEL = 10;
-interface Station { x: number; z: number; s: number; lx: number; lz: number; rx: number; rz: number; hl: number; hr: number }
-interface RoadWay { cls: number; half: number; st: Station[] }
-interface RoadSegH { x0: number; z0: number; hl0: number; hr0: number; x1: number; z1: number; hl1: number; hr1: number; half: number; way: number }
+/** Meio-fio: degrau de 12 cm, com rampa de 24 cm (inclinação 0,5 < maxSlope 0,55) idêntica na malha e na física. */
+const CURB = .12, CURB_RAMP = .24, CURB_CUT = 5, SIDEWALK_RADIUS = 600;
+/** Calçada = 14% da faixa de cada lado (igual à textura); só nas vias da cidade. `cf` (0..1) apaga o meio-fio perto de cruzamentos. */
+interface Station { x: number; z: number; s: number; lx: number; lz: number; rx: number; rz: number; hl: number; hr: number; cf: number }
+interface RoadWay { cls: number; half: number; sw: number; st: Station[] }
+interface RoadSegH { x0: number; z0: number; hl0: number; hr0: number; x1: number; z1: number; hl1: number; hr1: number; half: number; way: number; sw: number; cf0: number; cf1: number; i: number }
 let netCache: { ways: RoadWay[]; grid: Map<number, RoadSegH[]>; junctions: Junction[]; discGrid: Map<number, Junction[]> } | undefined;
 function liftRibbonOverTerrain(st: Station[], minLift: number) {
   // Verifica 15 amostras baricêntricas por triângulo de cada quad para garantir que a malha do terreno nunca ultrapasse o asfalto
@@ -418,7 +453,7 @@ function buildRibbonStations(way: number[], half: number, lift: number): Station
       const hc = terrainHeight(p.x, p.z);
       const mid = 0.5 * (hl + hr);
       if (mid < hc) { const bump = hc - mid; hl += bump; hr += bump; }
-      return { x: p.x, z: p.z, s: p.s, lx, lz, rx, rz, hl: hl + lift, hr: hr + lift };
+      return { x: p.x, z: p.z, s: p.s, lx, lz, rx, rz, hl: hl + lift, hr: hr + lift, cf: 1 };
     };
     const st: Station[] = pts.map((p, i) => {
       let nx: number, nz: number;
@@ -513,13 +548,15 @@ function findJunctions(ways: RoadWay[], grid: Map<number, RoadSegH[]>) {
 function roadNet() {
   if (netCache) return netCache;
   const ways: RoadWay[] = [], grid = new Map<number, RoadSegH[]>();
-  for (let c = 0; c < ROAD_CLASSES.length; c++) (jf.vias[ROAD_CLASSES[c]] as number[][]).forEach((way) => {
-    const half = stripWidth(c) / 2, lift = LIFT[c] + (ways.length % 4) * .004;
+  for (let c = 0; c < ROAD_CLASSES.length; c++) VIAS[ROAD_CLASSES[c]].forEach((way) => {
+    const half = stripWidth(c) / 2, n2 = way.length >> 1, midIdx = (n2 >> 1) * 2;
+    // calçada decidida pela via inteira (centro dela); o asfalto desce CURB, então a fita sobe CURB a mais para manter a folga do terreno
+    const sw = dcCentro(way[midIdx], way[midIdx + 1]) < SIDEWALK_RADIUS ? half * .28 : 0, lift = LIFT[c] + (ways.length % 4) * .004 + (sw ? CURB : 0);
     for (const st of buildRibbonStations(way, half, lift)) {
-      ways.push({ cls: c, half, st });
+      ways.push({ cls: c, half, sw, st });
       const reach = half + MAX_BEVEL, wayIdx = ways.length - 1;
       for (let i = 0; i + 1 < st.length; i++) {
-        const sg: RoadSegH = { x0: st[i].x, z0: st[i].z, hl0: st[i].hl, hr0: st[i].hr, x1: st[i + 1].x, z1: st[i + 1].z, hl1: st[i + 1].hl, hr1: st[i + 1].hr, half, way: wayIdx };
+        const sg: RoadSegH = { x0: st[i].x, z0: st[i].z, hl0: st[i].hl, hr0: st[i].hr, x1: st[i + 1].x, z1: st[i + 1].z, hl1: st[i + 1].hl, hr1: st[i + 1].hr, half, way: wayIdx, sw, cf0: 1, cf1: 1, i };
         for (let gx = Math.floor((Math.min(sg.x0, sg.x1) - reach) / HASH); gx <= Math.floor((Math.max(sg.x0, sg.x1) + reach) / HASH); gx++) {
           for (let gz = Math.floor((Math.min(sg.z0, sg.z1) - reach) / HASH); gz <= Math.floor((Math.max(sg.z0, sg.z1) + reach) / HASH); gz++) {
             const k = hashKey(gx, gz); let l = grid.get(k); if (!l) grid.set(k, l = []); l.push(sg);
@@ -530,20 +567,31 @@ function roadNet() {
   });
   // Discos de cruzamento: o anel assume a altura da faixa que o atravessa (a física usa o mesmo leque da malha)
   const junctions: Junction[] = [], discGrid = new Map<number, Junction[]>();
-  for (const j of findJunctions(ways, grid)) {
+  const found = findJunctions(ways, grid);
+  // Recortes: o meio-fio some (cf -> 0) nos cruzamentos e volta em CURB_CUT m; seg.cf acompanha as estações
+  const touched = new Set<RoadSegH>();
+  for (const w of ways) if (w.sw) for (const stn of w.st) {
+    let cf = 1;
+    for (const j of found) { const dx = stn.x - j.x, dz = stn.z - j.z; if (Math.abs(dx) < j.r + CURB_CUT && Math.abs(dz) < j.r + CURB_CUT) cf = Math.min(cf, Math.max(0, Math.min(1, (Math.hypot(dx, dz) - j.r) / CURB_CUT))); }
+    // inclinação lateral da via soma-se à rampa do meio-fio (0,5): acima de 0,02 o degrau encolhe, em 0,05 some (soma <= 0,55)
+    const lat = Math.abs(stn.hl - stn.hr) / (2 * w.half);
+    stn.cf = Math.min(cf, 1 - Math.max(0, Math.min(1, (lat - .02) / .03)));
+  }
+  for (const list of grid.values()) for (const sg of list) if (!touched.has(sg)) { touched.add(sg); const st = ways[sg.way].st; sg.cf0 = st[sg.i].cf; sg.cf1 = st[sg.i + 1].cf; }
+  for (const j of found) {
     const ring: (number | undefined)[] = Array.from({ length: RING }, (_, k) => {
       const a = k / RING * Math.PI * 2, x = j.x + Math.cos(a) * j.r, z = j.z + Math.sin(a) * j.r;
-      const h = stripsHeight(grid, x, z, true);
+      const h = stripsHeight(grid, x, z, true, true);
       return h > -Infinity ? h : undefined;
     });
     const known = ring.map((h, k) => (h === undefined ? -1 : k)).filter((k) => k >= 0);
-    const centerStrip = stripsHeight(grid, j.x, j.z, true);
+    const centerStrip = stripsHeight(grid, j.x, j.z, true, true);
     if (!known.length && centerStrip === -Infinity) continue;
     // pontos do anel fora de qualquer faixa (cantos entre os braços) assentam perto do terreno: sem meio-fio no limite do disco
     const filled = ring.map((h, k) => {
       if (h !== undefined) return h;
       const ang = k / RING * Math.PI * 2;
-      const gx = j.x + Math.cos(ang) * j.r, gz = j.z + Math.sin(ang) * j.r, edge = stripsHeight(grid, gx, gz, false);
+      const gx = j.x + Math.cos(ang) * j.r, gz = j.z + Math.sin(ang) * j.r, edge = stripsHeight(grid, gx, gz, false, true);
       return Math.max(edge, terrainHeight(gx, gz) + .12); // continua o chanfro das faixas vizinhas
     });
     const hc = centerStrip > -Infinity ? centerStrip : filled.reduce((a, b) => a + b, 0) / RING;
@@ -573,7 +621,7 @@ function discHeight(x: number, z: number) {
   return undefined;
 }
 /** Altura das faixas em (x, z); `strict` considera só o interior do asfalto (sem chanfro). */
-function stripsHeight(grid: Map<number, RoadSegH[]>, x: number, z: number, strict: boolean) {
+function stripsHeight(grid: Map<number, RoadSegH[]>, x: number, z: number, strict: boolean, level = false) {
   let best = -Infinity;
   const list = grid.get(hashKey(Math.floor(x / HASH), Math.floor(z / HASH)));
   if (!list) return best;
@@ -596,7 +644,12 @@ function stripsHeight(grid: Map<number, RoadSegH[]>, x: number, z: number, stric
     const clampedLat = Math.max(-sg.half, Math.min(sg.half, lat));
     const u = clampedLat / sg.half;
     const hl = sg.hl0 + (sg.hl1 - sg.hl0) * t, hr = sg.hr0 + (sg.hr1 - sg.hr0) * t;
-    const h = 0.5 * (hl + hr) + 0.5 * (hl - hr) * u;
+    let h = 0.5 * (hl + hr) + 0.5 * (hl - hr) * u;
+    if (sg.sw) {
+      // calçada (topo) nas bordas; o asfalto fica CURB abaixo, ligado por uma rampa de CURB_RAMP; `level` = nível do asfalto (cruzamentos)
+      const cf = sg.cf0 + (sg.cf1 - sg.cf0) * t, aEdge = sg.half - sg.sw;
+      h -= CURB * cf * (level ? 1 : 1 - Math.max(0, Math.min(1, (Math.abs(clampedLat) - aEdge) / CURB_RAMP)));
+    }
     if (outDist === 0) {
       if ((strict || h > terrain) && h > best) best = h;
       continue;
@@ -626,22 +679,35 @@ let rampCache: RampDef[] | undefined;
 function rampSites(): RampDef[] {
   return rampCache ??= ([['salvaterra', 'Rampa do Salvaterra'], ['cristo', 'Rampa do Mirante'], ['estadio', 'Rampa do Estádio']] as const).map(([place, name]) => {
     const stop = nearestRoad(jf.marcos[place][0], jf.marcos[place][1], 3)!;
+    const flat = (x: number, z: number) => Math.abs(terrainHeight(x, z) - terrainHeight(x + 22, z)) < 3 && Math.abs(terrainHeight(x, z) - terrainHeight(x, z + 22)) < 3;
     let best: RoadPoint | undefined, bestD = Infinity;
-    for (let r = 0; r <= 260; r += 12) {
-      for (let k = 0, n = Math.max(1, Math.round(r / 12) * 6); k < n; k++) {
-        const a = k / n * Math.PI * 2, rp = nearestRoad(stop.x + Math.cos(a) * r, stop.z + Math.sin(a) * r, 3);
-        if (!rp || rp.distance > 3) continue;
-        const m = rp.heading % 90, off = Math.min(m, 90 - m);
-        if (off > 9 || gapToRoads(rp.x, rp.z) > -1) continue;
-        const d = Math.hypot(rp.x - stop.x, rp.z - stop.z);
-        if (d < bestD && Math.abs(terrainHeight(rp.x, rp.z) - terrainHeight(rp.x + 22, rp.z)) < 3 && Math.abs(terrainHeight(rp.x, rp.z) - terrainHeight(rp.x, rp.z + 22)) < 3) { best = rp; bestD = d; }
+    if (place === 'salvaterra') {
+      // Salvaterra (rampa do ensaio do jogo): sobre a via reta alinhada aos eixos mais perto da entrega
+      for (let r = 0; r <= 260; r += 12) {
+        for (let k = 0, n = Math.max(1, Math.round(r / 12) * 6); k < n; k++) {
+          const a = k / n * Math.PI * 2, rp = nearestRoad(stop.x + Math.cos(a) * r, stop.z + Math.sin(a) * r, 3);
+          if (!rp || rp.distance > 3) continue;
+          const m = rp.heading % 90, off = Math.min(m, 90 - m);
+          if (off > 9 || gapToRoads(rp.x, rp.z) > -1 || !flat(rp.x, rp.z)) continue;
+          const d = Math.hypot(rp.x - stop.x, rp.z - stop.z);
+          if (d < bestD) { best = rp; bestD = d; }
+        }
       }
+    } else {
+      // Mirante e Estádio: rampa ao lado da estrada, em terreno livre, para nunca bloquear o caminho do GPS até a entrega
+      const nx = -Math.cos(stop.heading * Math.PI / 180), nz = -Math.sin(stop.heading * Math.PI / 180);
+      for (const dist of [26, 38, 52, 70, 95, 120, 150]) for (const side of [1, -1]) {
+        const x = stop.x + nx * dist * side, z = stop.z + nz * dist * side;
+        if (best || gapToRoads(x, z) < 14 || gapToRoads(x + 22, z) < 14 || gapToRoads(x, z + 22) < 14 || gapToRoads(x, z - 22) < 14 || gapToRoads(x - 22, z) < 14 || !flat(x, z)) continue;
+        best = { x, z, heading: stop.heading, cls: stop.cls, distance: dist };
+      }
+      // sem terreno livre por perto: ao lado da estrada a 45 m (nunca em cima da via)
+      best ??= { x: stop.x + nx * 45, z: stop.z + nz * 45, heading: stop.heading, cls: stop.cls, distance: 45 };
     }
     const p = best ?? stop;
     const axis = Math.round(p.heading / 90) % 4, dirs = [[0, -1], [1, 0], [0, 1], [-1, 0]];
     let [dx, dz] = dirs[axis];
-    // Salvaterra (a rampa do ensaio): aponta para longe da oficina, de onde o jogador chega, para subir de frente.
-    // As outras apontam morro abaixo (o salto cai no declive).
+    // Salvaterra aponta para longe da oficina, de onde o jogador chega (subida de frente); as outras, morro abaixo
     const away = place === 'salvaterra' ? (p.x - WORKSHOP_SPOT.x) * dx + (p.z - WORKSHOP_SPOT.z) * dz < 0
       : terrainHeight(p.x + dx * 40, p.z + dz * 40) > terrainHeight(p.x - dx * 40, p.z - dz * 40);
     if (away) { dx = -dx; dz = -dz; }
@@ -1089,7 +1155,7 @@ export function cityLayout() {
   const line = (way: number[]) => way;
   return {
     bounds: { x0: -GRID_HALF, x1: GRID_HALF, z0: -GRID_HALF, z1: GRID_HALF },
-    roadLines: ROAD_CLASSES.map((name, c) => ({ category: name, width: ASPHALT[c], lines: (jf.vias[name] as number[][]).map(line) })),
+    roadLines: ROAD_CLASSES.map((name, c) => ({ category: name, width: ASPHALT[c], lines: VIAS[name].map(line) })),
     river: { width: RIVER_WIDTH, lines: jf.rio as number[][] },
     parkPolygons: parkPolys.map((p) => ({ name: p.nome, pts: p.pts })),
     stadiumPolygons: stadiumPolys.map((p) => ({ name: p.nome, pts: p.pts })),
@@ -1164,9 +1230,25 @@ export function cityDetails(city = cityData()) {
     for (let i = 0; i + 1 < st.length; i++) { const l0 = i * 2; idx.push(l0, l0 + 2, l0 + 1, l0 + 1, l0 + 2, l0 + 3); }
     shape(batchName, pos, idx, color, textured ? uv : undefined);
   };
+  // Fita com calçada: [borda externa, topo do meio-fio, pé do meio-fio] dos dois lados (6 vértices por estação, mesma malha 'roads')
+  const emitSidewalkRoad = (w: RoadWay) => {
+    const st = w.st, pos: number[] = [], uv: number[] = [], idx: number[] = [];
+    const fFoot = (w.half - w.sw) / w.half, fTop = fFoot + CURB_RAMP / w.half;
+    for (const p of st) {
+      const hAt = (f: number) => 0.5 * (p.hl + p.hr) + 0.5 * (p.hl - p.hr) * f; // f > 0: lado esquerdo
+      const at = (f: number): [number, number] => [p.x + (p.lx - p.x) * f, p.z + (p.lz - p.z) * f];
+      // esquerda: externa, topo, pé; direita: pé, topo, externa
+      for (const [f, drop] of [[1, 0], [fTop, 0], [fFoot, CURB * p.cf], [-fFoot, CURB * p.cf], [-fTop, 0], [-1, 0]] as const) {
+        const [x, z] = at(f);
+        pos.push(x, hAt(f) - drop, z); uv.push(.5 - f / 2, p.s / 32);
+      }
+    }
+    for (let i = 0; i + 1 < st.length; i++) for (let q = 0; q < 5; q++) { const a = i * 6 + q, b = a + 6; idx.push(a, b, a + 1, a + 1, b, b + 1); }
+    shape('roads', pos, idx, [255, 255, 255], uv);
+  };
   for (let c = ROAD_CLASSES.length - 1; c >= 0; c--) for (const w of net.ways) {
     if (w.cls !== c) continue;
-    emitRibbon('roads', w.st, [255, 255, 255], true);
+    if (w.sw) emitSidewalkRoad(w); else emitRibbon('roads', w.st, [255, 255, 255], true);
   }
   // Remendos de cruzamento: um disco de asfalto liso (sem faixas pintadas) por cima das fitas que se encontram
   for (const j of net.junctions) {

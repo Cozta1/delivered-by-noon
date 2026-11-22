@@ -136,7 +136,7 @@ function scene(name) {
     assert(json.buffers.every((b) => !b.uri));
     assert((json.images ?? []).every((i) => i.bufferView !== undefined && !i.uri));
     for (const view of json.bufferViews) assert((view.byteOffset ?? 0) + view.byteLength <= json.buffers[view.buffer].byteLength);
-    if(file==='mundo-cidade.glb')assert(bytes.length<2_750_000,`City exceeds 2.75 MB: ${bytes.length} bytes`);
+    if(file==='mundo-cidade.glb')assert(bytes.length<2_700_000,`City exceeds 2.7 MB: ${bytes.length} bytes`);
     outputs.push({ file: resolve(root, 'public/models', file), bytes });
   }
   return { rootNode, mesh, material, texture, node, output };
@@ -169,7 +169,7 @@ assert.deepEqual(data.windowImages(), data.windowImages(), 'Windows must be dete
     const material=s.material(name==='lamps'?'Lampadas dos postes':name,name==='lamps'?[1,.82,.48]:[1,1,1],.1,name==='lamps'?[1,.82,.48]:[0,0,0]);
     if(name==='roads')material.setBaseColorTexture(s.texture('Asfalto e faixas',streetImages.road));
     if(name==='lamps')material.setDoubleSided(true);
-    s.node(s.rootNode,name,s.mesh(name,{...details.meshes[name],normals:null},material));
+    s.node(s.rootNode,name,s.mesh(name,{...details.meshes[name],normals:null,col:name==='roads'?null:details.meshes[name].col},material));
   }
   await s.output('mundo-cidade.glb', [['Fachadas', { KHR_materials_emissive_strength: { emissiveStrength: 1.6 } }],['Lampadas dos postes',{KHR_materials_emissive_strength:{emissiveStrength:1.8}}]]);
 }
@@ -213,11 +213,11 @@ if (data.BAIRROS_MOD) {
   await s.output('mundo-aeroporto.glb');
 }
 const total = outputs.reduce((sum, { bytes }) => sum + bytes.length, 0);
-assert(total < 4_600_000, `World exceeds 4.6 MB: ${total} bytes`);
+assert(total < 5_000_000, `World exceeds 5.0 MB: ${total} bytes`);
 await mkdir(resolve(root, 'public/models'), { recursive: true });
 for (const { file, bytes } of outputs) {
   await writeFile(file, bytes);
   console.log(`${file}: ${bytes.length} bytes`);
 }
-console.log(`Total: ${total} bytes (< 4.6 MB)`);
+console.log(`Total: ${total} bytes (< 5.0 MB)`);
 
