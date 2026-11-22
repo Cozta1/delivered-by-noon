@@ -173,13 +173,10 @@ assert.deepEqual(data.windowImages(), data.windowImages(), 'Windows must be dete
   }
   await s.output('mundo-cidade.glb', [['Fachadas', { KHR_materials_emissive_strength: { emissiveStrength: 1.6 } }],['Lampadas dos postes',{KHR_materials_emissive_strength:{emissiveStrength:1.8}}]]);
 }
-// Módulo opcional dos bairros (Gemini): exporta bairrosData() como mundo-bairros.glb quando o arquivo existir
-const bairrosFile = resolve(root, 'src/flight/bairros.ts');
-if (existsSync(bairrosFile)) {
-  const b = await build({ configFile: false, logLevel: 'silent', root, build: { write: false, lib: { entry: bairrosFile, formats: ['es'] }, minify: false } });
-  const bairros = await import(`data:text/javascript;base64,${Buffer.from((Array.isArray(b) ? b[0] : b).output[0].code).toString('base64')}`);
+// Módulo opcional dos bairros (Gemini): exporta bairrosData() como mundo-bairros.glb (pelo mesmo bundle de world-data)
+if (data.BAIRROS_MOD) {
   const s = scene('Bairros');
-  s.node(s.rootNode, 'Bairros', s.mesh('Bairros', { ...bairros.bairrosData(), normals: null }, s.material('Bairros', [1, 1, 1], 0.15)));
+  s.node(s.rootNode, 'Bairros', s.mesh('Bairros', { ...data.BAIRROS_MOD.bairrosData(), normals: null }, s.material('Bairros', [1, 1, 1], 0.15)));
   await s.output('mundo-bairros.glb');
 }
 {

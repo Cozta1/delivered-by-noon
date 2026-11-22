@@ -11,7 +11,7 @@ import {
   StandardMaterial,
   Texture,
 } from 'playcanvas';
-import { WORLD_SIZE, UNIACADEMIA, airportData, deliveryRampData, landmarkBoxes, createWorldPhysics, terrainData, cityData, cityDetails, cityStreetImages, cloudData, windowImages, skyImage, type Box, type MeshData, type ImageData } from './world-data';
+import { WORLD_SIZE, UNIACADEMIA, airportData, deliveryRampData, landmarkBoxes, buildingColliders, createWorldPhysics, terrainData, cityData, cityDetails, cityStreetImages, cloudData, windowImages, skyImage, type Box, type MeshData, type ImageData } from './world-data';
 import { buildLandmark } from './models';
 export { WORLD_SIZE, terrainHeight, type Box } from './world-data';
 
@@ -256,7 +256,7 @@ export function buildWorld(app: AppBase, parent: Entity = app.root): World {
   airportMaterial.update();
   materials.push(airportMaterial);
   for (const part of [...airport.parts,...deliveryRamps.parts]) meshEntity(parent, part.name, buildMesh(app, part.mesh), airportMaterial);
-  boxes.push(...landmarkBoxes());
+  boxes.push(...landmarkBoxes(), ...buildingColliders());
   placeUniAcademia(app, parent);
   const physics = createWorldPhysics(boxes);
   return { sky, ...physics, streetLightMaterial, materials, textures };

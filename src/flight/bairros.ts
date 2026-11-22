@@ -7,6 +7,7 @@ import {
   WORKSHOP,
   cityLayout,
   deliveryRampData,
+  protectedSpots,
   terrainHeight,
   type MeshData,
 } from './world-data';
@@ -415,6 +416,8 @@ function buildBairros(): { mesh: MeshData; lots: BairroLot[]; blocks: UrbanBlock
     { x: WORKSHOP.x, z: WORKSHOP.z, r: 28 },
     { x: CRISTO_IMPERADOR.x, z: CRISTO_IMPERADOR.z, r: 38 },
     { x: layout.helipad.x, z: layout.helipad.z, r: 28 },
+    // entregas no chão, carros estacionados e oficina: nenhuma casa nasce em cima (nem encosta)
+    ...protectedSpots().map((q) => ({ x: q.x, z: q.z, r: q.r + 4 })),
   ];
 
   const rampBoxes = deliveryRampData().ramps.map((q) => ({
@@ -571,6 +574,10 @@ function buildBairros(): { mesh: MeshData; lots: BairroLot[]; blocks: UrbanBlock
       const ch = terrainHeight(px, pz);
       if (ch < hMin) hMin = ch;
       if (ch > hMax) hMax = ch;
+    }
+    // Perímetro inteiro (meios e quartos dos lados): uma via que corta o lote entre dois cantos também o reprova
+    for (const [lu, lv] of [[0, hd], [0, -hd], [hw, 0], [-hw, 0], [-hw / 2, hd], [hw / 2, hd], [-hw / 2, -hd], [hw / 2, -hd], [hw, hd / 2], [hw, -hd / 2], [-hw, hd / 2], [-hw, -hd / 2]] as const) {
+      if (gapToCorridors(cx + lu * rx + lv * fx, cz + lu * rz + lv * fz) < ROAD_MARGIN * 0.6) return { placed: false, w, d };
     }
     if (hMax - hMin > MAX_FOOTPRINT_DROP) return { placed: false, w, d };
 

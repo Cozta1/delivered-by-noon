@@ -4,7 +4,7 @@ import { createWorldPhysics, cityData, airportData, AIRPORT, HANGAR, terrainHeig
 import { CarDynamics } from './car';
 import { FootDynamics } from './foot';
 import { nearestVehicle, vehicleSpawns, createVehicleSystem } from './vehicles';
-import { startMission, createMissionSystem } from './mission';
+import { startMission, createMissionSystem, CLOCK_START_MINUTES } from './mission';
 import { createMissionState, createFlightState, STAGE_ORDER, type FlightContext } from './types';
 
 function presentationSimulator() {
@@ -93,8 +93,9 @@ describe('ground world and bodies',()=>{
   it('rejects actual uphill terrain steeper than the car limit',()=>{
     const world=createWorldPhysics([]);
     let steep: {x:number;z:number}|undefined;
-    for(let x=-2600;x<2600&&!steep;x+=20)for(let z=-2600;z<2600;z+=20) {
-      if(world.groundAt(x+.2,z)-world.groundAt(x,z)>.2*.8) {steep={x,z};break;}
+    for(let x=-2600;x<2600&&!steep;x+=10)for(let z=-2600;z<2600;z+=10) {
+      // relevo suavizado: procura qualquer trecho acima do limite do carro (0,55) com folga de 9%
+      if(world.groundAt(x+.2,z)-world.groundAt(x,z)>.2*.6) {steep={x,z};break;}
     }
     expect(steep).toBeDefined();
     const {x,z}=steep!;
@@ -171,6 +172,6 @@ it('mission restart resets the moving vehicle, parked poses and all mission prog
   const home=vehicleSpawns()[0];
   expect(Math.hypot(state.x-home.x,state.z-home.z)).toBeGreaterThan(1);ctx.mission!.score=999;ctx.mission!.clockMinutes=120;
   startMission(ctx);expect(state.x).toBeCloseTo(home.x,5);expect(state.z).toBeCloseTo(home.z,5);expect(state.speed).toBe(0);expect(state.vehicle).toBe('car');
-  expect(ctx.mission!.score).toBe(0);expect(ctx.mission!.clockMinutes).toBe(0);expect(ctx.mission!.delivered).toBe(0);
+  expect(ctx.mission!.score).toBe(0);expect(ctx.mission!.clockMinutes).toBe(CLOCK_START_MINUTES);expect(ctx.mission!.delivered).toBe(0);
   mission.destroy?.();vehicles.destroy?.();
 });

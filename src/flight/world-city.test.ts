@@ -1,7 +1,8 @@
 import { afterEach, expect, it, vi } from 'vitest';
 import { calculateNormals, Entity } from 'playcanvas';
-import { AIRPORT, CITY, CITY_CREDITS, HANGAR, ROAD_CLASSES, UNIACADEMIA, WORKSHOP, airportData, cityData, cityDetails, cityLayout, cityStreetImages, createWorldPhysics, deliveryRampData, landmarkBoxes, roadHeightAt, nearestRoad, terrainData, terrainHeight } from './world-data';
+import { AIRPORT, CITY, CITY_CREDITS, HANGAR, ROAD_CLASSES, UNIACADEMIA, WORKSHOP, airportData, cityData, cityDetails, cityLayout, cityStreetImages, buildingColliders, createWorldPhysics, deliveryRampData, landmarkBoxes, protectedSpots, roadHeightAt, roadJunctions, nearestRoad, terrainData, terrainHeight } from './world-data';
 import { buildWorld } from './world';
+import { deliveryPoints } from './mission';
 import type { FlightContext } from './types';
 
 vi.mock('playcanvas',async importOriginal=>{
@@ -118,4 +119,48 @@ it('keeps every road triangle face-up and continuously above the terrain without
   }
   expect(upsideDown).toBe(0);
   expect(belowTerrain).toBe(0);
+});
+
+it('gives every neighbourhood building an oriented-box collider and keeps rotated corners honest',()=>{
+  const colliders=buildingColliders();
+  expect(colliders.length).toBeGreaterThan(1000);
+  const world=createWorldPhysics(colliders,3);
+  for(const b of colliders.filter((_,i)=>i%25===0)) {
+    const q=b.obb!;expect(world.obstacleAt(q.cx,q.cz,b.bottom!+.5,.35,1.8)).toBe(b);
+    expect(world.surfaceAt(q.cx,q.cz)).toBeGreaterThanOrEqual(b.top);
+  }
+  // quadrado girado 45°: o canto da caixa envolvente está livre, o eixo está ocupado
+  const c=Math.SQRT1_2,box={x0:-14.2,x1:14.2,z0:-14.2,z1:14.2,top:20,bottom:0,obb:{cx:0,cz:0,hw:10,hd:10,rx:c,rz:c}};
+  const rotated=createWorldPhysics([box],0);
+  expect(rotated.obstacleAt(13,13,0,.3,1.8)).toBeUndefined();expect(rotated.obstacleAt(13,0,0,.3,1.8)).toBe(box);
+});
+
+it('keeps all buildings off the roads, deliveries, parked cars and workshop (so the GPS is never blocked)',()=>{
+  const boxes=[...cityData().boxes,...buildingColliders()],world=createWorldPhysics(boxes,0);
+  let samples=0;
+  for(const cat of cityLayout().roadLines) for(const line of cat.lines) for(let i=0;i+3<line.length;i+=2) {
+    const dx=line[i+2]-line[i],dz=line[i+3]-line[i+1],len=Math.hypot(dx,dz),n=Math.max(1,Math.floor(len/12));
+    for(let k=0;k<=n;k++) {
+      const x=line[i]+dx*k/n,z=line[i+1]+dz*k/n;samples++;
+      expect(world.obstacleAt(x,z,0,Math.max(1.2,cat.width/2-.5),30),`prédio sobre a rua ${cat.category} em (${x.toFixed(0)},${z.toFixed(0)})`).toBeUndefined();
+    }
+  }
+  expect(samples).toBeGreaterThan(5000);
+  for(const p of protectedSpots()) expect(world.obstacleAt(p.x,p.z,0,Math.max(2,p.r-6),30),`prédio em lugar protegido (${p.x.toFixed(0)},${p.z.toFixed(0)})`).toBeUndefined();
+  // cada entrega no chão tem um lugar protegido (espelha mission.deliveryPoints)
+  for(const d of deliveryPoints().filter(d=>d.id!=='tuned-4'&&!d.airDrop&&Math.abs(d.y-terrainHeight(d.x,d.z))<4&&d.stage!=='heli'||d.id==='heli-3'||d.id==='heli-4'))
+    expect(protectedSpots().some(p=>Math.hypot(p.x-d.x,p.z-d.z)<5),`entrega sem lugar protegido: ${d.id}`).toBe(true);
+});
+
+it('paints each junction as one smooth asphalt disc whose height meets the roads around it',()=>{
+  const junctions=roadJunctions();expect(junctions.length).toBeGreaterThan(300);
+  const steps:number[]=[];
+  for(const j of junctions) for(let k=0;k<16;k++) {
+    const a=k/16*Math.PI*2+.1,inner=roadHeightAt(j.x+Math.cos(a)*(j.r-.15),j.z+Math.sin(a)*(j.r-.15)),outer=roadHeightAt(j.x+Math.cos(a)*(j.r+.15),j.z+Math.sin(a)*(j.r+.15));
+    if(inner>-Infinity&&outer>-Infinity)steps.push(Math.abs(inner-outer));
+  }
+  steps.sort((x,y)=>x-y);
+  expect(steps.length).toBeGreaterThan(3000);
+  expect(steps[Math.floor(steps.length*.95)],'95% das emendas do disco').toBeLessThan(.12);
+  expect(steps[steps.length-1],'pior emenda').toBeLessThan(.5);
 });
