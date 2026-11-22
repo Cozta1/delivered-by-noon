@@ -123,6 +123,21 @@ export function cornersHitboxFromAabb(aabb: BoundingBox): [number, number, numbe
   ];
 }
 
+/**
+ * URL de um GLB para `loadFromUrl(..., 'container')`.
+ * No Editor online os .glb viram assets "scene" (fonte, fora do runtime); o publicador envia
+ * uma cópia binária `<arquivo>.glb.bin` que existe no Launch/Publish, e o parser GLB é o padrão.
+ * Localmente cai em `${BASE_URL}models/<arquivo>`.
+ */
+export function glbUrl(app: AppBase, filename: string): string {
+  const bin = app.assets?.find?.(`${filename}.bin`, 'binary') as Asset | null | undefined;
+  const fileUrl = bin?.getFileUrl?.();
+  if (fileUrl) return fileUrl;
+  const rawBase = (import.meta as { env?: { BASE_URL?: string } }).env?.BASE_URL ?? '/';
+  const base = rawBase.endsWith('/') ? rawBase : `${rawBase}/`;
+  return `${base}models/${filename}`;
+}
+
 export function findGlbContainerAsset(app: AppBase, filename: string): Asset | null {
   const assets = app.assets;
   if (!assets) return null;
@@ -305,9 +320,7 @@ export function attachAsyncGlb({ app, root, procedural, model, filename, onMount
   }
 
   if (typeof app.assets.loadFromUrl === 'function') {
-    const rawBase = (import.meta as { env?: { BASE_URL?: string } }).env?.BASE_URL ?? '/';
-    const base = rawBase.endsWith('/') ? rawBase : `${rawBase}/`;
-    const url = `${base}models/${filename}`;
+    const url = glbUrl(app, filename);
     try {
       app.assets.loadFromUrl(url, 'container', (err, asset) => {
         if (!err && asset?.resource) {

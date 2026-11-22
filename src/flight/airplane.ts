@@ -11,6 +11,7 @@ import {
   type MeshInstance,
   StandardMaterial,
 } from 'playcanvas';
+import { glbUrl } from './models/glb';
 
 type PrimitiveType = 'box' | 'cylinder' | 'cone' | 'sphere';
 
@@ -473,9 +474,7 @@ export function buildAirplane(app: AppBase, parent: Entity = app.root): Airplane
         app.assets.load(editorAsset);
       }
     } else if (typeof app.assets.loadFromUrl === 'function') {
-      const rawBase = (import.meta as { env?: { BASE_URL?: string } }).env?.BASE_URL ?? '/';
-      const base = rawBase.endsWith('/') ? rawBase : `${rawBase}/`;
-      const url = `${base}models/a29.glb`;
+      const url = glbUrl(app, 'a29.glb');
       try {
         app.assets.loadFromUrl(url, 'container', (err, asset) => {
           if (err || !asset?.resource) return;

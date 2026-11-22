@@ -19,6 +19,15 @@ const TARGET_ASSETS = [
     mime: 'model/gltf-binary',
     preferredTypes: ['container', 'scene', 'model'],
   })),
+  // Cópias binárias (.glb.bin): os .glb viram assets "scene" no Editor e não existem no Launch;
+  // o jogo carrega estas cópias como container (ver glbUrl em src/flight/models/glb.ts).
+  ...['mundo-terreno', 'mundo-cidade', 'mundo-mar', 'mundo-nuvens', 'mundo-ceu', 'mundo-aeroporto',
+    'a29', 'helicoptero', 'carro', 'carro-compacto', 'carro-picape', 'carro-esportivo', 'carro-tunado', 'personagem', 'uniacademia'].map((slug) => ({
+    name: `${slug}.glb.bin`,
+    relPath: `public/models/${slug}.glb`,
+    mime: 'application/octet-stream',
+    preferredTypes: ['binary'],
+  })),
   {
     name: 'flight-sim.mjs',
     relPath: 'dist-editor/flight-sim.mjs',

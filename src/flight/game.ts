@@ -417,6 +417,17 @@ export function startFlightSim(
     cloudEntities = simRoot.children.filter((c) => c.name === 'Cloud') as Entity[];
   }
 
+  // 2b) Prévias do Editor (montar-cena-editor.js): o jogo cria os próprios veículos, personagem e UniAcademia
+  //     a partir dos GLBs; as cópias estáticas da cena só servem para ver no Viewport e ficariam duplicadas.
+  for (const previewName of ['Heli', 'Carro_Inicial', 'Carro_1', 'Carro_2', 'Carro_3', 'Carro_4', 'Carro_5', 'Carro_Tunado', 'Personagem', 'UniAcademia']) {
+    const preview = findSceneEntity(app.root, previewName, simRoot);
+    if (!preview || !preview.enabled) continue;
+    preview.enabled = false;
+    restorers.push(() => {
+      if (preview.parent) preview.enabled = true;
+    });
+  }
+
   // 3) Avião: se "A29" existir na cena, vincula a ela; senão cria como antes
   const scenePlane = findSceneEntity(app.root, SCENE_ENTITY_NAMES.plane, simRoot);
   let plane: AirplaneModel;
