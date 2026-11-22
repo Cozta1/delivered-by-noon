@@ -2,9 +2,7 @@ import { type Entity, KEY_SHIFT, KEY_W, Quat, Vec3 } from 'playcanvas';
 import { getActiveRoute } from './rota';
 import { isSmokeActive } from './smoke';
 import {
-  CAMERA_LABEL,
   STAGE_ORDER,
-  type CameraMode,
   type DeliveryPoint,
   type FlightContext,
   type FlightModule,
@@ -30,14 +28,6 @@ interface MinimapBlip {
   z: number;
 }
 
-const VEHICLE_BADGE: Record<VehicleKind, string> = {
-  foot: 'A PÉ',
-  car: 'HATCH',
-  tuned: 'COUPÉ TUNADO',
-  a29: 'A-29',
-  heli: 'HELI',
-};
-
 const NEARBY_LABEL: Record<Exclude<VehicleKind, 'foot'>, string> = {
   car: 'Hatch',
   tuned: 'Coupé Tunado',
@@ -45,11 +35,11 @@ const NEARBY_LABEL: Record<Exclude<VehicleKind, 'foot'>, string> = {
   heli: 'helicóptero',
 };
 
-const STAGE_LABEL: Record<Stage, string> = {
-  car: 'ESTÁGIO 1/4 · HATCH',
-  tuned: 'ESTÁGIO 2/4 · COUPÉ TUNADO',
-  heli: 'ESTÁGIO 3/4 · HELICÓPTERO',
-  a29: 'ESTÁGIO 4/4 · AVIÃO A-29',
+const STAGE_INDEX_LABEL: Record<Stage, string> = {
+  car: 'Etapa 1/4',
+  tuned: 'Etapa 2/4',
+  heli: 'Etapa 3/4',
+  a29: 'Etapa 4/4',
 };
 
 const STAGE_SHORT_CODE: Record<Stage, string> = {
@@ -59,18 +49,17 @@ const STAGE_SHORT_CODE: Record<Stage, string> = {
   a29: 'A',
 };
 
-const FOOTER_BY_VEHICLE: Record<VehicleKind, string> = {
-  foot: 'W/A/S/D andar · Espaço pular · Mouse gira câmera · E entrar em veículo · C câmera · Esc/P pausa',
-  car: 'W/S acelerar/ré · A/D virar · Espaço freio de mão · Mouse gira câmera · E sair · C câmera · R reiniciar · Esc/P pausa',
-  tuned: 'W/S acelerar/ré · A/D virar · Shift NITRO · Espaço freio de mão · Mouse gira câmera · E sair · C câmera · Esc/P pausa',
-  a29: 'Mouse mira · M mouse/teclado · Shift/Ctrl acel · Espaço soltar carga · F fumaça · E sair · C câmera · Esc/P pausa',
-  heli: 'W/S inclinar · A/D lateral · Q/E girar · Shift/Ctrl coletivo · Mouse gira câmera · E sair · C câmera · R reiniciar · Esc/P pausa',
-};
-
 const PROJECTION_DIST = 500;
-
-// Dimensões da planta pré-renderizada do minimapa de Juiz de Fora (uma única vez por sessão)
 const MAP_CANVAS_PX = 1024;
+const MINIMAP_REDRAW_INTERVAL = 3;
+
+// Constantes do arco SVG do velocímetro (240°: -210° até +30°)
+const SVG_NS = 'http://www.w3.org/2000/svg';
+const DIAL_CX = 74;
+const DIAL_CY = 74;
+const DIAL_R = 56;
+const DIAL_START_DEG = 150;
+const DIAL_SWEEP_DEG = 240;
 
 interface MinimapLandmark {
   name: string;
@@ -130,11 +119,11 @@ function strokeFlatLines(
 }
 
 const ROAD_STYLE: Record<string, { color: string; casing?: string; minPx: number; scale: number }> = {
-  tertiary: { color: '#455466', minPx: 1.0, scale: 0.72 },
-  secondary: { color: '#697a8e', minPx: 1.5, scale: 0.8 },
-  primary: { color: '#99aab9', casing: 'rgba(12, 18, 26, 0.75)', minPx: 2.1, scale: 0.86 },
-  trunk: { color: '#cfa96b', casing: 'rgba(14, 18, 24, 0.85)', minPx: 2.7, scale: 0.92 },
-  motorway: { color: '#ebb054', casing: 'rgba(16, 18, 24, 0.92)', minPx: 3.3, scale: 0.98 },
+  tertiary: { color: '#45433d', minPx: 1.0, scale: 0.72 },
+  secondary: { color: '#6b675c', minPx: 1.5, scale: 0.8 },
+  primary: { color: '#9c9686', casing: 'rgba(14, 13, 11, 0.78)', minPx: 2.1, scale: 0.86 },
+  trunk: { color: '#cfc09b', casing: 'rgba(14, 13, 11, 0.86)', minPx: 2.7, scale: 0.92 },
+  motorway: { color: '#e6ca7a', casing: 'rgba(14, 13, 11, 0.92)', minPx: 3.3, scale: 0.98 },
 };
 
 function buildMinimapBlueprint(): MinimapBlueprint | null {
@@ -159,8 +148,8 @@ function buildMinimapBlueprint(): MinimapBlueprint | null {
   const wz = (z: number) => (z - minZ) * pxPerMZ;
   const ws = (m: number) => m * pxPerM;
 
-  // 1) Fundo de terreno de Juiz de Fora (sem mar) com sombreamento topográfico suave
-  g.fillStyle = '#14201b';
+  // 1) Fundo topográfico quente escuro de Juiz de Fora
+  g.fillStyle = '#191a16';
   g.fillRect(0, 0, MAP_CANVAS_PX, MAP_CANVAS_PX);
 
   const reliefStep = 90;
@@ -170,8 +159,8 @@ function buildMinimapBlueprint(): MinimapBlueprint | null {
     for (let x = minX; x < layout.bounds.x1; x += reliefStep) {
       const h = terrainHeight(x + reliefStep * 0.5, z + reliefStep * 0.5);
       if (h > 35) {
-        const a = Math.min(0.28, (h - 35) / 360);
-        g.fillStyle = h > 135 ? `rgba(148, 160, 146, ${a.toFixed(3)})` : `rgba(88, 128, 102, ${a.toFixed(3)})`;
+        const a = Math.min(0.24, (h - 35) / 380);
+        g.fillStyle = h > 135 ? `rgba(164, 156, 138, ${a.toFixed(3)})` : `rgba(104, 122, 92, ${a.toFixed(3)})`;
         g.fillRect(wx(x), wz(z), cellW, cellH);
       }
     }
@@ -179,15 +168,15 @@ function buildMinimapBlueprint(): MinimapBlueprint | null {
 
   // 2) Polígonos reais: aeroporto, universidades (UFJF), praças/parques e estádios
   if (traceFlatPolygon(g, layout.airportPolygon, wx, wz)) {
-    g.fillStyle = '#252f38';
+    g.fillStyle = '#2a2925';
     g.fill();
-    g.strokeStyle = 'rgba(162, 188, 212, 0.35)';
+    g.strokeStyle = 'rgba(212, 195, 159, 0.32)';
     g.lineWidth = 1.2;
     g.stroke();
   }
 
-  g.fillStyle = '#1b473e';
-  g.strokeStyle = 'rgba(110, 214, 186, 0.45)';
+  g.fillStyle = '#243a2e';
+  g.strokeStyle = 'rgba(138, 184, 146, 0.36)';
   g.lineWidth = 1.1;
   for (let i = 0; i < layout.universityPolygons.length; i++) {
     if (traceFlatPolygon(g, layout.universityPolygons[i].pts, wx, wz)) {
@@ -196,8 +185,8 @@ function buildMinimapBlueprint(): MinimapBlueprint | null {
     }
   }
 
-  g.fillStyle = '#1c5636';
-  g.strokeStyle = 'rgba(98, 212, 142, 0.48)';
+  g.fillStyle = '#21402a';
+  g.strokeStyle = 'rgba(122, 178, 126, 0.4)';
   g.lineWidth = 1.0;
   for (let i = 0; i < layout.parkPolygons.length; i++) {
     if (traceFlatPolygon(g, layout.parkPolygons[i].pts, wx, wz)) {
@@ -206,9 +195,9 @@ function buildMinimapBlueprint(): MinimapBlueprint | null {
     }
   }
 
-  g.fillStyle = '#245e3b';
-  g.strokeStyle = 'rgba(222, 232, 238, 0.72)';
-  g.lineWidth = 1.5;
+  g.fillStyle = '#2a4a32';
+  g.strokeStyle = 'rgba(246, 240, 225, 0.6)';
+  g.lineWidth = 1.4;
   for (let i = 0; i < layout.stadiumPolygons.length; i++) {
     if (traceFlatPolygon(g, layout.stadiumPolygons[i].pts, wx, wz)) {
       g.fill();
@@ -216,29 +205,29 @@ function buildMinimapBlueprint(): MinimapBlueprint | null {
     }
   }
 
-  // 3) Planta dos prédios (desenhada abaixo das vias para manter a malha viária nítida)
+  // 3) Planta dos prédios
   for (let i = 0; i < layout.buildings.length; i++) {
     const b = layout.buildings[i];
     const hNorm = Math.max(0, Math.min(1, (b.top - 10) / 140));
-    const lum = Math.round(62 + hNorm * 58);
-    g.fillStyle = `rgba(${lum - 6}, ${lum + 2}, ${lum + 14}, 0.72)`;
+    const lum = Math.round(58 + hNorm * 52);
+    g.fillStyle = `rgba(${lum + 4}, ${lum + 1}, ${lum - 4}, 0.7)`;
     g.fillRect(wx(b.x0), wz(b.z0), Math.max(1.1, (b.x1 - b.x0) * pxPerMX), Math.max(1.1, (b.z1 - b.z0) * pxPerMZ));
   }
 
-  // 4) Rio Paraibuna (`layout.river`)
+  // 4) Rio Paraibuna
   if (layout.river.lines.length > 0) {
     g.lineCap = 'round';
     g.lineJoin = 'round';
     const riverW = Math.max(2.8, ws(layout.river.width));
-    g.strokeStyle = 'rgba(42, 138, 184, 0.34)';
-    g.lineWidth = riverW + 2.4;
+    g.strokeStyle = 'rgba(32, 92, 126, 0.35)';
+    g.lineWidth = riverW + 2.2;
     strokeFlatLines(g, layout.river.lines, wx, wz);
-    g.strokeStyle = '#32a8d2';
+    g.strokeStyle = '#3b88ad';
     g.lineWidth = riverW;
     strokeFlatLines(g, layout.river.lines, wx, wz);
   }
 
-  // 5) Malha viária real por categoria (`layout.roadLines`, da menor à maior)
+  // 5) Malha viária real
   g.lineCap = 'round';
   g.lineJoin = 'round';
   for (let i = layout.roadLines.length - 1; i >= 0; i--) {
@@ -256,7 +245,7 @@ function buildMinimapBlueprint(): MinimapBlueprint | null {
     strokeFlatLines(g, group.lines, wx, wz);
   }
 
-  // 6) Pista real do Aeroporto da Serrinha (`layout.runwayLine`, orientada pelo rumo real)
+  // 6) Pista real do Aeroporto da Serrinha
   const { a: rA, b: rB, width: rwWidthM } = layout.runwayLine;
   const rAx = wx(rA.x);
   const rAz = wz(rA.z);
@@ -264,19 +253,19 @@ function buildMinimapBlueprint(): MinimapBlueprint | null {
   const rBz = wz(rB.z);
   const rwPx = Math.max(4.6, ws(rwWidthM));
   g.lineCap = 'butt';
-  g.strokeStyle = '#111822';
+  g.strokeStyle = '#11100e';
   g.lineWidth = rwPx + 2;
   g.beginPath();
   g.moveTo(rAx, rAz);
   g.lineTo(rBx, rBz);
   g.stroke();
-  g.strokeStyle = '#5c697b';
+  g.strokeStyle = '#6b675c';
   g.lineWidth = rwPx;
   g.beginPath();
   g.moveTo(rAx, rAz);
   g.lineTo(rBx, rBz);
   g.stroke();
-  g.strokeStyle = '#ffd58a';
+  g.strokeStyle = '#f2c21a';
   g.lineWidth = 1.2;
   g.setLineDash([4, 3]);
   g.beginPath();
@@ -285,39 +274,37 @@ function buildMinimapBlueprint(): MinimapBlueprint | null {
   g.stroke();
   g.setLineDash([]);
 
-  // 7) Lote da UniAcademia em destaque dourado na planta (`layout.landmarks.uniacademia`)
+  // 7) Lote da UniAcademia em destaque amarelo-correio
   const uni = layout.landmarks.uniacademia;
   g.save();
   g.translate(wx(uni.x), wz(uni.z));
   g.rotate((uni.heading * Math.PI) / 180);
   const uniW = Math.max(7, uni.width * pxPerMX);
   const uniD = Math.max(5.5, uni.depth * pxPerMZ);
-  g.fillStyle = 'rgba(255, 210, 74, 0.32)';
-  g.fillRect(-uniW * 0.5 - 3, -uniD * 0.5 - 3, uniW + 6, uniD + 6);
-  g.fillStyle = '#f5c542';
-  g.strokeStyle = '#fff6c2';
-  g.lineWidth = 1.5;
+  g.fillStyle = '#f2c21a';
+  g.strokeStyle = '#171512';
+  g.lineWidth = 1.4;
   g.fillRect(-uniW * 0.5, -uniD * 0.5, uniW, uniD);
   g.strokeRect(-uniW * 0.5, -uniD * 0.5, uniW, uniD);
   g.restore();
 
-  // 8) Oficina do Coupé Tunado (`layout.workshop`)
+  // 8) Oficina do Coupé Tunado
   const wkX = wx(layout.workshop.x);
   const wkZ = wz(layout.workshop.z);
-  g.fillStyle = 'rgba(42, 26, 12, 0.9)';
-  g.strokeStyle = '#ff9e4a';
+  g.fillStyle = '#171512';
+  g.strokeStyle = '#f2c21a';
   g.lineWidth = 1.5;
   g.fillRect(wkX - 5, wkZ - 5, 10, 10);
   g.strokeRect(wkX - 5, wkZ - 5, 10, 10);
 
-  // 9) Heliponto (`layout.helipad`)
+  // 9) Heliponto
   const hpX = wx(layout.helipad.x);
   const hpZ = wz(layout.helipad.z);
   g.beginPath();
   g.arc(hpX, hpZ, 5.5, 0, Math.PI * 2);
-  g.fillStyle = 'rgba(14, 38, 46, 0.92)';
+  g.fillStyle = '#171512';
   g.fill();
-  g.strokeStyle = '#5cf0d8';
+  g.strokeStyle = '#f6f0e1';
   g.lineWidth = 1.4;
   g.stroke();
 
@@ -365,12 +352,31 @@ function el<K extends keyof HTMLElementTagNameMap>(
   return node;
 }
 
-function formatClock(minutes: number): string {
+function svgEl<K extends keyof SVGElementTagNameMap>(tag: K, attrs: Record<string, string | number>): SVGElementTagNameMap[K] {
+  const node = document.createElementNS(SVG_NS, tag);
+  for (const [k, v] of Object.entries(attrs)) {
+    node.setAttribute(k, String(v));
+  }
+  return node;
+}
+
+function describeArc(cx: number, cy: number, r: number, startDeg: number, endDeg: number): string {
+  const s = (startDeg * Math.PI) / 180;
+  const e = (endDeg * Math.PI) / 180;
+  const x1 = cx + r * Math.cos(s);
+  const y1 = cy + r * Math.sin(s);
+  const x2 = cx + r * Math.cos(e);
+  const y2 = cy + r * Math.sin(e);
+  const large = endDeg - startDeg > 180 ? 1 : 0;
+  return `M ${x1.toFixed(2)} ${y1.toFixed(2)} A ${r} ${r} 0 ${large} 1 ${x2.toFixed(2)} ${y2.toFixed(2)}`;
+}
+
+function formatClockDigits(minutes: number): [string, string, string, string] {
   const clamped = Math.max(0, Math.min(1440, Math.floor(minutes)));
-  if (clamped >= 1440) return '24:00';
-  const hh = Math.floor(clamped / 60);
-  const mm = clamped % 60;
-  return `${String(hh).padStart(2, '0')}:${String(mm).padStart(2, '0')}`;
+  if (clamped >= 1440) return ['2', '4', '0', '0'];
+  const hh = String(Math.floor(clamped / 60)).padStart(2, '0');
+  const mm = String(clamped % 60).padStart(2, '0');
+  return [hh[0], hh[1], mm[0], mm[1]];
 }
 
 function formatDistance(meters: number): string {
@@ -448,7 +454,7 @@ export function createHud(ctx: FlightContext, uiRoot?: HTMLElement | null): Flig
 
   const root = el('div', 'hud-root');
 
-  // Camada de mira e cruz do nariz (somente aeronaves no modo mouse)
+  // Camada de mira e cruz do nariz (somente A-29 no modo mouse)
   const reticlesLayer = el('div', 'hud-reticles');
   const aimRing = el('div', 'hud-aim-ring');
   aimRing.hidden = true;
@@ -456,99 +462,169 @@ export function createHud(ctx: FlightContext, uiRoot?: HTMLElement | null): Flig
   noseCross.hidden = true;
   reticlesLayer.append(aimRing, noseCross);
 
-  // Topo central: relógio grande (HH:MM) + pontos + progresso total
+  // 1) TOPO CENTRAL — Relógio protagonista estilo flip-clock
   const clockWrap = el('div', 'hud-clock-wrap');
-  const clockTag = el('div', 'hud-clock-tag', 'ATÉ MEIA-NOITE');
-  const clockDigits = el('div', 'hud-clock', '00:00');
-  const clockMeta = el('div', 'hud-clock-meta');
-  const scoreBadge = el('span', 'hud-score', '0 PTS');
-  const totalBadge = el('span', 'hud-total', '0/0 ENTREGAS');
-  clockMeta.append(scoreBadge, totalBadge);
-  clockWrap.append(clockTag, clockDigits, clockMeta);
+  const clockTag = el('div', 'hud-clock-tag', 'ATÉ A MEIA-NOITE');
+  const flipBoard = el('div', 'hud-flip-board');
+  const d0 = el('span', 'hud-flip-tile', '0');
+  const d1 = el('span', 'hud-flip-tile', '0');
+  const colon = el('span', 'hud-flip-colon', ':');
+  const d2 = el('span', 'hud-flip-tile', '0');
+  const d3 = el('span', 'hud-flip-tile', '0');
+  flipBoard.append(d0, d1, colon, d2, d3);
 
-  // Mensagem da missão (toast central abaixo do relógio)
+  const clockMeta = el('div', 'hud-clock-meta');
+  const scoreBadge = el('span', 'hud-score', '0 pts');
+  const totalBadge = el('span', 'hud-total', '0/0');
+  clockMeta.append(scoreBadge, totalBadge);
+  clockWrap.append(clockTag, flipBoard, clockMeta);
+
+  // Mensagem curta de despacho (avisos/bloqueios)
   const missionMsg = el('div', 'hud-mission-msg');
   missionMsg.hidden = true;
 
-  // Canto superior esquerdo: telemetria + painel de objetivo empilhados
-  const leftCol = el('div', 'hud-left-col');
-
-  const panel = el('div', 'hud-telemetry');
-  const badgesRow = el('div', 'hud-badges');
-  const vehicleBadge = el('div', 'hud-vehicle');
-  const cameraBadge = el('div', 'hud-camera');
-  const controlBadge = el('div', 'hud-control');
-  const smokeBadge = el('div', 'hud-smoke');
-  badgesRow.append(vehicleBadge, cameraBadge, controlBadge, smokeBadge);
-
-  const lockHint = el('div', 'hud-lock-hint', 'Clique no canvas para mirar');
-
-  // Grupo aéreo (A-29 / helicóptero)
-  const metricsGroup = el('div', 'hud-metrics');
-  const speedRow = el('div', 'hud-metric');
-  const speedLabel = el('span', 'hud-label', 'VEL');
-  const speedVal = el('span', 'hud-value');
-  speedRow.append(speedLabel, speedVal);
-
-  const altRow = el('div', 'hud-metric');
-  const altLabel = el('span', 'hud-label', 'ALT');
-  const altVal = el('span', 'hud-value');
-  altRow.append(altLabel, altVal);
-
-  const throttleRow = el('div', 'hud-throttle-row');
-  const throttleHead = el('div', 'hud-throttle-head');
-  const throttleLabel = el('span', 'hud-label', 'ACEL');
-  const throttleVal = el('span', 'hud-value-sm');
-  throttleHead.append(throttleLabel, throttleVal);
-
-  const throttleTrack = el('div', 'hud-throttle-track');
-  const throttleFill = el('div', 'hud-throttle-fill');
-  throttleTrack.append(throttleFill);
-  throttleRow.append(throttleHead, throttleTrack);
-  metricsGroup.append(speedRow, altRow, throttleRow);
-
-  // Velocímetro automotivo (Hatch e Coupé Tunado)
-  const carDash = el('div', 'hud-car-dash');
-  carDash.hidden = true;
-  const carSpeedLine = el('div', 'hud-car-speed-line');
-  const carSpeedVal = el('span', 'hud-car-speed', '0');
-  const carSpeedUnit = el('span', 'hud-car-unit', 'km/h');
-  const carGear = el('span', 'hud-car-gear', 'N');
-  carSpeedLine.append(carSpeedVal, carSpeedUnit, carGear);
-  const carRpmTrack = el('div', 'hud-throttle-track');
-  const carRpmFill = el('div', 'hud-car-rpm-fill');
-  carRpmTrack.append(carRpmFill);
-
-  // Barra de nitro (exclusiva do Coupé Tunado)
-  const nitroRow = el('div', 'hud-nitro-row');
-  nitroRow.hidden = true;
-  const nitroHead = el('div', 'hud-throttle-head');
-  const nitroLabel = el('span', 'hud-nitro-label', 'NITRO [SHIFT]');
-  const nitroVal = el('span', 'hud-value-sm', '100%');
-  nitroHead.append(nitroLabel, nitroVal);
-  const nitroTrack = el('div', 'hud-throttle-track hud-nitro-track');
-  const nitroFill = el('div', 'hud-nitro-fill');
-  nitroTrack.append(nitroFill);
-  nitroRow.append(nitroHead, nitroTrack);
-
-  carDash.append(carSpeedLine, carRpmTrack, nitroRow);
-
-  panel.append(badgesRow, lockHint, metricsGroup, carDash);
-
-  // Painel do objetivo da missão (estágio, entrega atual, distância)
+  // 2) CANTO SUPERIOR ESQUERDO — Etiqueta de entrega GoPostal (papel creme + faixa amarela + carimbo)
   const objPanel = el('div', 'hud-objective');
   objPanel.hidden = true;
-  const objStage = el('div', 'hud-obj-stage', 'ESTÁGIO 1/4 · HATCH');
-  const objTarget = el('div', 'hud-obj-target', 'Aguardando entregas...');
+
+  const objBand = el('div', 'hud-obj-band');
+  const objBrand = el('span', 'hud-obj-brand', 'GOPOSTAL');
+  const objOrder = el('span', 'hud-obj-order', '#01/16');
+  objBand.append(objBrand, objOrder);
+
+  const objBody = el('div', 'hud-obj-body');
+  const objKicker = el('div', 'hud-obj-kicker');
+  const objKickerLbl = el('span', '', 'Destinatário');
+  const objStage = el('span', '', 'Etapa 1/4');
+  objKicker.append(objKickerLbl, objStage);
+  const objTarget = el('div', 'hud-obj-target', 'Aguardando despacho');
+
   const objFoot = el('div', 'hud-obj-foot');
   const objDist = el('span', 'hud-obj-dist', '');
   const objHint = el('span', 'hud-obj-hint', '');
+  objHint.hidden = true;
   objFoot.append(objDist, objHint);
-  objPanel.append(objStage, objTarget, objFoot);
+  objBody.append(objKicker, objTarget, objFoot);
 
-  leftCol.append(panel, objPanel);
+  const objStub = el('div', 'hud-obj-stub');
+  const objBarcode = el('div', 'hud-obj-barcode');
+  const objCode = el('span', 'hud-obj-code', 'GP-JF-001');
+  objStub.append(objBarcode, objCode);
 
-  // Canto superior direito: Minimapa 2D com planta real da cidade (gira e centraliza no jogador)
+  const objStamp = el('div', 'hud-obj-stamp', 'ENTREGUE');
+  objStamp.hidden = true;
+
+  const scorePop = el('div', 'hud-score-pop');
+  scorePop.hidden = true;
+
+  objPanel.append(objBand, objBody, objStub, objStamp, scorePop);
+
+  // 3) CANTO INFERIOR DIREITO — Mostrador circular SVG (velocímetro / altímetro)
+  const gaugeWrap = el('div', 'hud-gauge-wrap');
+  const gaugeRow = el('div', 'hud-gauge-row');
+
+  // Sub-mostrador aéreo (altitude + potência para heli / A-29)
+  const airSub = el('div', 'hud-gauge-air-sub');
+  airSub.hidden = true;
+  const altRow = el('div', 'hud-air-row');
+  const altVal = el('span', 'hud-air-val', '0 m');
+  altRow.append(el('span', 'hud-air-lbl', 'ALT'), altVal);
+  const thrRow = el('div', 'hud-air-row');
+  const throttleVal = el('span', 'hud-air-val', '0%');
+  thrRow.append(el('span', 'hud-air-lbl', 'POT'), throttleVal);
+  airSub.append(altRow, thrRow);
+
+  // Mostrador circular principal
+  const dialBox = el('div', 'hud-dial-box');
+  const dialSvg = svgEl('svg', { viewBox: '0 0 148 148', class: 'hud-dial-svg' });
+  const dialBg = svgEl('circle', { cx: DIAL_CX, cy: DIAL_CY, r: 68, class: 'hud-dial-bg' });
+
+  const fullArcPath = describeArc(DIAL_CX, DIAL_CY, DIAL_R, DIAL_START_DEG, DIAL_START_DEG + DIAL_SWEEP_DEG);
+  const redlinePath = describeArc(
+    DIAL_CX,
+    DIAL_CY,
+    DIAL_R,
+    DIAL_START_DEG + DIAL_SWEEP_DEG * 0.78,
+    DIAL_START_DEG + DIAL_SWEEP_DEG,
+  );
+  const arcTotalLen = (DIAL_SWEEP_DEG / 360) * (2 * Math.PI * DIAL_R);
+
+  const dialTrack = svgEl('path', { d: fullArcPath, class: 'hud-dial-ring' });
+  const dialRedline = svgEl('path', { d: redlinePath, class: 'hud-dial-redline' });
+  const dialArc = svgEl('path', {
+    d: fullArcPath,
+    class: 'hud-dial-arc',
+    'stroke-dasharray': arcTotalLen.toFixed(2),
+    'stroke-dashoffset': arcTotalLen.toFixed(2),
+  });
+
+  // Marcações radiais do mostrador
+  const ticksGroup = svgEl('g', {});
+  const tickCount = 12;
+  for (let i = 0; i <= tickCount; i++) {
+    const frac = i / tickCount;
+    const deg = DIAL_START_DEG + frac * DIAL_SWEEP_DEG;
+    const rad = (deg * Math.PI) / 180;
+    const isMajor = i % 2 === 0;
+    const rOut = DIAL_R + 5;
+    const rIn = DIAL_R - (isMajor ? 7 : 3);
+    const line = svgEl('line', {
+      x1: (DIAL_CX + rIn * Math.cos(rad)).toFixed(1),
+      y1: (DIAL_CY + rIn * Math.sin(rad)).toFixed(1),
+      x2: (DIAL_CX + rOut * Math.cos(rad)).toFixed(1),
+      y2: (DIAL_CY + rOut * Math.sin(rad)).toFixed(1),
+      class: frac >= 0.78 ? 'hud-dial-ticks-red' : 'hud-dial-ticks',
+    });
+    ticksGroup.append(line);
+  }
+
+  // Ponteiro fino na borda do arco (sem cobrir os números centrais)
+  const needleGroup = svgEl('g', { transform: `rotate(${DIAL_START_DEG} ${DIAL_CX} ${DIAL_CY})` });
+  const needleLine = svgEl('line', {
+    x1: DIAL_CX + 38,
+    y1: DIAL_CY,
+    x2: DIAL_CX + DIAL_R + 6,
+    y2: DIAL_CY,
+    class: 'hud-dial-needle',
+  });
+  needleGroup.append(needleLine);
+
+  dialSvg.append(dialBg, dialTrack, dialRedline, dialArc, ticksGroup, needleGroup);
+
+  const dialReadout = el('div', 'hud-dial-readout');
+  const dialSpeed = el('span', 'hud-dial-speed', '0');
+  const dialUnit = el('span', 'hud-dial-unit', 'km/h');
+  const dialGear = el('span', 'hud-dial-gear', 'N');
+  dialReadout.append(dialSpeed, dialUnit, dialGear);
+
+  dialBox.append(dialSvg, dialReadout);
+  gaugeRow.append(airSub, dialBox);
+
+  // Barra de nitro (exclusiva do Coupé Tunado)
+  const nitroWrap = el('div', 'hud-nitro-wrap');
+  nitroWrap.hidden = true;
+  const nitroHead = el('div', 'hud-nitro-head');
+  const nitroVal = el('span', '', '100%');
+  nitroHead.append(el('span', '', 'NITRO · SHIFT'), nitroVal);
+  const nitroTrack = el('div', 'hud-nitro-track');
+  const nitroFill = el('div', 'hud-nitro-fill');
+  nitroTrack.append(nitroFill);
+  nitroWrap.append(nitroHead, nitroTrack);
+
+  // Chips mínimos só para A-29 (mouse/teclado e fumaça)
+  const airChips = el('div', 'hud-air-chips');
+  airChips.hidden = true;
+  const controlBadge = el('span', 'hud-control');
+  const smokeBadge = el('span', 'hud-smoke');
+  airChips.append(controlBadge, smokeBadge);
+
+  gaugeWrap.append(airChips, gaugeRow, nitroWrap);
+
+  // Dica discreta de trava do mouse (canto inferior esquerdo, apenas quando relevante)
+  const lockHint = el('div', 'hud-lock-hint', 'Clique para girar a câmera');
+  lockHint.hidden = true;
+
+  // 4) CANTO SUPERIOR DIREITO — Minimapa quadrado sem cartão translúcido
   const minimapWrap = el('div', 'hud-minimap');
   const minimapCanvas = document.createElement('canvas');
   minimapCanvas.className = 'hud-minimap-canvas';
@@ -558,7 +634,7 @@ export function createHud(ctx: FlightContext, uiRoot?: HTMLElement | null): Flig
   minimapWrap.append(minimapCanvas, minimapTag);
   const mapCtx = minimapCanvas.getContext('2d');
 
-  // Aviso de proximidade para entrar em veículo / veículo bloqueado
+  // Aviso de proximidade para entrar em veículo (com keycap física)
   const nearbyPrompt = el('div', 'hud-nearby');
   nearbyPrompt.hidden = true;
 
@@ -566,39 +642,33 @@ export function createHud(ctx: FlightContext, uiRoot?: HTMLElement | null): Flig
   const alertBox = el('div', 'hud-alert');
   alertBox.hidden = true;
 
-  // Selo e atalhos discretos do Modo Apresentação (visíveis somente quando ativo)
+  // Selo e atalhos do Modo Apresentação
   const presBox = el('div', 'hud-pres-wrap');
   presBox.hidden = true;
   const presBadge = el('div', 'hud-pres-badge', 'MODO APRESENTAÇÃO');
   const presKeys = el('div', 'hud-pres-keys', 'F1 Carro · F2 Tunado · F3 Heli · F4 A-29 · F5 Final · F6 +1h');
   presBox.append(presBadge, presKeys);
 
-  // Vinheta vermelha pulsante após 23:00 + contagem regressiva grande nos últimos 60 s + "+pontos" flutuante
+  // Vinheta vermelha após 23:00 + contagem regressiva nos últimos 60 s
   const urgentVignette = el('div', 'hud-urgent-vignette');
   urgentVignette.hidden = true;
 
   const countdownEl = el('div', 'hud-countdown');
   countdownEl.hidden = true;
 
-  const scorePop = el('div', 'hud-score-pop');
-  scorePop.hidden = true;
-
-  // Rodapé de atalhos
-  const footer = el('div', 'hud-footer', FOOTER_BY_VEHICLE.car);
-
   root.append(
     urgentVignette,
     reticlesLayer,
     clockWrap,
-    scorePop,
     countdownEl,
     missionMsg,
-    leftCol,
+    objPanel,
     minimapWrap,
+    gaugeWrap,
+    lockHint,
     nearbyPrompt,
     alertBox,
     presBox,
-    footer,
   );
   ui.append(root);
 
@@ -616,14 +686,14 @@ export function createHud(ctx: FlightContext, uiRoot?: HTMLElement | null): Flig
   const aimCache: MarkerCache = { visible: false, x: Number.NaN, y: Number.NaN };
   const noseCache: MarkerCache = { visible: false, x: Number.NaN, y: Number.NaN };
 
-  let lastSpeedKmh = Number.NaN;
+  let lastDialSpeed = Number.NaN;
+  let lastDialGear = '';
+  let lastDialRatio = Number.NaN;
+  let lastDialHot: boolean | null = null;
   let lastAltM = Number.NaN;
   let lastThrottlePct = Number.NaN;
-  let lastCarSpeed = Number.NaN;
-  let lastCarGear = '';
   let lastNitroPct = Number.NaN;
   let lastNitroHot: boolean | null = null;
-  let lastCamera: CameraMode | null = null;
   let lastVehicle: VehicleKind | null = null;
   let lastControl: FlightState['controlMode'] | null = null;
   let lastLocked: boolean | null = null;
@@ -633,12 +703,14 @@ export function createHud(ctx: FlightContext, uiRoot?: HTMLElement | null): Flig
   let lastPresVisible: boolean | null = null;
   let lastNearbyKey = '';
   let lastAlert: AlertState = 'none';
-  let lastClockText = '';
+  let lastClockKey = '';
   let lastClockUrgent: boolean | null = null;
   let lastVignetteOpacity = -1;
   let lastCountdownSec = -1;
   let scorePopTimer = 0;
+  let stampTimer = 0;
   let lastScore = Number.NaN;
+  let lastDelivered = Number.NaN;
   let lastTotalKey = '';
   let lastObjKey = '';
   let lastMsgKey = '';
@@ -646,6 +718,22 @@ export function createHud(ctx: FlightContext, uiRoot?: HTMLElement | null): Flig
   let animPhase = 0;
   let localNitro = 1;
   let nitroExhausted = false;
+
+  function setDialArc(ratio: number, hot: boolean) {
+    const clamped = Math.max(0, Math.min(1, ratio));
+    const quantized = Math.round(clamped * 200) / 200;
+    if (quantized !== lastDialRatio) {
+      lastDialRatio = quantized;
+      const offset = arcTotalLen * (1 - quantized);
+      dialArc.setAttribute('stroke-dashoffset', offset.toFixed(2));
+      const angle = DIAL_START_DEG + quantized * DIAL_SWEEP_DEG;
+      needleGroup.setAttribute('transform', `rotate(${angle.toFixed(1)} ${DIAL_CX} ${DIAL_CY})`);
+    }
+    if (hot !== lastDialHot) {
+      lastDialHot = hot;
+      dialArc.classList.toggle('hud-dial-arc--hot', hot);
+    }
+  }
 
   function findNextDelivery(mission: MissionState): {
     activeStage: Stage;
@@ -724,7 +812,6 @@ export function createHud(ctx: FlightContext, uiRoot?: HTMLElement | null): Flig
   ): { x: number; y: number } {
     const dx = (wx - state.x) * scale;
     const dz = (wz - state.z) * scale;
-    // Rotaciona por -heading para que a frente do jogador aponte sempre para cima
     const rx = dx * cosH + dz * sinH;
     const ry = -dx * sinH + dz * cosH;
     return { x: half + rx, y: half + ry };
@@ -767,11 +854,10 @@ export function createHud(ctx: FlightContext, uiRoot?: HTMLElement | null): Flig
     const cosH = Math.cos(hRad);
     const sinH = Math.sin(hRad);
 
-    // Fundo de relevo caso o recorte gire além das bordas
-    mapCtx.fillStyle = '#14201b';
+    mapCtx.fillStyle = '#191a16';
     mapCtx.fillRect(0, 0, size, size);
 
-    // 1) Planta pré-renderizada de Juiz de Fora girando e centralizando no jogador
+    // 1) Planta pré-renderizada de Juiz de Fora
     if (blueprint) {
       mapCtx.save();
       mapCtx.translate(half, half);
@@ -783,7 +869,6 @@ export function createHud(ctx: FlightContext, uiRoot?: HTMLElement | null): Flig
       mapCtx.drawImage(blueprint.canvas, ox, oz, drawW, drawH);
       mapCtx.restore();
 
-      // 1b) Marcos de Juiz de Fora em texto sempre horizontal (com UniAcademia destacada)
       const uniPulse = 0.5 + 0.5 * Math.sin(animPhase * 4.2);
       mapCtx.save();
       mapCtx.textAlign = 'center';
@@ -792,105 +877,90 @@ export function createHud(ctx: FlightContext, uiRoot?: HTMLElement | null): Flig
       for (let i = 0; i < blueprint.landmarks.length; i++) {
         const lm = blueprint.landmarks[i];
         const p = worldToRotatedMap(lm.x, lm.z, scale, cosH, sinH, half);
-        if (p.x < 10 || p.x > size - 10 || p.y < 14 || p.y > size - 10) continue;
+        if (p.x < 10 || p.x > size - 10 || p.y < 14 || p.y > size - 14) continue;
 
         if (lm.highlight) {
-          // UniAcademia: estrela/losango dourado pulsante + rótulo dourado em destaque
           mapCtx.beginPath();
-          mapCtx.arc(p.x, p.y, 4.8 + uniPulse * 2.2, 0, Math.PI * 2);
-          mapCtx.strokeStyle = 'rgba(255, 224, 96, 0.85)';
-          mapCtx.lineWidth = 1.3;
+          mapCtx.arc(p.x, p.y, 4.8 + uniPulse * 2.0, 0, Math.PI * 2);
+          mapCtx.strokeStyle = 'rgba(242, 194, 26, 0.9)';
+          mapCtx.lineWidth = 1.4;
           mapCtx.stroke();
 
           mapCtx.save();
           mapCtx.translate(p.x, p.y);
           mapCtx.rotate(Math.PI / 4);
-          mapCtx.fillStyle = '#ffd84d';
-          mapCtx.strokeStyle = '#1a1204';
+          mapCtx.fillStyle = '#f2c21a';
+          mapCtx.strokeStyle = '#171512';
           mapCtx.lineWidth = 1.1;
           mapCtx.fillRect(-3.4, -3.4, 6.8, 6.8);
           mapCtx.strokeRect(-3.4, -3.4, 6.8, 6.8);
           mapCtx.restore();
 
-          mapCtx.font = '800 8.5px system-ui, sans-serif';
-          mapCtx.strokeStyle = 'rgba(8, 12, 18, 0.92)';
+          mapCtx.font = '700 8.5px "Segoe UI", sans-serif';
+          mapCtx.strokeStyle = 'rgba(14, 13, 11, 0.95)';
           mapCtx.lineWidth = 2.8;
           mapCtx.strokeText(lm.name, p.x, p.y - 6);
-          mapCtx.fillStyle = '#ffe26a';
+          mapCtx.fillStyle = '#f2c21a';
           mapCtx.fillText(lm.name, p.x, p.y - 6);
         } else {
           mapCtx.beginPath();
           mapCtx.arc(p.x, p.y, 2.2, 0, Math.PI * 2);
-          mapCtx.fillStyle = '#d6e4f0';
+          mapCtx.fillStyle = '#e9dfc8';
           mapCtx.fill();
-          mapCtx.strokeStyle = '#0b121c';
+          mapCtx.strokeStyle = '#171512';
           mapCtx.lineWidth = 0.8;
           mapCtx.stroke();
 
-          mapCtx.font = '700 7.5px system-ui, sans-serif';
-          mapCtx.strokeStyle = 'rgba(8, 12, 18, 0.86)';
+          mapCtx.font = '700 7.5px "Segoe UI", sans-serif';
+          mapCtx.strokeStyle = 'rgba(14, 13, 11, 0.9)';
           mapCtx.lineWidth = 2.4;
           mapCtx.strokeText(lm.name, p.x, p.y - 4);
-          mapCtx.fillStyle = 'rgba(232, 240, 248, 0.92)';
+          mapCtx.fillStyle = 'rgba(246, 240, 225, 0.9)';
           mapCtx.fillText(lm.name, p.x, p.y - 4);
         }
       }
       mapCtx.restore();
     }
 
-    // 2) Veículos estacionados / na cena (escaneados a cada ~10 quadros)
-    if (minimapFrame % 10 === 0) {
-      scanSceneVehicles(app.root, blips);
-    }
-    minimapFrame++;
-
+    // 2) Veículos na cena
     for (let i = 0; i < blips.length; i++) {
       const b = blips[i];
       if (Math.hypot(b.x - state.x, b.z - state.z) < 4) continue;
       const p = worldToRotatedMap(b.x, b.z, scale, cosH, sinH, half);
       if (p.x < 4 || p.x > size - 4 || p.y < 4 || p.y > size - 4) continue;
-      mapCtx.fillStyle =
-        b.kind === 'a29'
-          ? '#60a5fa'
-          : b.kind === 'heli'
-            ? '#3dd6bd'
-            : b.kind === 'tuned'
-              ? '#ff4dc4'
-              : '#ff9e4a';
+      mapCtx.fillStyle = b.kind === 'car' ? '#d4c39f' : '#f7f3e8';
       mapCtx.beginPath();
       mapCtx.arc(p.x, p.y, b.kind === 'car' ? 2.6 : 3.4, 0, Math.PI * 2);
       mapCtx.fill();
-      mapCtx.strokeStyle = '#09111a';
-      mapCtx.lineWidth = 0.8;
+      mapCtx.strokeStyle = '#171512';
+      mapCtx.lineWidth = 1;
       mapCtx.stroke();
     }
 
-    // 3) Entregas pendentes, próxima entrega destacada e próximo veículo a desbloquear
+    // 3) Rota de GPS e entregas pendentes na paleta GoPostal
     const mission = ctx.mission;
     if (mission && mission.status === 'playing') {
       const { pendingStage, next } = findNextDelivery(mission);
-      const pulse = 0.5 + 0.5 * Math.sin(animPhase * 5.2);
+      const pulse = 0.5 + 0.5 * Math.sin(animPhase * 5.0);
 
-      // Próximo veículo a desbloquear
       const nextVeh = findNextVehicleCoords(mission);
       if (nextVeh) {
         const raw = worldToRotatedMap(nextVeh.x, nextVeh.z, scale, cosH, sinH, half);
         const pt = clampToMap(raw.x, raw.y, size, 12);
         mapCtx.save();
-        mapCtx.fillStyle = 'rgba(20, 12, 34, 0.92)';
-        mapCtx.strokeStyle = '#ff5cd6';
-        mapCtx.lineWidth = 1.6;
+        mapCtx.fillStyle = '#d93025';
+        mapCtx.strokeStyle = '#171512';
+        mapCtx.lineWidth = 1.5;
         mapCtx.fillRect(pt.x - 6, pt.y - 6, 12, 12);
         mapCtx.strokeRect(pt.x - 6, pt.y - 6, 12, 12);
-        mapCtx.fillStyle = '#ff9be8';
-        mapCtx.font = '800 8px system-ui, sans-serif';
+        mapCtx.fillStyle = '#f7f3e8';
+        mapCtx.font = '700 8.5px "Segoe UI", sans-serif';
         mapCtx.textAlign = 'center';
         mapCtx.textBaseline = 'middle';
         mapCtx.fillText(STAGE_SHORT_CODE[nextVeh.stage], pt.x, pt.y + 0.5);
         mapCtx.restore();
       }
 
-      // Entregas pendentes (diamantes ciano)
       for (let i = 0; i < pendingStage.length; i++) {
         const d = pendingStage[i];
         if (next && d.id === next.id) continue;
@@ -899,19 +969,18 @@ export function createHud(ctx: FlightContext, uiRoot?: HTMLElement | null): Flig
         mapCtx.save();
         mapCtx.translate(pt.x, pt.y);
         mapCtx.rotate(Math.PI / 4);
-        mapCtx.fillStyle = d.leadsToNext ? '#ff6ee0' : '#38e8c8';
-        mapCtx.fillRect(-3.2, -3.2, 6.4, 6.4);
-        mapCtx.strokeStyle = '#08131a';
+        mapCtx.fillStyle = d.leadsToNext ? '#d93025' : '#f6f0e1';
+        mapCtx.fillRect(-3.1, -3.1, 6.2, 6.2);
+        mapCtx.strokeStyle = '#171512';
         mapCtx.lineWidth = 1;
-        mapCtx.strokeRect(-3.2, -3.2, 6.4, 6.4);
+        mapCtx.strokeRect(-3.1, -3.1, 6.2, 6.2);
         mapCtx.restore();
       }
 
-      // Próxima entrega destacada (halo dourado pulsante) + rota de GPS sobre as vias
       if (next) {
         const route = getActiveRoute(state);
         if (route && route.points.length >= 2) {
-          const routeColor = next.leadsToNext ? '#ff6ee0' : '#ffd648';
+          const routeColor = next.leadsToNext ? '#d93025' : '#f2c21a';
           mapCtx.save();
           mapCtx.lineCap = 'round';
           mapCtx.lineJoin = 'round';
@@ -921,14 +990,13 @@ export function createHud(ctx: FlightContext, uiRoot?: HTMLElement | null): Flig
             if (i === 0) mapCtx.moveTo(p.x, p.y);
             else mapCtx.lineTo(p.x, p.y);
           }
-          mapCtx.strokeStyle = 'rgba(8, 12, 20, 0.88)';
+          mapCtx.strokeStyle = 'rgba(14, 13, 11, 0.92)';
           mapCtx.lineWidth = 5.4;
           mapCtx.stroke();
           mapCtx.strokeStyle = routeColor;
           mapCtx.lineWidth = 3.2;
           mapCtx.stroke();
 
-          // Trecho final tracejado do último ponto da via até a entrega
           if (route.finalLegDistance > 2) {
             const lastPt = route.points[route.points.length - 1];
             const pA = worldToRotatedMap(lastPt.x, lastPt.z, scale, cosH, sinH, half);
@@ -947,52 +1015,52 @@ export function createHud(ctx: FlightContext, uiRoot?: HTMLElement | null): Flig
 
         const raw = worldToRotatedMap(next.x, next.z, scale, cosH, sinH, half);
         const pt = clampToMap(raw.x, raw.y, size, 10);
-        const haloR = 6 + pulse * 3.5;
+        const haloR = 6 + pulse * 3.2;
         mapCtx.beginPath();
         mapCtx.arc(pt.x, pt.y, haloR, 0, Math.PI * 2);
-        mapCtx.strokeStyle = next.airDrop ? 'rgba(92, 225, 255, 0.88)' : 'rgba(255, 214, 72, 0.92)';
+        mapCtx.strokeStyle = next.airDrop ? '#d93025' : '#f2c21a';
         mapCtx.lineWidth = 1.9;
         mapCtx.stroke();
 
         mapCtx.beginPath();
         mapCtx.arc(pt.x, pt.y, pt.clamped ? 4.4 : 4.8, 0, Math.PI * 2);
-        mapCtx.fillStyle = next.airDrop ? '#5ce1ff' : '#ffd648';
+        mapCtx.fillStyle = next.airDrop ? '#d93025' : '#f2c21a';
         mapCtx.fill();
-        mapCtx.strokeStyle = '#12121a';
-        mapCtx.lineWidth = 1.2;
+        mapCtx.strokeStyle = '#171512';
+        mapCtx.lineWidth = 1.3;
         mapCtx.stroke();
       }
     }
 
-    // 4) Seta do jogador centralizada apontando sempre para cima (frente do veículo)
+    // 4) Seta do jogador centralizada
     mapCtx.save();
     mapCtx.translate(half, half);
     mapCtx.beginPath();
-    mapCtx.moveTo(0, -7);
-    mapCtx.lineTo(4.8, 5.2);
-    mapCtx.lineTo(0, 2.5);
-    mapCtx.lineTo(-4.8, 5.2);
+    mapCtx.moveTo(0, -7.2);
+    mapCtx.lineTo(5.0, 5.2);
+    mapCtx.lineTo(0, 2.4);
+    mapCtx.lineTo(-5.0, 5.2);
     mapCtx.closePath();
-    mapCtx.fillStyle = '#fff5e6';
+    mapCtx.fillStyle = '#f7f3e8';
     mapCtx.fill();
-    mapCtx.strokeStyle = '#0c131d';
-    mapCtx.lineWidth = 1.1;
+    mapCtx.strokeStyle = '#171512';
+    mapCtx.lineWidth = 1.3;
     mapCtx.stroke();
     mapCtx.restore();
 
-    // 5) Indicador Norte girando na borda conforme a bússola do jogador
+    // 5) Indicador Norte
     const northRawX = half - sinH * (half - 11);
     const northRawY = half - cosH * (half - 11);
     const northPt = clampToMap(northRawX, northRawY, size, 10);
     mapCtx.beginPath();
     mapCtx.arc(northPt.x, northPt.y, 7.5, 0, Math.PI * 2);
-    mapCtx.fillStyle = 'rgba(10, 14, 24, 0.86)';
+    mapCtx.fillStyle = '#161513';
     mapCtx.fill();
-    mapCtx.strokeStyle = 'rgba(255, 189, 125, 0.65)';
-    mapCtx.lineWidth = 1;
+    mapCtx.strokeStyle = '#f2c21a';
+    mapCtx.lineWidth = 1.2;
     mapCtx.stroke();
-    mapCtx.fillStyle = '#ffbd7d';
-    mapCtx.font = '800 9px system-ui, sans-serif';
+    mapCtx.fillStyle = '#f2c21a';
+    mapCtx.font = '700 9px "Segoe UI", sans-serif';
     mapCtx.textAlign = 'center';
     mapCtx.textBaseline = 'middle';
     mapCtx.fillText('N', northPt.x, northPt.y + 0.5);
@@ -1074,6 +1142,23 @@ export function createHud(ctx: FlightContext, uiRoot?: HTMLElement | null): Flig
     return { ratio: localNitro, active };
   }
 
+  function triggerStampAndScore(gain: number) {
+    objStamp.hidden = false;
+    stampTimer = 1.25;
+    objStamp.classList.remove('hud-obj-stamp--slam');
+    void objStamp.offsetWidth;
+    objStamp.classList.add('hud-obj-stamp--slam');
+
+    if (gain > 0) {
+      scorePop.textContent = `+${gain}`;
+      scorePop.hidden = false;
+      scorePopTimer = 1.25;
+      scorePop.classList.remove('hud-score-pop--show');
+      void scorePop.offsetWidth;
+      scorePop.classList.add('hud-score-pop--show');
+    }
+  }
+
   function sync(dt: number) {
     const rt = getRuntime(state);
     const hudVisible = rt.mode !== 'title' && rt.mode !== 'ended' && rt.settings.showHud;
@@ -1099,32 +1184,25 @@ export function createHud(ctx: FlightContext, uiRoot?: HTMLElement | null): Flig
     const isCar = vehicle === 'car' || vehicle === 'tuned';
     const isAircraft = vehicle === 'a29' || vehicle === 'heli';
     const isCockpit = isAircraft && state.camera === 'cockpit';
+    const vehicleSwitched = vehicle !== lastVehicle || isCockpit !== lastCockpit;
 
-    if (vehicle !== lastVehicle || isCockpit !== lastCockpit) {
+    if (vehicleSwitched) {
       lastVehicle = vehicle;
       lastCockpit = isCockpit;
-      vehicleBadge.textContent = VEHICLE_BADGE[vehicle];
-      vehicleBadge.className = `hud-vehicle hud-vehicle--${vehicle}`;
-      footer.textContent = FOOTER_BY_VEHICLE[vehicle];
 
-      metricsGroup.hidden = !isAircraft || isCockpit;
-      carDash.hidden = !isCar;
-      nitroRow.hidden = vehicle !== 'tuned';
+      gaugeWrap.hidden = vehicle === 'foot' || isCockpit;
+      airSub.hidden = !isAircraft || isCockpit;
+      dialGear.hidden = !isCar;
+      nitroWrap.hidden = vehicle !== 'tuned';
+      airChips.hidden = vehicle !== 'a29';
       controlBadge.hidden = vehicle !== 'a29';
       smokeBadge.hidden = vehicle !== 'a29';
-
-      const compact = vehicle === 'foot' || isCockpit;
-      panel.classList.toggle('hud-telemetry--compact', compact);
       reticlesLayer.classList.toggle('hud-reticles--cockpit', isCockpit);
-    }
-
-    if (state.camera !== lastCamera) {
-      lastCamera = state.camera;
-      cameraBadge.textContent = CAMERA_LABEL[state.camera];
+      lastDialRatio = Number.NaN;
     }
 
     const locked = typeof document !== 'undefined' && canvas !== null && document.pointerLockElement === canvas;
-    if (state.controlMode !== lastControl || locked !== lastLocked || vehicle !== lastVehicle) {
+    if (state.controlMode !== lastControl || locked !== lastLocked || vehicleSwitched) {
       lastControl = state.controlMode;
       lastLocked = locked;
       const isMouse = state.controlMode === 'mouse';
@@ -1134,7 +1212,7 @@ export function createHud(ctx: FlightContext, uiRoot?: HTMLElement | null): Flig
         lockHint.textContent = 'Clique para girar a câmera';
         lockHint.hidden = locked || rt.mode !== 'playing';
       } else if (vehicle === 'a29') {
-        lockHint.textContent = 'Clique no canvas para mirar';
+        lockHint.textContent = 'Clique na tela para mirar';
         lockHint.hidden = !isMouse || locked || rt.mode !== 'playing';
       } else {
         lockHint.hidden = true;
@@ -1146,27 +1224,30 @@ export function createHud(ctx: FlightContext, uiRoot?: HTMLElement | null): Flig
       const smokeOn = isSmokeActive(state);
       if (smokeOn !== lastSmoke) {
         lastSmoke = smokeOn;
-        smokeBadge.textContent = smokeOn ? 'FUMAÇA ON' : 'FUMAÇA OFF';
+        smokeBadge.textContent = smokeOn ? 'FUMAÇA' : 'SEM FUMAÇA';
         smokeBadge.className = `hud-smoke ${smokeOn ? 'hud-smoke--on' : 'hud-smoke--off'}`;
       }
     }
 
-    // Relógio grande no topo, pontos e progresso da missão
+    // Relógio flip-clock, etiqueta de entrega, carimbo ENTREGUE e contagem final
     const mission = ctx.mission;
     if (mission) {
-      const clockText = formatClock(mission.clockMinutes);
-      if (clockText !== lastClockText) {
-        lastClockText = clockText;
-        clockDigits.textContent = clockText;
+      const [h0, h1, m0, m1] = formatClockDigits(mission.clockMinutes);
+      const clockKey = `${h0}${h1}${m0}${m1}`;
+      if (clockKey !== lastClockKey) {
+        lastClockKey = clockKey;
+        d0.textContent = h0;
+        d1.textContent = h1;
+        d2.textContent = m0;
+        d3.textContent = m1;
       }
       const urgent = mission.status === 'playing' && mission.clockMinutes >= 22 * 60;
       if (urgent !== lastClockUrgent) {
         lastClockUrgent = urgent;
         clockWrap.classList.toggle('hud-clock--urgent', urgent);
-        clockTag.textContent = urgent ? 'CORRE! QUASE MEIA-NOITE' : 'ATÉ MEIA-NOITE';
+        clockTag.textContent = urgent ? 'CORRE · QUASE MEIA-NOITE' : 'ATÉ A MEIA-NOITE';
       }
 
-      // A partir das 23:00: vinheta vermelha pulsando de leve + contagem grande nos últimos 60 s de jogo
       const isFinalHour = rt.mode === 'playing' && mission.status === 'playing' && mission.clockMinutes >= 23 * 60;
       if (isFinalHour) {
         const hourProg = Math.max(0, Math.min(1, (mission.clockMinutes - 23 * 60) / 60));
@@ -1201,116 +1282,108 @@ export function createHud(ctx: FlightContext, uiRoot?: HTMLElement | null): Flig
         }
       }
 
-      if (mission.score !== lastScore) {
-        const gain = Number.isFinite(lastScore) ? mission.score - lastScore : 0;
+      const prevDel = lastDelivered;
+      const deliveredIncreased = Number.isFinite(prevDel) && mission.delivered > prevDel;
+      lastDelivered = mission.delivered;
+
+      if (mission.score !== lastScore || deliveredIncreased) {
+        const gain = Number.isFinite(lastScore) ? Math.max(0, mission.score - lastScore) : 0;
         lastScore = mission.score;
-        scoreBadge.textContent = `${mission.score.toLocaleString('pt-BR')} PTS`;
-        if (gain > 0 && rt.mode === 'playing') {
-          scorePop.textContent = `+${gain} PTS`;
-          scorePop.hidden = false;
-          scorePopTimer = 1.15;
-          scorePop.classList.remove('hud-score-pop--show');
-          void scorePop.offsetWidth;
-          scorePop.classList.add('hud-score-pop--show');
+        scoreBadge.textContent = `${mission.score.toLocaleString('pt-BR')} pts`;
+        if ((gain > 0 || deliveredIncreased) && rt.mode === 'playing') {
+          triggerStampAndScore(gain);
         }
       }
+
       if (scorePopTimer > 0 && Number.isFinite(dt) && dt > 0) {
         scorePopTimer = Math.max(0, scorePopTimer - dt);
         if (scorePopTimer <= 0) scorePop.hidden = true;
+      }
+      if (stampTimer > 0 && Number.isFinite(dt) && dt > 0) {
+        stampTimer = Math.max(0, stampTimer - dt);
+        if (stampTimer <= 0) objStamp.hidden = true;
       }
 
       const totalKey = `${mission.delivered}/${mission.total}`;
       if (totalKey !== lastTotalKey) {
         lastTotalKey = totalKey;
-        totalBadge.textContent = mission.total > 0 ? `${totalKey} ENTREGAS` : 'TURNO ATIVO';
+        totalBadge.textContent = mission.total > 0 ? `${totalKey} entregas` : 'Turno ativo';
       }
 
-      // Painel do objetivo
+      // Etiqueta de entrega GoPostal
       const { activeStage, stageDeliveries, doneInStage, next } = findNextDelivery(mission);
-      let targetText = 'Explore a cidade ou inicie as entregas';
+      let kickerText = 'Destinatário';
+      let targetText = 'Aguardando despacho';
       let distText = '';
       let hintText = '';
+      let orderText = mission.total > 0 ? `#${String(Math.min(mission.total, mission.delivered + 1)).padStart(2, '0')}/${mission.total}` : '#01';
+      let codeText = `GP-JF-${String(Math.min(999, (mission.delivered + 1) * 17 + 100))}`;
 
       if (mission.deliveries.length > 0) {
         const idxInStage = Math.min(stageDeliveries.length, doneInStage + 1);
         if (next) {
-          targetText = `Entrega ${idxInStage}/${Math.max(1, stageDeliveries.length)}: ${next.name}`;
+          kickerText = `Entrega ${idxInStage}/${Math.max(1, stageDeliveries.length)}`;
+          targetText = next.name;
           const route = getActiveRoute(state);
           const dist =
             route && route.deliveryId === next.id
               ? route.distance
               : Math.hypot(next.x - state.x, next.z - state.z);
           distText = formatDistance(dist);
-          if (next.airDrop) hintText = 'ESPAÇO · LANÇAR';
-          else if (next.leadsToNext) hintText = 'PRÓXIMO VEÍCULO';
+          if (next.airDrop) hintText = 'Espaço · Lançar';
+          else if (next.leadsToNext) hintText = 'Próx. veículo';
+          codeText = `GP-${next.id.toUpperCase()}`;
         } else if (mission.carrying === null) {
-          targetText = `Entre no ${NEARBY_LABEL[mission.stage]} para pegar as encomendas`;
+          kickerText = 'Retirada';
+          targetText = `Pegue o ${NEARBY_LABEL[mission.stage]}`;
           const vehCoords = findNextVehicleCoords(mission);
           if (vehCoords) distText = formatDistance(Math.hypot(vehCoords.x - state.x, vehCoords.z - state.z));
+          orderText = STAGE_INDEX_LABEL[mission.stage];
         }
       }
 
-      const objKey = `${mission.status}|${activeStage}|${targetText}|${distText}|${hintText}`;
+      const objKey = `${mission.status}|${activeStage}|${kickerText}|${targetText}|${distText}|${hintText}|${orderText}|${codeText}`;
       if (objKey !== lastObjKey) {
         lastObjKey = objKey;
         objPanel.hidden = mission.status !== 'playing';
-        objStage.textContent = STAGE_LABEL[activeStage];
+        objOrder.textContent = orderText;
+        objKickerLbl.textContent = kickerText;
+        objStage.textContent = STAGE_INDEX_LABEL[activeStage];
         objTarget.textContent = targetText;
         objDist.textContent = distText;
         objHint.textContent = hintText;
         objHint.hidden = !hintText;
+        objCode.textContent = codeText;
       }
 
-      // Mensagens da missão
+      // Mensagens da missão (tira redundância do "+pts" já que o carimbo e o +pts saem da etiqueta)
       const showMsg = Boolean(mission.message && mission.messageTimer > 0);
       const msgKey = showMsg ? `${mission.message}` : '';
       if (msgKey !== lastMsgKey) {
         lastMsgKey = msgKey;
         missionMsg.hidden = !showMsg;
         if (showMsg && mission.message) {
-          missionMsg.textContent = mission.message;
+          missionMsg.textContent = mission.message.replace(/\s*\+\d+\s*(pts?)?$/i, '');
           const isWarn = /bloquead|trancad|termine as entregas|cuidado|falta|meia-noite|errado/i.test(mission.message);
           missionMsg.className = `hud-mission-msg ${isWarn ? 'hud-mission-msg--warn' : 'hud-mission-msg--ok'}`;
         }
       }
     }
 
-    // Telemetria aérea
-    if (isAircraft && !isCockpit) {
-      const speedKmh = Math.round(state.speed * 3.6);
-      if (speedKmh !== lastSpeedKmh) {
-        lastSpeedKmh = speedKmh;
-        speedVal.textContent = `${speedKmh} km/h`;
-      }
-
-      const altM = Math.round(state.altitude);
-      if (altM !== lastAltM) {
-        lastAltM = altM;
-        altVal.textContent = `${altM} m`;
-      }
-
-      const throttlePct = Math.round(Math.max(0, Math.min(1, state.throttle)) * 100);
-      if (throttlePct !== lastThrottlePct) {
-        lastThrottlePct = throttlePct;
-        throttleVal.textContent = `${throttlePct}%`;
-        throttleFill.style.transform = `scaleX(${throttlePct / 100})`;
-      }
-    }
-
-    // Velocímetro automotivo + barra de nitro do Coupé Tunado
+    // Mostrador circular (carros + aeronaves)
     const nitroInfo = updateNitro(dt, rt.mode === 'playing');
     if (isCar) {
       const kmh = Math.round(Math.abs(state.speed) * 3.6);
-      if (kmh !== lastCarSpeed) {
-        lastCarSpeed = kmh;
-        carSpeedVal.textContent = String(kmh);
+      if (kmh !== lastDialSpeed) {
+        lastDialSpeed = kmh;
+        dialSpeed.textContent = String(kmh);
       }
       const { label, rpmRatio } = estimateCarGear(state.speed, state.throttle, vehicle === 'tuned');
-      if (label !== lastCarGear) {
-        lastCarGear = label;
-        carGear.textContent = label;
+      if (label !== lastDialGear) {
+        lastDialGear = label;
+        dialGear.textContent = label;
       }
-      carRpmFill.style.transform = `scaleX(${rpmRatio.toFixed(3)})`;
+      setDialArc(rpmRatio, rpmRatio >= 0.82);
 
       if (vehicle === 'tuned') {
         const nitroPct = Math.round(nitroInfo.ratio * 100);
@@ -1321,12 +1394,30 @@ export function createHud(ctx: FlightContext, uiRoot?: HTMLElement | null): Flig
         }
         if (nitroInfo.active !== lastNitroHot) {
           lastNitroHot = nitroInfo.active;
-          nitroRow.classList.toggle('hud-nitro-row--active', nitroInfo.active);
+          nitroWrap.classList.toggle('hud-nitro-wrap--active', nitroInfo.active);
         }
       }
+    } else if (isAircraft && !isCockpit) {
+      const speedKmh = Math.round(Math.abs(state.speed) * 3.6);
+      if (speedKmh !== lastDialSpeed) {
+        lastDialSpeed = speedKmh;
+        dialSpeed.textContent = String(speedKmh);
+      }
+      const altM = Math.round(state.altitude);
+      if (altM !== lastAltM) {
+        lastAltM = altM;
+        altVal.textContent = `${altM} m`;
+      }
+      const thrRatio = Math.max(0, Math.min(1, state.throttle));
+      const throttlePct = Math.round(thrRatio * 100);
+      if (throttlePct !== lastThrottlePct) {
+        lastThrottlePct = throttlePct;
+        throttleVal.textContent = `${throttlePct}%`;
+      }
+      setDialArc(thrRatio, state.stall);
     }
 
-    // Aviso de veículo próximo ("E — entrar no <veículo>" ou aviso de veículo bloqueado)
+    // Aviso de veículo próximo com keycap física E
     const nearbyKind = state.nearbyVehicleKind;
     const nearbyLocked = nearbyKind ? isStageLocked(nearbyKind, mission) : false;
     const nearbyKey =
@@ -1338,17 +1429,18 @@ export function createHud(ctx: FlightContext, uiRoot?: HTMLElement | null): Flig
       if (!nearbyKey || !nearbyKind) {
         nearbyPrompt.hidden = true;
       } else if (nearbyLocked) {
-        nearbyPrompt.textContent = `BLOQUEADO — termine o estágio atual para liberar o ${NEARBY_LABEL[nearbyKind]}`;
+        nearbyPrompt.textContent = `Bloqueado — conclua a etapa atual para liberar o ${NEARBY_LABEL[nearbyKind]}`;
         nearbyPrompt.className = 'hud-nearby hud-nearby--locked';
         nearbyPrompt.hidden = false;
       } else {
-        nearbyPrompt.textContent = `E — entrar no ${NEARBY_LABEL[nearbyKind]}`;
+        nearbyPrompt.textContent = '';
+        nearbyPrompt.append(el('kbd', 'gp-keycap', 'E'), document.createTextNode(`Entrar no ${NEARBY_LABEL[nearbyKind]}`));
         nearbyPrompt.className = 'hud-nearby';
         nearbyPrompt.hidden = false;
       }
     }
 
-    // Miras de voo (apenas A-29 no modo mouse; nos demais veículos o mouse só gira a câmera)
+    // Miras de voo (apenas A-29 no modo mouse)
     const showReticles = rt.mode === 'playing' && vehicle === 'a29' && state.controlMode === 'mouse' && !state.crashed;
     const cw = canvas?.clientWidth || root.clientWidth || (typeof window !== 'undefined' ? window.innerWidth : 0);
     const ch = canvas?.clientHeight || root.clientHeight || (typeof window !== 'undefined' ? window.innerHeight : 0);
@@ -1392,7 +1484,7 @@ export function createHud(ctx: FlightContext, uiRoot?: HTMLElement | null): Flig
       } else if (alert === 'crashed') {
         alertBox.hidden = false;
         alertBox.className = 'hud-alert hud-alert--crashed';
-        alertBox.textContent = 'BATEU — reiniciando';
+        alertBox.textContent = 'BATEU — REINICIANDO';
       } else {
         alertBox.hidden = false;
         alertBox.className = 'hud-alert hud-alert--stall';
@@ -1400,7 +1492,14 @@ export function createHud(ctx: FlightContext, uiRoot?: HTMLElement | null): Flig
       }
     }
 
-    drawMinimap();
+    // Redesenha o minimapa a cada N quadros (mantém fluidez e economiza CPU)
+    if (minimapFrame % 12 === 0) {
+      scanSceneVehicles(app.root, blips);
+    }
+    if (minimapFrame % MINIMAP_REDRAW_INTERVAL === 0 || vehicleSwitched) {
+      drawMinimap();
+    }
+    minimapFrame++;
   }
 
   sync(0);

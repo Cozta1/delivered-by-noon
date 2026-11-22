@@ -250,7 +250,7 @@ export function createDicas(ctx: FlightContext, uiRoot?: HTMLElement | null): Fl
       if (!shown.has('late-22h') && mission.clockMinutes >= 22 * 60) {
         showTip(
           'late-22h',
-          '⏰',
+          '!',
           [{ text: 'Corre! A meia-noite está chegando' }],
           5.5,
           'urgent',
@@ -280,14 +280,13 @@ export function createDicas(ctx: FlightContext, uiRoot?: HTMLElement | null): Fl
           if (state.vehicle === 'car' && !shown.has('car-drive')) {
             showTip(
               'car-drive',
-              '🚗',
+              '→',
               [
                 { key: 'W' },
-                { text: ' acelera · ' },
+                { text: ' acelera' },
                 { key: 'S' },
-                { text: ' freia · ' },
+                { text: ' freia' },
                 { key: 'A' },
-                { text: '/' },
                 { key: 'D' },
                 { text: ' vira' },
               ],
@@ -301,7 +300,7 @@ export function createDicas(ctx: FlightContext, uiRoot?: HTMLElement | null): Fl
             !shown.has('follow-arrow') &&
             mission.delivered === 0
           ) {
-            showTip('follow-arrow', '➤', [{ text: 'Siga a seta até a entrega' }], 5.5, 'goal', 1.5);
+            showTip('follow-arrow', '➤', [{ text: 'Siga a rota amarela até a entrega' }], 5.5, 'goal', 1.5);
           }
           // 3) Perto da 1ª entrega: parar dentro do círculo
           else if (mission.delivered === 0 && !shown.has('first-delivery-stop') && distNext < 58) {
@@ -319,7 +318,7 @@ export function createDicas(ctx: FlightContext, uiRoot?: HTMLElement | null): Fl
             showTip(
               'tuned-nitro',
               '⚡',
-              [{ key: 'Shift' }, { text: ' = nitro' }],
+              [{ key: 'Shift' }, { text: ' ativa o nitro' }],
               5.5,
               'goal',
               1.0,
@@ -327,8 +326,8 @@ export function createDicas(ctx: FlightContext, uiRoot?: HTMLElement | null): Fl
           } else if (state.vehicle === 'tuned' && shown.has('tuned-nitro') && !shown.has('tuned-handbrake')) {
             showTip(
               'tuned-handbrake',
-              '🛞',
-              [{ key: 'Espaço' }, { text: ' = freio de mão' }],
+              '→',
+              [{ key: 'Espaço' }, { text: ' freio de mão' }],
               5.5,
               'default',
               1.0,
@@ -338,16 +337,17 @@ export function createDicas(ctx: FlightContext, uiRoot?: HTMLElement | null): Fl
           else if (state.vehicle === 'heli' && !shown.has('heli-controls')) {
             showTip(
               'heli-controls',
-              '🚁',
+              '▲',
               [
                 { key: 'Shift' },
-                { text: '/' },
                 { key: 'Ctrl' },
-                { text: ' sobe/desce · ' },
-                { key: 'W/S/A/D' },
-                { text: ' inclina · ' },
+                { text: ' sobe/desce' },
+                { key: 'W' },
+                { key: 'A' },
+                { key: 'S' },
+                { key: 'D' },
+                { text: ' inclina' },
                 { key: 'Q' },
-                { text: '/' },
                 { key: 'E' },
                 { text: ' gira' },
               ],
@@ -370,13 +370,12 @@ export function createDicas(ctx: FlightContext, uiRoot?: HTMLElement | null): Fl
               '✈',
               [
                 { key: 'Mouse' },
-                { text: ' mira · ' },
+                { text: ' mira' },
                 { key: 'Shift' },
-                { text: '/' },
                 { key: 'Ctrl' },
-                { text: ' acelerador · ' },
+                { text: ' acelera' },
                 { key: 'Espaço' },
-                { text: ' solta a caixa sobre o alvo' },
+                { text: ' solta a caixa' },
               ],
               7.8,
               'goal',
@@ -395,8 +394,8 @@ export function createDicas(ctx: FlightContext, uiRoot?: HTMLElement | null): Fl
           ) {
             showTip(
               'vehicle-exit',
-              '🚪',
-              [{ key: 'E' }, { text: ' para sair/entrar no veículo' }],
+              '→',
+              [{ key: 'E' }, { text: ' sair ou entrar no veículo' }],
               6.0,
               'default',
               1.4,
@@ -405,8 +404,8 @@ export function createDicas(ctx: FlightContext, uiRoot?: HTMLElement | null): Fl
           // 8) 20 s parado sem objetivo: lembrete do próximo objetivo
           else if (!shown.has('idle-reminder') && idleSeconds >= 20) {
             const reminder = nextDel
-              ? `Próximo objetivo: ${nextDel.name}`
-              : `Entre no ${VEHICLE_NAMES[mission.stage]} para continuar as entregas`;
+              ? `Próxima entrega: ${nextDel.name}`
+              : `Entre no ${VEHICLE_NAMES[mission.stage]} para continuar`;
             showTip('idle-reminder', '★', [{ text: reminder }], 6.5, 'goal', 1.4);
           }
         }

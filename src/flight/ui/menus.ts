@@ -55,29 +55,29 @@ const STAGE_UNLOCK_COPY: Record<Stage, { title: string; subtitle: string; accent
     title: 'Hatch da GoPostal liberado!',
     subtitle: 'Recado de Michael De Santa, o patrão: siga os marcadores luminosos pela cidade.',
     accent: 'car',
-    badge: 'ESTÁGIO 1 · HATCH',
+    badge: 'ETAPA 1 · HATCH',
     perk: 'Tração dianteira ágil nas ruas do Centro',
   },
   tuned: {
     title: 'Coupé Tunado liberado!',
     subtitle: 'Recado de Michael De Santa, o patrão: mete o Shift no nitro e parte para as entregas malucas!',
     accent: 'tuned',
-    badge: 'ESTÁGIO 2 · COUPÉ TUNADO',
-    perk: 'Tração traseira · Nitro [Shift] · Drift [Espaço]',
+    badge: 'ETAPA 2 · COUPÉ TUNADO',
+    perk: 'Tração traseira · Nitro (Shift) · Drift (Espaço)',
   },
   heli: {
     title: 'Helicóptero liberado!',
     subtitle: 'Recado de Michael De Santa, o patrão: agora o trânsito ficou lá embaixo — suba nos telhados!',
     accent: 'heli',
-    badge: 'ESTÁGIO 3 · HELICÓPTERO MD 500',
+    badge: 'ETAPA 3 · HELICÓPTERO MD 500',
     perk: 'Pairado estável · Pouso em coberturas e morros',
   },
   a29: {
     title: 'Avião A-29 liberado!',
     subtitle: 'Reta final da GoPostal! Sobrevoe os alvos e aperte Espaço para soltar as caixas!',
     accent: 'a29',
-    badge: 'ESTÁGIO 4 · AVIÃO A-29',
-    perk: 'Lançamento aéreo [Espaço] · Fumaça [F]',
+    badge: 'ETAPA 4 · AVIÃO A-29',
+    perk: 'Lançamento aéreo (Espaço) · Fumaça (F)',
   },
 };
 
@@ -88,20 +88,20 @@ const STAGE_LABEL: Record<Stage, string> = {
   a29: '4/4 · Avião A-29',
 };
 
-const CONTROLS_LIST: ReadonlyArray<[string, string]> = [
-  ['E', 'Entrar ou sair do veículo próximo (Hatch, Coupé Tunado, helicóptero ou A-29)'],
-  ['W / A / S / D', 'Andar (a pé), dirigir (carros) ou pilotar (helicóptero e A-29)'],
-  ['Shift', 'Nitro no Coupé Tunado · acelerador / coletivo (+) em aeronaves'],
-  ['Ctrl', 'Reduzir acelerador / coletivo (−) em aeronaves'],
-  ['Espaço', 'Freio de mão (carros), pular (a pé) ou soltar carga aérea (A-29)'],
-  ['Mouse', 'Gira a câmera (a pé, carros e helicóptero) ou move a mira de voo (somente A-29)'],
-  ['Clique esquerdo', 'Trava o ponteiro para girar a câmera / mirar no A-29'],
-  ['Q / E', 'Leme / pedais em aeronaves'],
-  ['M', 'Alterna entre controle por Mouse e Teclado (somente A-29)'],
-  ['F', 'Liga / desliga a fumaça branca na cauda do A-29'],
-  ['C / V', 'Alterna câmeras disponíveis para o veículo atual'],
-  ['R', 'Reinicia o veículo atual'],
-  ['Esc / P', 'Pausa o jogo e congela o relógio (soltar o mouse também pausa)'],
+const CONTROLS_LIST: ReadonlyArray<[readonly string[], string]> = [
+  [['E'], 'Entrar ou sair do veículo próximo (Hatch, Coupé Tunado, helicóptero ou A-29)'],
+  [['W', 'A', 'S', 'D'], 'Andar (a pé), dirigir (carros) ou pilotar (helicóptero e A-29)'],
+  [['Shift'], 'Nitro no Coupé Tunado · acelerador / coletivo (+) em aeronaves'],
+  [['Ctrl'], 'Reduzir acelerador / coletivo (−) em aeronaves'],
+  [['Espaço'], 'Freio de mão (carros), pular (a pé) ou soltar carga aérea (A-29)'],
+  [['Mouse'], 'Gira a câmera (a pé, carros e helicóptero) ou move a mira de voo (A-29)'],
+  [['Clique'], 'Trava o ponteiro para girar a câmera / mirar no A-29'],
+  [['Q', 'E'], 'Leme / pedais em aeronaves'],
+  [['M'], 'Alterna entre controle por Mouse e Teclado (somente A-29)'],
+  [['F'], 'Liga / desliga a fumaça branca na cauda do A-29'],
+  [['C', 'V'], 'Alterna câmeras disponíveis para o veículo atual'],
+  [['R'], 'Reinicia o veículo atual'],
+  [['Esc', 'P'], 'Pausa o jogo e congela o relógio'],
 ];
 
 function formatClock(minutes: number): string {
@@ -144,11 +144,11 @@ export function createGameMenus(
   function createLeaderboardBox() {
     const root = node('div', 'menu-leaderboard');
     const lbHeader = node('div', 'menu-lb-header');
-    lbHeader.append(node('span', 'menu-lb-title', 'Melhores entregadores'), node('span', 'menu-lb-tag', 'TOP 5'));
+    lbHeader.append(node('span', 'menu-lb-title', 'Funcionários do mês'), node('span', 'menu-lb-tag', 'TOP 5'));
     const emptyEl = node(
       'p',
       'menu-lb-empty',
-      'Nenhum recorde ainda — conclua todas as entregas antes das 24:00!',
+      'Quadro vazio — feche todas as entregas antes das 24:00 para assinar seu ponto.',
     );
     const listEl = node('div', 'menu-lb-list');
     root.append(lbHeader, emptyEl, listEl);
@@ -166,7 +166,7 @@ export function createGameMenus(
           const meta = node('span', 'menu-lb-meta');
           meta.append(document.createTextNode(`${entry.delivered}/${entry.total} · ${formatRecordDate(entry.dateIso)}`));
           if (isNew) {
-            meta.append(node('span', 'menu-lb-new-badge', 'Novo recorde!'));
+            meta.append(node('span', 'menu-lb-new-badge', 'Novo!'));
           }
           row.append(
             node('span', 'menu-lb-rank', `#${i + 1}`),
@@ -181,55 +181,76 @@ export function createGameMenus(
     };
   }
 
-  const overlay = node('div', 'menu-overlay menu-overlay--title');
+  const overlay = node('div', 'menu-overlay menu-overlay--title is-poster-main');
   const card = node('div', 'menu-card');
   overlay.append(card);
   uiRoot.append(overlay);
 
-  // Cartão animado de estágio liberado (aparece sobre o jogo sem travar o movimento)
+  // Ordem de serviço animada de estágio liberado
   const stageBanner = node('div', 'stage-banner');
   stageBanner.hidden = true;
-  const stageBannerEyebrow = node('div', 'stage-banner-eyebrow', 'NOVO ESTÁGIO DESBLOQUEADO · GOPOSTAL');
-  const stageBannerBadge = node('div', 'stage-banner-badge', 'ESTÁGIO 2 · COUPÉ TUNADO');
+  const stageBannerEyebrow = node('div', 'stage-banner-eyebrow', 'GOPOSTAL · GARAGEM LIBERADA');
+  const stageBannerBody = node('div', 'stage-banner-body');
+  const stageBannerBadge = node('div', 'stage-banner-badge', 'ETAPA 2 · COUPÉ TUNADO');
   const stageBannerTitle = node('div', 'stage-banner-title', 'Coupé Tunado liberado!');
   const stageBannerSub = node('div', 'stage-banner-sub', '');
   const stageBannerPerk = node('div', 'stage-banner-perk', '');
-  stageBanner.append(stageBannerEyebrow, stageBannerBadge, stageBannerTitle, stageBannerSub, stageBannerPerk);
+  stageBannerBody.append(stageBannerBadge, stageBannerTitle, stageBannerSub, stageBannerPerk);
+  stageBanner.append(stageBannerEyebrow, stageBannerBody);
   uiRoot.append(stageBanner);
 
-  // --- Tela Principal (Título ou Pausa) ---
-  const mainView = node('div', 'menu-view');
+  // --- Tela Principal (Pôster de capa no início / Prancheta na pausa) ---
+  const mainView = node('div', 'menu-view menu-view--main');
+  const mainCol = node('div', 'menu-main-col');
+
   const header = node('div', 'menu-header');
-  const eyebrow = node('div', 'menu-eyebrow', 'GOPOSTAL · CORRIDA CONTRA O RELÓGIO 00:00 → 24:00');
-  const titleEl = node('h1', 'menu-title', 'DELIVERED BY MIDNIGHT');
-  const subtitleEl = node('p', 'menu-subtitle', 'Entregue tudo antes da próxima meia-noite com veículos cada vez mais malucos');
-  header.append(eyebrow, titleEl, subtitleEl);
+  const brandStrip = node('div', 'menu-brand-strip');
+  const brandStamp = node('span', 'menu-brand-stamp', 'GOPOSTAL');
+  const eyebrow = node('span', 'menu-eyebrow', 'Juiz de Fora · Turno 00:00 → 24:00');
+  brandStrip.append(brandStamp, eyebrow);
+
+  const titleEl = node('h1', 'menu-title');
+  const titleLine1 = node('span', '', 'DELIVERED');
+  const titleLine2 = node('span', 'menu-title-accent', 'BY MIDNIGHT');
+  titleEl.append(titleLine1, titleLine2);
+
+  const subtitleEl = node('p', 'menu-subtitle', 'Entregue tudo antes da próxima meia-noite com veículos cada vez mais rápidos.');
+  header.append(brandStrip, titleEl, subtitleEl);
 
   const actions = node('div', 'menu-actions');
   const btnPrimary = node('button', 'menu-btn menu-btn--primary', 'Jogar');
   btnPrimary.type = 'button';
-  const btnPresentation = node('button', 'menu-btn menu-btn--presentation', 'Modo apresentação');
+
+  const secondaryLinks = node('div', 'menu-secondary-links');
+  const btnPresentation = node('button', 'menu-btn menu-btn--link', 'Modo apresentação');
   btnPresentation.type = 'button';
-  const btnRestart = node('button', 'menu-btn', 'Respawn no relógio!');
+  const btnRestart = node('button', 'menu-btn menu-btn--link', 'Reiniciar turno (00:00)');
   btnRestart.type = 'button';
-  const btnOptions = node('button', 'menu-btn', 'Opções');
+  const btnOptions = node('button', 'menu-btn menu-btn--link', 'Opções');
   btnOptions.type = 'button';
-  const btnControls = node('button', 'menu-btn', 'Controles');
+  const btnControls = node('button', 'menu-btn menu-btn--link', 'Controles');
   btnControls.type = 'button';
-  const btnCredits = node('button', 'menu-btn', 'Créditos');
+  const btnCredits = node('button', 'menu-btn menu-btn--link', 'Créditos');
   btnCredits.type = 'button';
-  const btnReturnTitle = node('button', 'menu-btn menu-btn--ghost', 'Voltar ao início');
+  const btnReturnTitle = node('button', 'menu-btn menu-btn--link', 'Voltar ao início');
   btnReturnTitle.type = 'button';
 
-  actions.append(btnPrimary, btnPresentation, btnRestart, btnOptions, btnControls, btnCredits, btnReturnTitle);
-  const titleLeaderboard = createLeaderboardBox();
-  mainView.append(header, actions, titleLeaderboard.root);
+  secondaryLinks.append(btnPresentation, btnRestart, btnOptions, btnControls, btnCredits, btnReturnTitle);
+  actions.append(btnPrimary, secondaryLinks);
 
-  // --- Tela de História (antes de começar o turno) ---
+  mainCol.append(header, actions);
+  const titleLeaderboard = createLeaderboardBox();
+  mainView.append(mainCol, titleLeaderboard.root);
+
+  // --- Tela de História (Ficha de turno antes de começar) ---
   const storyView = node('div', 'menu-view menu-subview');
   storyView.hidden = true;
-  const storyEyebrow = node('div', 'menu-eyebrow', 'TURNO DA MEIA-NOITE · GOPOSTAL');
-  const storyTitle = node('h2', 'menu-section-title', 'ENTREGUE TUDO ATÉ AS 24:00');
+  const storyBanner = node('div', 'menu-sub-banner');
+  storyBanner.append(
+    node('div', 'menu-eyebrow', 'GOPOSTAL · TURNO DA MEIA-NOITE'),
+    node('h2', 'menu-section-title', 'ENTREGUE TUDO ATÉ AS 24:00'),
+  );
+  const storySubBody = node('div', 'menu-sub-body');
   const storyBody = node('div', 'menu-story-body');
   storyBody.append(
     node(
@@ -240,7 +261,7 @@ export function createGameMenus(
     node(
       'p',
       'menu-story-p',
-      'Michael De Santa, o patrão, deixou um recado no rádio das 00:00: só sobrou você no plantão. A cada etapa concluída, a garagem libera veículos ainda mais insanos para vencer o relógio!',
+      'Michael De Santa, o patrão, deixou um recado no rádio das 00:00: só sobrou você no plantão. A cada etapa concluída, a garagem libera veículos ainda mais insanos para vencer o relógio.',
     ),
   );
   const storyLadder = node('div', 'menu-story-ladder');
@@ -257,35 +278,40 @@ export function createGameMenus(
   const storyTip = node(
     'p',
     'menu-story-tip',
-    'Siga as colunas luminosas e a planta da cidade no minimapa. A última entrega de cada estágio leva direto ao próximo veículo!',
+    'Siga a rota amarela no minimapa e as colunas de luz. A última entrega de cada etapa leva direto ao próximo veículo.',
   );
   const storyFooter = node('div', 'menu-sub-footer');
   const btnStoryBack = node('button', 'menu-btn menu-btn--ghost', 'Voltar');
   btnStoryBack.type = 'button';
-  const btnStoryPlay = node('button', 'menu-btn menu-btn--primary', 'Jogar');
+  const btnStoryPlay = node('button', 'menu-btn menu-btn--primary', 'Iniciar turno');
   btnStoryPlay.type = 'button';
   storyFooter.append(btnStoryBack, btnStoryPlay);
-  storyView.append(storyEyebrow, storyTitle, storyBody, storyLadder, storyTip, storyFooter);
+  storySubBody.append(storyBody, storyLadder, storyTip, storyFooter);
+  storyView.append(storyBanner, storySubBody);
 
-  // --- Tela de Modo Apresentação (demonstração rápida em sala / plano B) ---
+  // --- Tela de Modo Apresentação ---
   const presView = node('div', 'menu-view menu-subview');
   presView.hidden = true;
-  const presEyebrow = node('div', 'menu-eyebrow', 'ROTEIRO AO VIVO · SEM RECORDE');
-  const presTitle = node('h2', 'menu-section-title', 'MODO APRESENTAÇÃO');
+  const presBanner = node('div', 'menu-sub-banner');
+  presBanner.append(
+    node('div', 'menu-eyebrow', 'ROTEIRO AO VIVO · SEM RECORDE'),
+    node('h2', 'menu-section-title', 'MODO APRESENTAÇÃO'),
+  );
+  const presSubBody = node('div', 'menu-sub-body');
   const presIntro = node(
     'p',
     'menu-story-p',
-    'Escolha em qual veículo começar e a duração do dia. Durante a partida, F1–F4 trocam de estágio, F5 vai direto para a entrega final na UniAcademia e F6 avança +1h no relógio.',
+    'Escolha em qual veículo começar e a duração do dia. Durante a partida, F1–F4 trocam de etapa, F5 vai direto para a entrega final na UniAcademia e F6 avança +1h no relógio.',
   );
 
   let presStage: Stage = 'car';
   let presDayMin: 5 | 10 | 30 = 10;
   let presFinal = false;
 
-  const presForm = node('div', 'menu-options-list');
+  const presForm = node('div', 'menu-pres-form');
 
   const stageRow = node('div', 'menu-opt-row');
-  stageRow.append(node('span', 'menu-opt-label', 'Estágio inicial'));
+  stageRow.append(node('span', 'menu-opt-label', 'Etapa inicial'));
   const stageSeg = node('div', 'menu-segments');
   const stageBtns = new Map<Stage, HTMLButtonElement>();
   for (const [st, label] of [
@@ -348,10 +374,11 @@ export function createGameMenus(
   const presFooter = node('div', 'menu-sub-footer');
   const btnPresBack = node('button', 'menu-btn menu-btn--ghost', 'Voltar');
   btnPresBack.type = 'button';
-  const btnPresStart = node('button', 'menu-btn menu-btn--primary', 'Iniciar apresentação');
+  const btnPresStart = node('button', 'menu-btn menu-btn--primary', 'Iniciar');
   btnPresStart.type = 'button';
   presFooter.append(btnPresBack, btnPresStart);
-  presView.append(presEyebrow, presTitle, presIntro, presForm, presFooter);
+  presSubBody.append(presIntro, presForm, presFooter);
+  presView.append(presBanner, presSubBody);
 
   function syncPresentationInputs() {
     for (const [st, btn] of stageBtns) {
@@ -363,11 +390,15 @@ export function createGameMenus(
     finalToggleInput.checked = presFinal;
   }
 
-  // --- Tela de Resultado (Vitória ou Derrota) ---
+  // --- Tela de Resultado (Comprovante de Turno: Vitória ou Derrota) ---
   const resultView = node('div', 'menu-view menu-subview');
   resultView.hidden = true;
-  const resultEyebrow = node('div', 'menu-eyebrow', 'FIM DO TURNO');
+  const resultBanner = node('div', 'menu-sub-banner');
+  const resultEyebrow = node('div', 'menu-eyebrow', 'COMPROVANTE DE TURNO · GOPOSTAL');
   const resultTitle = node('h2', 'menu-title menu-result-title', 'MISSÃO CUMPRIDA!');
+  resultBanner.append(resultEyebrow, resultTitle);
+
+  const resultSubBody = node('div', 'menu-sub-body');
   const resultMsg = node('p', 'menu-result-msg', '');
   const resultStats = node('div', 'menu-result-stats');
   const statTimeVal = node('span', 'menu-stat-value', '00:00');
@@ -384,12 +415,12 @@ export function createGameMenus(
     makeStat('Horário', statTimeVal),
     makeStat('Pontos', statScoreVal),
     makeStat('Entregas', statDeliveriesVal),
-    makeStat('Estágio', statStageVal),
+    makeStat('Etapa', statStageVal),
   );
 
   const recordForm = node('div', 'menu-record-form');
   recordForm.hidden = true;
-  const recordFormHead = node('div', 'menu-record-form-head', '★ Novo recorde! Digite suas 3 iniciais');
+  const recordFormHead = node('div', 'menu-record-form-head', 'Novo recorde — assine com suas 3 iniciais');
   const recordFormRow = node('div', 'menu-record-form-row');
   const initialsInput = document.createElement('input');
   initialsInput.type = 'text';
@@ -397,7 +428,7 @@ export function createGameMenus(
   initialsInput.maxLength = 3;
   initialsInput.placeholder = 'GOP';
   initialsInput.setAttribute('aria-label', 'Iniciais do jogador (3 letras)');
-  const btnSaveRecord = node('button', 'menu-btn menu-btn--primary menu-record-save-btn', 'Salvar recorde');
+  const btnSaveRecord = node('button', 'menu-btn menu-record-save-btn', 'Carimbar recorde');
   btnSaveRecord.type = 'button';
   recordFormRow.append(initialsInput, btnSaveRecord);
   recordForm.append(recordFormHead, recordFormRow);
@@ -414,15 +445,13 @@ export function createGameMenus(
   const resultLeaderboard = createLeaderboardBox();
   resultLeaderboard.root.hidden = true;
 
-  const resultActions = node('div', 'menu-actions');
-  const btnPlayAgain = node('button', 'menu-btn menu-btn--primary', 'Jogar de novo');
-  btnPlayAgain.type = 'button';
+  const resultActions = node('div', 'menu-sub-footer');
   const btnResultTitle = node('button', 'menu-btn menu-btn--ghost', 'Voltar ao início');
   btnResultTitle.type = 'button';
-  resultActions.append(btnPlayAgain, btnResultTitle);
-  resultView.append(
-    resultEyebrow,
-    resultTitle,
+  const btnPlayAgain = node('button', 'menu-btn menu-btn--primary', 'Jogar de novo');
+  btnPlayAgain.type = 'button';
+  resultActions.append(btnResultTitle, btnPlayAgain);
+  resultSubBody.append(
     resultMsg,
     resultStats,
     recordForm,
@@ -431,11 +460,17 @@ export function createGameMenus(
     resultLeaderboard.root,
     resultActions,
   );
+  resultView.append(resultBanner, resultSubBody);
 
-  // --- Subtela: Opções ---
+  // --- Subtela: Opções (mantém .menu-options-list única para injeção de Tráfego e GPS no chão pelo game.ts) ---
   const optionsView = node('div', 'menu-view menu-subview');
   optionsView.hidden = true;
-  const optTitle = node('h2', 'menu-section-title', 'OPÇÕES');
+  const optBanner = node('div', 'menu-sub-banner');
+  optBanner.append(
+    node('div', 'menu-eyebrow', 'GOPOSTAL · AJUSTES'),
+    node('h2', 'menu-section-title', 'OPÇÕES'),
+  );
+  const optSubBody = node('div', 'menu-sub-body');
   const optList = node('div', 'menu-options-list');
 
   function makeRangeRow(
@@ -592,28 +627,44 @@ export function createGameMenus(
   const btnOptBack = node('button', 'menu-btn menu-btn--primary', 'Voltar');
   btnOptBack.type = 'button';
   optFooter.append(btnResetDefaults, btnOptBack);
-  optionsView.append(optTitle, optList, clearRecordsBox, optFooter);
+  optSubBody.append(optList, clearRecordsBox, optFooter);
+  optionsView.append(optBanner, optSubBody);
 
-  // --- Subtela: Controles ---
+  // --- Subtela: Controles (teclas desenhadas como keycaps físicas) ---
   const controlsView = node('div', 'menu-view menu-subview');
   controlsView.hidden = true;
-  const ctrlTitle = node('h2', 'menu-section-title', 'CONTROLES');
+  const ctrlBanner = node('div', 'menu-sub-banner');
+  ctrlBanner.append(
+    node('div', 'menu-eyebrow', 'MANUAL DO ENTREGADOR'),
+    node('h2', 'menu-section-title', 'CONTROLES'),
+  );
+  const ctrlSubBody = node('div', 'menu-sub-body');
   const ctrlTable = node('div', 'menu-controls-table');
-  for (const [key, desc] of CONTROLS_LIST) {
+  for (const [keys, desc] of CONTROLS_LIST) {
     const row = node('div', 'menu-ctrl-row');
-    row.append(node('span', 'menu-ctrl-key', key), node('span', 'menu-ctrl-desc', desc));
+    const keysWrap = node('div', 'menu-ctrl-keys');
+    for (let i = 0; i < keys.length; i++) {
+      keysWrap.append(node('kbd', 'gp-keycap', keys[i]));
+    }
+    row.append(keysWrap, node('span', 'menu-ctrl-desc', desc));
     ctrlTable.append(row);
   }
   const ctrlFooter = node('div', 'menu-sub-footer');
   const btnCtrlBack = node('button', 'menu-btn menu-btn--primary', 'Voltar');
   btnCtrlBack.type = 'button';
   ctrlFooter.append(btnCtrlBack);
-  controlsView.append(ctrlTitle, ctrlTable, ctrlFooter);
+  ctrlSubBody.append(ctrlTable, ctrlFooter);
+  controlsView.append(ctrlBanner, ctrlSubBody);
 
   // --- Subtela: Créditos ---
   const creditsView = node('div', 'menu-view menu-subview');
   creditsView.hidden = true;
-  const credTitle = node('h2', 'menu-section-title', 'CRÉDITOS');
+  const credBanner = node('div', 'menu-sub-banner');
+  credBanner.append(
+    node('div', 'menu-eyebrow', 'DELIVERED BY MIDNIGHT'),
+    node('h2', 'menu-section-title', 'CRÉDITOS'),
+  );
+  const credSubBody = node('div', 'menu-sub-body');
   const credBody = node('div', 'menu-credits-body');
   const creditEntries: ReadonlyArray<[string, string]> = [
     ['Equipe', 'João Victor da Costa, Gabriel Monteiro, Rafael Lima Henriques, Lucas Tostes'],
@@ -633,7 +684,8 @@ export function createGameMenus(
   const btnCredBack = node('button', 'menu-btn menu-btn--primary', 'Voltar');
   btnCredBack.type = 'button';
   credFooter.append(btnCredBack);
-  creditsView.append(credTitle, credBody, credFooter);
+  credSubBody.append(credBody, credFooter);
+  creditsView.append(credBanner, credSubBody);
 
   card.append(mainView, storyView, presView, resultView, optionsView, controlsView, creditsView);
 
@@ -675,7 +727,7 @@ export function createGameMenus(
       recordNote.textContent = 'Armazenamento do navegador indisponível — resultado não salvo.';
       recordNote.hidden = false;
     } else if (res.rank === null) {
-      recordNote.textContent = 'Fora do top 5 — termine mais cedo para entrar nos Melhores entregadores!';
+      recordNote.textContent = 'Fora do top 5 — termine mais cedo para entrar no quadro de funcionários!';
       recordNote.hidden = false;
     } else {
       recordNote.hidden = true;
@@ -699,9 +751,10 @@ export function createGameMenus(
   function renderView() {
     const visible = !hiddenByLoading && mode !== 'playing';
     overlay.hidden = !visible;
+    const isPosterMain = mode === 'title' && screen === 'main';
     overlay.className = `menu-overlay ${
       mode === 'title' ? 'menu-overlay--title' : mode === 'ended' ? 'menu-overlay--ended' : 'menu-overlay--paused'
-    }`;
+    }${isPosterMain ? ' is-poster-main' : ''}`;
     if (!visible) return;
 
     mainView.hidden = screen !== 'main';
@@ -713,9 +766,11 @@ export function createGameMenus(
     creditsView.hidden = screen !== 'credits';
 
     if (mode === 'title') {
-      eyebrow.textContent = 'GOPOSTAL · CORRIDA CONTRA O RELÓGIO 00:00 → 24:00';
-      titleEl.textContent = 'DELIVERED BY MIDNIGHT';
-      subtitleEl.textContent = 'Entregue tudo antes da próxima meia-noite com veículos cada vez mais malucos';
+      eyebrow.textContent = 'Juiz de Fora · 00:00 → 24:00';
+      titleLine1.textContent = 'DELIVERED';
+      titleLine2.textContent = 'BY MIDNIGHT';
+      titleLine2.hidden = false;
+      subtitleEl.textContent = 'Entregue tudo antes da próxima meia-noite com veículos cada vez mais rápidos.';
       subtitleEl.hidden = false;
       btnPrimary.textContent = 'Jogar';
       btnPresentation.hidden = false;
@@ -726,15 +781,17 @@ export function createGameMenus(
       titleLeaderboard.root.hidden = false;
       if (screen === 'main') refreshTitleLeaderboard();
     } else if (mode === 'paused') {
-      eyebrow.textContent = 'DELIVERED BY MIDNIGHT · GOPOSTAL';
-      titleEl.textContent = 'PAUSADO';
-      subtitleEl.textContent = 'Relógio congelado — pressione Esc ou P para voltar ao expediente';
+      eyebrow.textContent = 'Turno pausado';
+      titleLine1.textContent = 'PAUSADO';
+      titleLine2.textContent = '';
+      titleLine2.hidden = true;
+      subtitleEl.textContent = 'Relógio congelado — aperte Esc ou P para voltar ao volante.';
       subtitleEl.hidden = false;
       btnPrimary.textContent = 'Continuar';
       btnPresentation.hidden = true;
-      btnRestart.textContent = 'Respawn no relógio!';
+      btnRestart.textContent = 'Reiniciar turno (00:00)';
       btnRestart.hidden = false;
-      btnControls.textContent = 'Rever controles';
+      btnControls.textContent = 'Ver controles';
       btnCredits.hidden = true;
       btnReturnTitle.hidden = false;
       titleLeaderboard.root.hidden = true;
@@ -947,12 +1004,13 @@ export function createGameMenus(
       const remaining = Math.max(0, mission.total - mission.delivered);
 
       resultView.className = `menu-view menu-subview menu-result--${outcome}`;
+      resultBanner.className = `menu-sub-banner ${outcome === 'lost' ? 'menu-sub-banner--lost' : ''}`;
       if (outcome === 'won') {
         resultEyebrow.textContent = presentationMode
-          ? 'MODO APRESENTAÇÃO · MISSÃO CUMPRIDA!'
-          : 'GOPOSTAL · MISSÃO CUMPRIDA!';
+          ? 'MODO APRESENTAÇÃO · ENTREGUE NO PRAZO'
+          : 'GOPOSTAL · ENTREGUE NO PRAZO';
         resultTitle.textContent = 'MISSÃO CUMPRIDA!';
-        resultMsg.textContent = `Michael De Santa, o patrão, aprovou o serviço: todas as ${mission.delivered} entregas da GoPostal chegaram às ${formatClock(mission.clockMinutes)}!`;
+        resultMsg.textContent = `Michael De Santa, o patrão, carimbou a ficha: todas as ${mission.delivered} entregas da GoPostal chegaram às ${formatClock(mission.clockMinutes)}.`;
 
         const currentRecords = loadRecords();
         resultLeaderboard.root.hidden = false;
@@ -982,19 +1040,19 @@ export function createGameMenus(
               }
             }, 0);
           } else {
-            recordNote.textContent = 'Fora do top 5 — termine mais cedo para entrar nos Melhores entregadores!';
+            recordNote.textContent = 'Fora do top 5 — termine mais cedo para entrar no quadro de funcionários!';
             recordNote.hidden = false;
           }
         }
       } else {
         resultEyebrow.textContent = presentationMode
-          ? 'MODO APRESENTAÇÃO · MEIA-NOITE!'
-          : 'GOPOSTAL · RESPAWN NO RELÓGIO!';
+          ? 'MODO APRESENTAÇÃO · 24:00'
+          : 'GOPOSTAL · TURNO ENCERRADO';
         resultTitle.textContent = 'MEIA-NOITE!';
         resultMsg.textContent =
           remaining === 1
-            ? 'Meia-noite! Faltou 1 entrega — Michael De Santa, o patrão, quer respawn no relógio!'
-            : `Meia-noite! Faltaram ${remaining} entregas — Michael De Santa, o patrão, quer respawn no relógio!`;
+            ? 'Deu meia-noite! Faltou 1 entrega — Michael De Santa, o patrão, mandou recomeçar o turno.'
+            : `Deu meia-noite! Faltaram ${remaining} entregas — Michael De Santa, o patrão, mandou recomeçar o turno.`;
 
         lossGoalMissing.textContent =
           remaining === 1
@@ -1002,8 +1060,8 @@ export function createGameMenus(
             : `Faltaram ${remaining} entregas para fechar o turno.`;
         const best = getBestRecord();
         lossGoalTarget.textContent = best
-          ? `Meta — Melhor resultado até agora: ${best.initials} · ${formatRecordClock(best.finishMinutes)} · ${best.score.toLocaleString('pt-BR')} pts (${best.delivered}/${best.total})`
-          : `Meta: entregue todas as ${mission.total} encomendas antes das 24:00 para inaugurar o placar!`;
+          ? `Meta — Melhor turno: ${best.initials} · ${formatRecordClock(best.finishMinutes)} · ${best.score.toLocaleString('pt-BR')} pts (${best.delivered}/${best.total})`
+          : `Meta: entregue todas as ${mission.total} encomendas antes das 24:00 para abrir o quadro.`;
         lossGoalBox.hidden = false;
 
         if (presentationMode) {

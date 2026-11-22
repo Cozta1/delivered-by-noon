@@ -84,9 +84,14 @@ export function createLoadingScreen(uiRoot: HTMLElement | null | undefined): Loa
 
   const overlay = el('div', 'loading-overlay');
   const card = el('div', 'loading-card');
-  const eyebrow = el('div', 'loading-eyebrow', 'GOPOSTAL · JUIZ DE FORA · 00:00');
+  const band = el('div', 'loading-band');
+  const eyebrow = el('div', 'loading-eyebrow', 'GOPOSTAL · JUIZ DE FORA');
+  const shiftTag = el('div', 'loading-eyebrow', 'TURNO 00:00');
+  band.append(eyebrow, shiftTag);
+
+  const body = el('div', 'loading-body');
   const title = el('h1', 'loading-title', 'DELIVERED BY MIDNIGHT');
-  const subtitle = el('p', 'loading-subtitle', 'Preparando a cidade para o turno da meia-noite');
+  const subtitle = el('p', 'loading-subtitle', 'Preparando as ruas e os veículos para o turno.');
 
   const barWrap = el('div', 'loading-bar-wrap');
   const barTrack = el('div', 'loading-bar-track');
@@ -103,7 +108,8 @@ export function createLoadingScreen(uiRoot: HTMLElement | null | undefined): Loa
   let tipIdx = Math.floor(Math.random() * LOADING_TIPS.length);
   const tipEl = el('p', 'loading-tip', LOADING_TIPS[tipIdx]);
 
-  card.append(eyebrow, title, subtitle, barWrap, tipEl);
+  body.append(title, subtitle, barWrap, tipEl);
+  card.append(band, body);
   overlay.append(card);
   uiRoot.append(overlay);
 

@@ -194,6 +194,14 @@ export function createMarkers(ctx: FlightContext, uiRoot?: HTMLElement | null): 
 
     edgeChevron = document.createElement('div');
     edgeChevron.className = 'hud-edge-chevron';
+    const svgNs = 'http://www.w3.org/2000/svg';
+    const arrowSvg = document.createElementNS(svgNs, 'svg');
+    arrowSvg.setAttribute('viewBox', '0 0 24 24');
+    const poly = document.createElementNS(svgNs, 'polygon');
+    poly.setAttribute('points', '3,4 22,12 3,20 8,12');
+    poly.setAttribute('class', 'hud-edge-poly');
+    arrowSvg.append(poly);
+    edgeChevron.append(arrowSvg);
 
     edgeLabel = document.createElement('div');
     edgeLabel.className = 'hud-edge-label';
