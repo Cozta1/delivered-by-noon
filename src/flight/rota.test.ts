@@ -70,7 +70,8 @@ describe('rota de GPS pelas ruas', () => {
     const buildMs = getRouteGraphBuildMs();
     expect(graph.nodes.length).toBeGreaterThan(500);
     expect(graph.edges.length).toBeGreaterThan(1000);
-    expect(buildMs).toBeLessThan(150);
+    // Sozinho leva ~100 ms; na suíte inteira em paralelo (CPU disputada) passa de 1 s, então o limite aqui é folgado.
+    expect(buildMs).toBeLessThan(3000);
 
     // Verifica inclusão de residential/service e exclusão de footway/pedestrian
     const layout = cityLayout();
