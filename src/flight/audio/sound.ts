@@ -1,5 +1,6 @@
 import type { FlightState, MissionState, VehicleKind } from '../types';
 import type { GameMode, GameSettings } from '../ui/settings';
+import { CarDrivetrainTelemetry, CarEngineVoice, preloadCombustionWorklet } from './engine-sim-dsp';
 
 export interface FlightAudio {
   unlock(): void;
@@ -107,11 +108,11 @@ export function createFlightAudio(initialSettings: GameSettings): FlightAudio {
   let turbineOsc: OscillatorNode | null = null;
   let turbineGain: GainNode | null = null;
 
-  // Motor de carro / carro tunado
-  let carOsc: OscillatorNode | null = null;
-  let carSubOsc: OscillatorNode | null = null;
-  let carFilter: BiquadFilterNode | null = null;
-  let carGain: GainNode | null = null;
+  // Motor de carro / carro tunado (Engine Sim — MIT, Yigit Salih Emecen)
+  let hatchVoice: CarEngineVoice | null = null;
+  let tunedVoice: CarEngineVoice | null = null;
+  const hatchTelemetry = new CarDrivetrainTelemetry('i4');
+  const tunedTelemetry = new CarDrivetrainTelemetry('v8cross');
 
   // Nitro do carro tunado (sopro turbo contínuo)
   let nitroSrc: AudioBufferSourceNode | null = null;
@@ -239,30 +240,8 @@ export function createFlightAudio(initialSettings: GameSettings): FlightAudio {
     turbineGain.connect(worldBus);
     turbineOsc.start();
 
-    // 2) Motor de carro / carro tunado
-    carFilter = ctx.createBiquadFilter();
-    carFilter.type = 'lowpass';
-    carFilter.frequency.value = 240;
-    carFilter.Q.value = 1.8;
-    carGain = ctx.createGain();
-    carGain.gain.value = 0.0001;
-    carFilter.connect(carGain);
-    carGain.connect(worldBus);
-
-    carOsc = ctx.createOscillator();
-    carOsc.type = 'sawtooth';
-    carOsc.frequency.value = 54;
-    carOsc.connect(carFilter);
-    carOsc.start();
-
-    carSubOsc = ctx.createOscillator();
-    carSubOsc.type = 'triangle';
-    carSubOsc.frequency.value = 27;
-    const carSubGain = ctx.createGain();
-    carSubGain.gain.value = 0.7;
-    carSubOsc.connect(carSubGain);
-    carSubGain.connect(carFilter);
-    carSubOsc.start();
+    // 2) Motor de carro / tunado: pré-carrega o AudioWorklet do Engine Sim (fallback PeriodicWave)
+    void preloadCombustionWorklet(ctx);
 
     // 2b) Nitro do carro tunado (jato bandpass contínuo)
     nitroSrc = ctx.createBufferSource();
@@ -570,6 +549,8 @@ export function createFlightAudio(initialSettings: GameSettings): FlightAudio {
       // Som de porta ao entrar ou sair de qualquer veículo
       if (playing && lastVehicle !== null && vehicle !== lastVehicle) {
         triggerDoorSound(vehicle !== 'foot');
+        if (vehicle === 'car') hatchTelemetry.reset();
+        else if (vehicle === 'tuned') tunedTelemetry.reset();
       }
       lastVehicle = vehicle;
 
@@ -653,26 +634,35 @@ export function createFlightAudio(initialSettings: GameSettings): FlightAudio {
         turbineGain.gain.setTargetAtTime(turbineOn ? turbLevel : 0.0001, now, 0.08);
       }
 
-      // 2) Motor de carro / carro tunado (mais agudo e encorpado no tunado)
-      const carOn = alive && isCar;
-      if (carOsc && carSubOsc && carFilter && carGain) {
-        const kmh = speedAbs * 3.6;
-        const tunedBoost = vehicle === 'tuned' ? 1.28 : 1.0;
-        const gearBand = vehicle === 'tuned' ? 42 : 34;
-        const gearCycle = kmh < 2 ? 0 : ((kmh % gearBand) / gearBand) * 0.72 + Math.min(1, kmh / 180) * 0.28;
-        const rpmFreq = (42 + gearCycle * 96 + throttle * 24 + (nitroActive ? 28 : 0)) * tunedBoost;
-        carOsc.frequency.setTargetAtTime(rpmFreq, now, 0.05);
-        carSubOsc.frequency.setTargetAtTime(rpmFreq * 0.5, now, 0.05);
-        carFilter.frequency.setTargetAtTime(
-          (175 + gearCycle * 480 + throttle * 170 + (nitroActive ? 380 : 0)) * (vehicle === 'tuned' ? 1.2 : 1),
-          now,
-          0.06,
-        );
-        carGain.gain.setTargetAtTime(
-          carOn ? (0.055 + throttle * 0.075 + gearCycle * 0.045) * (vehicle === 'tuned' ? 1.15 : 1) : 0.0001,
-          now,
-          0.06,
-        );
+      // 2) Motor de carro / carro tunado (Engine Sim: I4 no Hatch, V8 cross-plane + corte de giro + nitro no Tunado)
+      const cabinPos = state.camera === 'cockpit' ? 1 : 0;
+      const hatchOn = alive && vehicle === 'car';
+      const tunedOn = alive && vehicle === 'tuned';
+
+      if (hatchOn) {
+        if (!hatchVoice && worldBus) {
+          hatchVoice = new CarEngineVoice(ctx, 'i4', worldBus);
+        }
+        if (hatchVoice) {
+          const p = hatchTelemetry.step(now, dt, speedAbs, throttle, false, cabinPos);
+          hatchVoice.update(p, 0.34);
+        }
+      } else if (hatchVoice) {
+        hatchTelemetry.params.now = now;
+        hatchVoice.update(hatchTelemetry.params, 0);
+      }
+
+      if (tunedOn) {
+        if (!tunedVoice && worldBus) {
+          tunedVoice = new CarEngineVoice(ctx, 'v8cross', worldBus);
+        }
+        if (tunedVoice) {
+          const p = tunedTelemetry.step(now, dt, speedAbs, throttle, nitroActive, cabinPos);
+          tunedVoice.update(p, 0.42);
+        }
+      } else if (tunedVoice) {
+        tunedTelemetry.params.now = now;
+        tunedVoice.update(tunedTelemetry.params, 0);
       }
 
       // 2b) Nitro contínuo (sopro de turbo)
@@ -793,12 +783,15 @@ export function createFlightAudio(initialSettings: GameSettings): FlightAudio {
       }
       activeNodes.clear();
 
+      hatchVoice?.dispose();
+      tunedVoice?.dispose();
+      hatchVoice = null;
+      tunedVoice = null;
+
       for (const continuous of [
         propOsc,
         subOsc,
         turbineOsc,
-        carOsc,
-        carSubOsc,
         nitroSrc,
         heliNoiseSrc,
         heliLfo,
@@ -813,12 +806,11 @@ export function createFlightAudio(initialSettings: GameSettings): FlightAudio {
         }
       }
 
-      propOsc = subOsc = turbineOsc = carOsc = carSubOsc = heliLfo = stallOsc = null;
+      propOsc = subOsc = turbineOsc = heliLfo = stallOsc = null;
       nitroSrc = heliNoiseSrc = windSrc = null;
-      engineFilter = carFilter = nitroFilter = heliFilter = windFilter = musicFilter = null;
+      engineFilter = nitroFilter = heliFilter = windFilter = musicFilter = null;
       engineGain =
         turbineGain =
-        carGain =
         nitroGain =
         heliPulseGain =
         heliLfoDepth =
