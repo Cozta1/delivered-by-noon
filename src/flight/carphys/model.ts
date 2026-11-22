@@ -5,15 +5,15 @@ export interface CarSpecification {
   mass:number; frontAxle:number; rearAxle:number; cgHeight:number; inertiaScale:number;
   driveAxle:'front'|'rear'; grip:number; lockGrip:number; engineForce:number; brakeForce:number;
   handbrakeForce:number; cornerFront:number; cornerRear:number; airDrag:number; rollingDrag:number;
-  weightTransfer:number; maximumSpeed:number;
+  weightTransfer:number; maximumSpeed:number; steeringGain:number;
 }
 export const HATCH:CarSpecification={mass:1100,frontAxle:.95,rearAxle:1.5,cgHeight:.48,inertiaScale:1.6,
-  driveAxle:'front',grip:2.4,lockGrip:.55,engineForce:26000,brakeForce:11550,handbrakeForce:15400,
-  cornerFront:8,cornerRear:8.5,airDrag:.45,rollingDrag:6,weightTransfer:.12,maximumSpeed:45};
+  driveAxle:'front',grip:2.4,lockGrip:.2,engineForce:26000,brakeForce:11550,handbrakeForce:15400,
+  cornerFront:8,cornerRear:8.5,airDrag:.45,rollingDrag:6,weightTransfer:.12,maximumSpeed:45,steeringGain:1};
 export const COUPE:CarSpecification={mass:1350,frontAxle:1.45,rearAxle:1.15,cgHeight:.5,inertiaScale:1.8,
   driveAxle:'rear',grip:2.8,lockGrip:.13,engineForce:46000,brakeForce:14175,handbrakeForce:18900,
-  cornerFront:9,cornerRear:9,airDrag:.5,rollingDrag:8,weightTransfer:.15,maximumSpeed:65};
-export interface CarAssists { tractionControl:number; nitroGrip:number; lateralAcceleration:number; steeringTime:number; yawDamping:number; brakeBoost:number }
+  cornerFront:9,cornerRear:9,airDrag:.5,rollingDrag:8,weightTransfer:.15,maximumSpeed:65,steeringGain:1.15};
+export interface CarAssists { tractionControl:number; nitroGrip:number; lateralAcceleration:number; steeringTime:number; yawDamping:number; yawResponse:number; gripResponse:number; brakeBoost:number }
 export interface TireInput {drive:number;steer:number;handbrake:boolean;boost:number}
 const clamp=(v:number,lo:number,hi:number)=>Math.max(lo,Math.min(hi,v));
 
@@ -34,8 +34,9 @@ export class TireDynamics {
     if(!Number.isFinite(dt)||dt<=0||dt>.25||![input.drive,input.steer,input.boost,grade].every(Number.isFinite))throw new RangeError('Invalid car integration input');
     const c=this.spec,a=this.assists,sn=Math.sin(this.heading),cs=Math.cos(this.heading);
     const u=sn*this.vx-cs*this.vz,v=cs*this.vx+sn*this.vz,base=c.frontAxle+c.rearAxle;
-    const safeSteer=input.handbrake?(c.driveAxle==='rear'?.45:.28):Math.min(.65,Math.atan2(a.lateralAcceleration*base,Math.max(u*u,1)));
-    this.steerAngle+=(clamp(input.steer,-1,1)*safeSteer-this.steerAngle)*(1-Math.exp(-dt/a.steeringTime));
+    const cornerAcceleration=a.lateralAcceleration+.55*Math.min(Math.abs(u),35);
+    const safeSteer=input.handbrake?(c.driveAxle==='rear'?.45:.28):Math.min(.65,Math.atan2(cornerAcceleration*base,Math.max(u*u,1)))*c.steeringGain;
+    this.steerAngle+=(clamp(input.steer,-1,1)*safeSteer-this.steerAngle)*(1-Math.exp(-dt*c.steeringGain/a.steeringTime));
     const transfer=c.weightTransfer*clamp(this.accelerationForward,-35,35)*c.cgHeight/base;
     this.frontLoad=c.mass*clamp(c.rearAxle/base*9.81-transfer,.5,9.31);this.rearLoad=c.mass*9.81-this.frontLoad;
     const direction=Math.sign(u)||Math.sign(input.drive);
@@ -54,17 +55,32 @@ export class TireDynamics {
     const drivenLimit=Math.sqrt(Math.max(0,capacity*capacity/(a.tractionControl*a.tractionControl)-traction*traction));
     if(c.driveAxle==='front')fyFront=clamp(fyFront,-drivenLimit,drivenLimit);else fyRear=clamp(fyRear,-drivenLimit,drivenLimit);
     if(airborne)fyFront=fyRear=0;
-    const brake=airborne?0:(braking?c.brakeForce:0)+(input.handbrake?c.handbrakeForce:0);
-    let fx=traction*(c.driveAxle==='front'?Math.cos(this.steerAngle):1)-brake*a.brakeBoost*Math.sign(u)-c.rollingDrag*u-c.airDrag*u*Math.abs(u)-c.mass*9.81*Math.sin(grade);
+    // Rear-wheel lock initiates a slide; the foot-brake boost would stop it before the turn.
+    const brake=airborne?0:(braking?c.brakeForce*a.brakeBoost:0)+(input.handbrake?c.handbrakeForce:0);
+    let fx=traction*(c.driveAxle==='front'?Math.cos(this.steerAngle):1)-brake*Math.sign(u)-c.rollingDrag*u-c.airDrag*u*Math.abs(u)-c.mass*9.81*Math.sin(grade);
     if(!drive&&!input.handbrake&&!airborne)fx-=c.mass*2.5*Math.sign(u);
+    if(brake&&fx*u<0)fx=Math.sign(fx)*Math.min(Math.abs(fx),Math.abs(u)*c.mass/dt);
     const fy=fyFront*Math.cos(this.steerAngle)+fyRear+(c.driveAxle==='front'?traction*Math.sin(this.steerAngle):0)-c.rollingDrag*v-c.airDrag*v*Math.abs(v);
     if(!drive&&Math.abs(u)<.5)fx=-u*c.mass/dt;
     this.accelerationForward=fx/c.mass;
     this.vx+=(sn*fx+cs*fy)/c.mass*dt;this.vz+=(-cs*fx+sn*fy)/c.mass*dt;
     const torque=(fyFront*Math.cos(this.steerAngle)+(c.driveAxle==='front'?traction*Math.sin(this.steerAngle):0))*c.frontAxle-fyRear*c.rearAxle;
     this.yawRate=clamp((this.yawRate+torque/(c.mass*c.inertiaScale)*dt)*Math.exp(-a.yawDamping*dt),-2.2,2.2);
-    if(this.speed<.5&&!drive){this.stop();return;}
+    if(!airborne&&!input.handbrake) {
+      // Arcade yaw follows wheel angle even when full throttle consumes the driven tires' grip.
+      const target=clamp(u/base*Math.tan(this.steerAngle),-2.2*c.steeringGain,2.2*c.steeringGain);
+      this.yawRate+=(target-this.yawRate)*(1-Math.exp(-dt*a.yawResponse));
+    }
+    if(this.speed<.5&&(!drive||input.handbrake)){this.stop();return;}
     this.heading+=this.yawRate*dt;
+    if(!airborne) {
+      // Redirect velocity without adding energy; the handbrake retains a wider, recoverable slide.
+      const speed=this.speed,sn=Math.sin(this.heading),cs=Math.cos(this.heading);
+      const side=(cs*this.vx+sn*this.vz)*Math.exp(-dt*a.gripResponse*(input.handbrake?.15:1));
+      const direction=Math.sign(sn*this.vx-cs*this.vz)||Math.sign(u)||Math.sign(drive)||1;
+      const forward=direction*Math.sqrt(Math.max(0,speed*speed-side*side));
+      this.vx=sn*forward+cs*side;this.vz=-cs*forward+sn*side;
+    }
     this.forwardSpeed=Math.sin(this.heading)*this.vx-Math.cos(this.heading)*this.vz;
     const limited=clamp(this.forwardSpeed,-12,c.maximumSpeed),correction=limited-this.forwardSpeed;
     this.vx+=Math.sin(this.heading)*correction;this.vz-=Math.cos(this.heading)*correction;this.forwardSpeed=limited;

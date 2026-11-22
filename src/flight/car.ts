@@ -4,7 +4,7 @@ import type { createWorldPhysics } from './world-data';
 import { TireDynamics, HATCH, COUPE } from './carphys/model';
 
 // Arcade tire grip/braking preserve the delivery game's response; this is not a road-car validation.
-export const CAR_ASSISTS={tractionControl:.9,nitroGrip:1.2,lateralAcceleration:18,steeringTime:.09,yawDamping:.7,brakeBoost:3.2,uprightRoll:0};
+export const CAR_ASSISTS={tractionControl:.9,nitroGrip:1.2,lateralAcceleration:18,steeringTime:.065,yawDamping:.7,yawResponse:10,gripResponse:12,brakeBoost:3.2,uprightRoll:0};
 
 export type GroundPhysics = ReturnType<typeof createWorldPhysics>;
 export interface CarInput { drive: number; steer: number; handbrake: boolean; nitro?: boolean }
