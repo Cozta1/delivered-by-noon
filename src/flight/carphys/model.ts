@@ -5,14 +5,14 @@ export interface CarSpecification {
   mass:number; frontAxle:number; rearAxle:number; cgHeight:number; inertiaScale:number;
   driveAxle:'front'|'rear'; grip:number; lockGrip:number; engineForce:number; brakeForce:number;
   handbrakeForce:number; cornerFront:number; cornerRear:number; airDrag:number; rollingDrag:number;
-  weightTransfer:number; maximumSpeed:number; steeringGain:number;
+  weightTransfer:number; maximumSpeed:number; steeringGain:number; cornerSpeedCap?:number; highSpeedCorner?:number;
 }
 export const HATCH:CarSpecification={mass:1100,frontAxle:.95,rearAxle:1.5,cgHeight:.48,inertiaScale:1.6,
   driveAxle:'front',grip:2.4,lockGrip:.2,engineForce:26000,brakeForce:11550,handbrakeForce:15400,
   cornerFront:8,cornerRear:8.5,airDrag:.45,rollingDrag:6,weightTransfer:.12,maximumSpeed:45,steeringGain:1};
 export const COUPE:CarSpecification={mass:1350,frontAxle:1.45,rearAxle:1.15,cgHeight:.5,inertiaScale:1.8,
   driveAxle:'rear',grip:2.8,lockGrip:.13,engineForce:46000,brakeForce:14175,handbrakeForce:18900,
-  cornerFront:9,cornerRear:9,airDrag:.5,rollingDrag:8,weightTransfer:.15,maximumSpeed:65,steeringGain:1.15};
+  cornerFront:9,cornerRear:9,airDrag:.5,rollingDrag:8,weightTransfer:.15,maximumSpeed:65,steeringGain:1.15,cornerSpeedCap:58,highSpeedCorner:.35};
 export interface CarAssists { tractionControl:number; nitroGrip:number; lateralAcceleration:number; steeringTime:number; yawDamping:number; yawResponse:number; gripResponse:number; brakeBoost:number }
 export interface TireInput {drive:number;steer:number;handbrake:boolean;boost:number}
 const clamp=(v:number,lo:number,hi:number)=>Math.max(lo,Math.min(hi,v));
@@ -34,7 +34,7 @@ export class TireDynamics {
     if(!Number.isFinite(dt)||dt<=0||dt>.25||![input.drive,input.steer,input.boost,grade].every(Number.isFinite))throw new RangeError('Invalid car integration input');
     const c=this.spec,a=this.assists,sn=Math.sin(this.heading),cs=Math.cos(this.heading);
     const u=sn*this.vx-cs*this.vz,v=cs*this.vx+sn*this.vz,base=c.frontAxle+c.rearAxle;
-    const cornerAcceleration=a.lateralAcceleration+.55*Math.min(Math.abs(u),35);
+    const cornerAcceleration=a.lateralAcceleration+.55*Math.min(Math.abs(u),c.cornerSpeedCap??35)+(c.highSpeedCorner??0)*Math.max(0,Math.abs(u)-30);
     const safeSteer=input.handbrake?(c.driveAxle==='rear'?.45:.28):Math.min(.65,Math.atan2(cornerAcceleration*base,Math.max(u*u,1)))*c.steeringGain;
     this.steerAngle+=(clamp(input.steer,-1,1)*safeSteer-this.steerAngle)*(1-Math.exp(-dt*c.steeringGain/a.steeringTime));
     const transfer=c.weightTransfer*clamp(this.accelerationForward,-35,35)*c.cgHeight/base;
