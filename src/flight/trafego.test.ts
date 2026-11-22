@@ -185,10 +185,10 @@ describe('tráfego urbano de Juiz de Fora', () => {
     }
   });
 
-  it('freia quando o jogador está à frente e liga faróis e lanternas à noite sem luzes dinâmicas', () => {
+  it('freia quando o jogador está à frente e mantém faróis desligados de dia sem luzes dinâmicas', () => {
     const centro = cityLayout().landmarks.centro;
     const ctx = makeContext(centro.x, centro.z);
-    ctx.mission!.clockMinutes = 1320; // 22:00 (noite)
+    ctx.mission!.clockMinutes = 660; // 11:00 (manhã)
     initRuntime(ctx.state, { ...DEFAULT_SETTINGS, quality: 'high', traffic: 'normal' }, 'playing');
     const traffic = createTraffic(ctx);
 
@@ -197,14 +197,14 @@ describe('tráfego urbano de Juiz de Fora', () => {
       const list = getTrafficObstacles();
       expect(list.length).toBeGreaterThan(5);
 
-      // À noite: faróis e lanternas acesos e nenhuma luz dinâmica criada no tráfego
+      // Sempre de dia: faróis desligados e nenhuma luz dinâmica criada no tráfego
       const root = ctx.app.root.findByName('TrafegoRoot') as Entity;
       expect(root).toBeDefined();
       expect(root.findComponents('light')).toHaveLength(0);
       const activeCar = root.children.find((c) => (c as Entity).enabled) as Entity | undefined;
       expect(activeCar).toBeDefined();
-      expect((activeCar!.findByName('CarHeadlights') as Entity | null)?.enabled).toBe(true);
-      expect((activeCar!.findByName('TrafficLights') as Entity | null)?.enabled).toBe(true);
+      expect((activeCar!.findByName('CarHeadlights') as Entity | null)?.enabled).toBe(false);
+      expect(activeCar!.findByName('TrafficLights')).toBeNull();
 
       // Posiciona o jogador 6 m à frente de um carro ativo para confirmar frenagem
       const obs = list[0];

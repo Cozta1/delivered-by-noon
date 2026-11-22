@@ -1,4 +1,4 @@
-/* GoPostal — Delivered by Midnight: identidade visual unificada (HUD, menus e cabine). */
+/* GoPostal — Delivered by Noon: identidade visual unificada (HUD, menus e cabine). */
 :root {
   /* Marca GoPostal: amarelo-correio + alerta vermelho + neutros quentes (papel, tinta, asfalto) */
   --gp-yellow: #f2c21a;
@@ -856,8 +856,8 @@ canvas {
 
 .hud-lock-hint {
   position: absolute;
-  bottom: 18px;
-  left: 18px;
+  bottom: calc(clamp(144px, 13.5vw, 174px) + 28px);
+  left: 16px;
   padding: 4px 10px;
   background: var(--gp-asphalt);
   border: 1.5px solid var(--gp-ink);
@@ -868,12 +868,12 @@ canvas {
 }
 
 /* -------------------------------------------------------------------------
- * 4) MINIMAPA — Moldura quadrada da marca GoPostal (canto superior direito)
+ * 4) MINIMAPA — Moldura quadrada da marca GoPostal (canto inferior esquerdo)
  * ------------------------------------------------------------------------- */
 .hud-minimap {
   position: absolute;
-  top: 16px;
-  right: 16px;
+  left: 16px;
+  bottom: 18px;
   width: clamp(144px, 13.5vw, 174px);
   height: clamp(144px, 13.5vw, 174px);
   border: 3px solid var(--gp-yellow);
@@ -1118,7 +1118,7 @@ canvas {
   display: inline-flex;
   align-items: center;
   gap: 10px;
-  max-width: min(560px, calc(100vw - 32px));
+  max-width: min(520px, calc(100vw - 400px));
   padding: 8px 14px;
   background: var(--gp-asphalt);
   border: 2px solid var(--gp-ink);
@@ -1182,12 +1182,12 @@ canvas {
 }
 
 /* -------------------------------------------------------------------------
- * Modo Apresentação e FPS
+ * Modo Apresentação e FPS (canto superior direito, livre do minimapa)
  * ------------------------------------------------------------------------- */
 .hud-fps-counter {
   position: fixed;
-  left: 16px;
-  bottom: 16px;
+  top: 16px;
+  right: 16px;
   z-index: 120;
   padding: 4px 9px;
   background: var(--gp-asphalt);
@@ -1204,12 +1204,12 @@ canvas {
 
 .hud-pres-wrap {
   position: absolute;
-  left: 16px;
-  bottom: 48px;
+  top: 46px;
+  right: 16px;
   z-index: 4;
   display: flex;
   flex-direction: column;
-  align-items: flex-start;
+  align-items: flex-end;
   gap: 4px;
   pointer-events: none;
 }
@@ -2309,7 +2309,7 @@ canvas {
 }
 
 /* -------------------------------------------------------------------------
- * Game feel: linhas de velocidade, vinheta urgente 23:00, contagem final
+ * Game feel: linhas de velocidade, vinheta urgente 11:00, contagem final
  * ------------------------------------------------------------------------- */
 .fx-speed-lines {
   position: fixed;
@@ -2400,7 +2400,7 @@ canvas {
   transform: none;
 }
 
-/* Responsivo em janelas estreitas */
+/* Responsivo em janelas estreitas ou baixas */
 @media (max-width: 820px) {
   .menu-overlay--title.is-poster-main .menu-view--main {
     flex-direction: column;
@@ -2411,5 +2411,21 @@ canvas {
   .menu-overlay--title.is-poster-main .menu-leaderboard {
     transform: none;
     align-self: flex-start;
+  }
+
+  .hud-tip-card {
+    bottom: calc(clamp(144px, 13.5vw, 174px) + 28px);
+    max-width: calc(100vw - 32px);
+  }
+}
+
+@media (max-height: 560px) {
+  .hud-minimap {
+    width: 124px;
+    height: 124px;
+  }
+
+  .hud-lock-hint {
+    bottom: 150px;
   }
 }

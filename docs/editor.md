@@ -1,7 +1,7 @@
-# Como publicar "Delivered by Midnight" no Editor online do PlayCanvas
+# Como publicar "Delivered by Noon" no Editor online do PlayCanvas
 
-Este guia explica como levar o jogo **Delivered by Midnight** (ambientado em **Juiz de Fora — MG**) compilado em arquivo único (`dist-editor/flight-sim.mjs` para scripts ESM e `dist-editor/flight-sim.js` para script clássico) para um projeto no **PlayCanvas Editor** (`playcanvas.com`) usando engine **2.x**.
-O Hatch inicial (`public/models/carro.glb`), o Coupé Tunado (`public/models/carro-tunado.glb`), o helicóptero leve (`public/models/helicoptero.glb`), o A-29 (`public/models/a29.glb`), a fachada da **UniAcademia** (`public/models/uniacademia.glb`, entrega final), os marcadores 3D de entrega, o ciclo de dia/noite, o minimapa de Juiz de Fora e o áudio dinâmico funcionam automaticamente no **Launch**.
+Este guia explica como levar o jogo **Delivered by Noon** (ambientado em **Juiz de Fora — MG**) compilado em arquivo único (`dist-editor/flight-sim.mjs` para scripts ESM e `dist-editor/flight-sim.js` para script clássico) para um projeto no **PlayCanvas Editor** (`playcanvas.com`) usando engine **2.x**.
+O Hatch inicial (`public/models/carro.glb`), o Coupé Tunado (`public/models/carro-tunado.glb`), o helicóptero leve (`public/models/helicoptero.glb`), o A-29 (`public/models/a29.glb`), a fachada da **UniAcademia** (`public/models/uniacademia.glb`, entrega final), os marcadores 3D de entrega, a iluminação da manhã (`06:00 → 12:00`), o minimapa de Juiz de Fora e o áudio dinâmico funcionam automaticamente no **Launch**.
 
 ## 1. Gerar os arquivos do Editor (localmente)
 
@@ -74,7 +74,7 @@ Os dois formatos de script — **ESM** (`flightSim` em `src/editor/flight-sim.ts
 
 | Atributo | Título no Inspector | Tipo / Limites | Padrão | Efeito no jogo |
 |---|---|---|---|---|
-| `dayDurationMinutes` | **Duração do dia (min)** | Número (`2` a `60`, passo `1`) | `30` | Define quantos minutos reais dura o relógio completo de `00:00` a `24:00`. Útil para acelerar o ciclo dia/noite em demonstrações. |
+| `dayDurationMinutes` | **Duração do dia (min)** | Número (`2` a `60`, passo `1`) | `30` | Define quantos minutos reais dura o turno da manhã de `06:00` a `12:00`. Útil para acelerar o relógio em demonstrações. |
 | `difficulty` | **Dificuldade** | Lista (`Fácil`, `Normal`, `Difícil`) | `Normal` | Ajusta o raio de aceitação das entregas e o tempo disponível (`Fácil`: +35% raio e +25% tempo; `Difícil`: −28% raio e −25% tempo). |
 | `mouseSensitivity` | **Sensibilidade do mouse (A-29)** | Número (`0.05` a `0.40`, passo `0.01`) | `0.15` | Sensibilidade do mouse para a mira do A-29 e rotação de câmera. |
 | `musicVolume` | **Volume da música** | Número (`0` a `1`, passo `0.05`) | `0.45` | Volume inicial da trilha sonora procedural (`0` = mudo, `1` = máximo). |

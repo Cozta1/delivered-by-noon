@@ -372,8 +372,7 @@ function describeArc(cx: number, cy: number, r: number, startDeg: number, endDeg
 }
 
 function formatClockDigits(minutes: number): [string, string, string, string] {
-  const clamped = Math.max(0, Math.min(1440, Math.floor(minutes)));
-  if (clamped >= 1440) return ['2', '4', '0', '0'];
+  const clamped = Math.max(360, Math.min(720, Math.floor(minutes)));
   const hh = String(Math.floor(clamped / 60)).padStart(2, '0');
   const mm = String(clamped % 60).padStart(2, '0');
   return [hh[0], hh[1], mm[0], mm[1]];
@@ -464,10 +463,10 @@ export function createHud(ctx: FlightContext, uiRoot?: HTMLElement | null): Flig
 
   // 1) TOPO CENTRAL — Relógio protagonista estilo flip-clock
   const clockWrap = el('div', 'hud-clock-wrap');
-  const clockTag = el('div', 'hud-clock-tag', 'ATÉ A MEIA-NOITE');
+  const clockTag = el('div', 'hud-clock-tag', 'ATÉ O ALMOÇO');
   const flipBoard = el('div', 'hud-flip-board');
   const d0 = el('span', 'hud-flip-tile', '0');
-  const d1 = el('span', 'hud-flip-tile', '0');
+  const d1 = el('span', 'hud-flip-tile', '6');
   const colon = el('span', 'hud-flip-colon', ':');
   const d2 = el('span', 'hud-flip-tile', '0');
   const d3 = el('span', 'hud-flip-tile', '0');
@@ -649,7 +648,7 @@ export function createHud(ctx: FlightContext, uiRoot?: HTMLElement | null): Flig
   const presKeys = el('div', 'hud-pres-keys', 'F1 Carro · F2 Tunado · F3 Heli · F4 A-29 · F5 Final · F6 +1h');
   presBox.append(presBadge, presKeys);
 
-  // Vinheta vermelha após 23:00 + contagem regressiva nos últimos 60 s
+  // Vinheta vermelha a partir das 11:00 + contagem regressiva nos últimos 60 s antes de 12:00
   const urgentVignette = el('div', 'hud-urgent-vignette');
   urgentVignette.hidden = true;
 
@@ -1241,16 +1240,16 @@ export function createHud(ctx: FlightContext, uiRoot?: HTMLElement | null): Flig
         d2.textContent = m0;
         d3.textContent = m1;
       }
-      const urgent = mission.status === 'playing' && mission.clockMinutes >= 22 * 60;
+      const urgent = mission.status === 'playing' && mission.clockMinutes >= 11 * 60;
       if (urgent !== lastClockUrgent) {
         lastClockUrgent = urgent;
         clockWrap.classList.toggle('hud-clock--urgent', urgent);
-        clockTag.textContent = urgent ? 'CORRE · QUASE MEIA-NOITE' : 'ATÉ A MEIA-NOITE';
+        clockTag.textContent = urgent ? 'CORRE · QUASE MEIO-DIA' : 'ATÉ O ALMOÇO';
       }
 
-      const isFinalHour = rt.mode === 'playing' && mission.status === 'playing' && mission.clockMinutes >= 23 * 60;
+      const isFinalHour = rt.mode === 'playing' && mission.status === 'playing' && mission.clockMinutes >= 11 * 60;
       if (isFinalHour) {
-        const hourProg = Math.max(0, Math.min(1, (mission.clockMinutes - 23 * 60) / 60));
+        const hourProg = Math.max(0, Math.min(1, (mission.clockMinutes - 11 * 60) / 60));
         const pulse = rt.settings.reduceMotion ? 0.5 : 0.5 + 0.5 * Math.sin(animPhase * (4.2 + hourProg * 4.8));
         const vOp = Math.round((0.18 + hourProg * 0.42 + pulse * 0.22) * 20) / 20;
         if (vOp !== lastVignetteOpacity) {
@@ -1258,7 +1257,7 @@ export function createHud(ctx: FlightContext, uiRoot?: HTMLElement | null): Flig
           urgentVignette.hidden = false;
           urgentVignette.style.opacity = vOp.toFixed(2);
         }
-        const remRealSec = Math.ceil(((1440 - mission.clockMinutes) / 1440) * rt.effectiveDaySeconds);
+        const remRealSec = Math.ceil(((720 - mission.clockMinutes) / 360) * rt.effectiveDaySeconds);
         const showCd = remRealSec >= 1 && remRealSec <= 60;
         const cdVal = showCd ? remRealSec : 0;
         if (cdVal !== lastCountdownSec) {
@@ -1364,7 +1363,7 @@ export function createHud(ctx: FlightContext, uiRoot?: HTMLElement | null): Flig
         missionMsg.hidden = !showMsg;
         if (showMsg && mission.message) {
           missionMsg.textContent = mission.message.replace(/\s*\+\d+\s*(pts?)?$/i, '');
-          const isWarn = /bloquead|trancad|termine as entregas|cuidado|falta|meia-noite|errado/i.test(mission.message);
+          const isWarn = /bloquead|trancad|termine as entregas|cuidado|falta|meio-dia|almo[cç]o|errado/i.test(mission.message);
           missionMsg.className = `hud-mission-msg ${isWarn ? 'hud-mission-msg--warn' : 'hud-mission-msg--ok'}`;
         }
       }

@@ -3,7 +3,7 @@
  * SPDX-License-Identifier: MIT — licença preservada em `LICENSE-engine-sim.txt`.
  * Fonte: https://github.com/YigitSalihEmecen/Engine_Sim (commit c3ff6103).
  *
- * Adaptações para Delivered by Midnight (PlayCanvas):
+ * Adaptações para Delivered by Noon (PlayCanvas):
  * - AudioWorklet carregado via Blob URL inline (compatível com bundle único do PlayCanvas Editor),
  *   com fallback automático para wavetables PeriodicWave de largura de banda limitada.
  * - Telemetria RPM/marcha/carga/corte-de-giro/nitro derivada de `FlightState` sem alterar `car.ts`.

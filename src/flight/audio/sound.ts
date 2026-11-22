@@ -24,7 +24,7 @@ const CALM_CHORDS: readonly (readonly number[])[] = [
   [52, 55, 59, 62, 67],
 ];
 
-// Progressão mais tensa perto da meia-noite (Am -> F -> Dm -> E7) em MIDI
+// Progressão mais tensa perto do almoço / meio-dia (Am -> F -> Dm -> E7) em MIDI
 const TENSE_CHORDS: readonly (readonly number[])[] = [
   [57, 60, 64, 69, 72],
   [53, 57, 60, 65, 69],
@@ -401,7 +401,7 @@ export function createFlightAudio(initialSettings: GameSettings): FlightAudio {
       const arpDur = useTense ? 0.34 : 0.7;
       playSynthVoice(midiToHz(noteMidi), arpDur, arpVol, arpWave, 0.015);
 
-      // Pulso de baixo acelera quando a meia-noite se aproxima
+      // Pulso de baixo acelera quando o almoço (12:00) se aproxima
       const bassHit = useTense ? beatInBar % 2 === 0 : beatInBar === 0 || beatInBar === 4;
       if (bassHit) {
         const bassMidi = chord[0] - 12 + (useTense && beatInBar % 4 === 2 ? 7 : 0);
@@ -554,11 +554,11 @@ export function createFlightAudio(initialSettings: GameSettings): FlightAudio {
       }
       lastVehicle = vehicle;
 
-      // Tensão musical cresce das 19:00 até as 24:00
-      const clockMin = mission && mission.status === 'playing' ? mission.clockMinutes : 0;
-      const tension = playing && mission?.status === 'playing' ? clamp((clockMin - 19 * 60) / (5 * 60), 0, 1) : 0;
+      // Tensão musical cresce das 10:00 até as 12:00 (almoço)
+      const clockMin = mission && mission.status === 'playing' ? mission.clockMinutes : 360;
+      const tension = playing && mission?.status === 'playing' ? clamp((clockMin - 10 * 60) / (2 * 60), 0, 1) : 0;
 
-      // Música ambiente (calma no menu, animada jogando, tensa perto da meia-noite, reduzida na pausa)
+      // Música ambiente (calma no menu, animada jogando, tensa perto do almoço, reduzida na pausa)
       if (musicDuck && musicFilter) {
         const duckTarget = mode === 'paused' || mode === 'ended' ? 0.3 : playing ? 1.0 : 0.88;
         const filterTarget =
@@ -574,15 +574,11 @@ export function createFlightAudio(initialSettings: GameSettings): FlightAudio {
         triggerMusicStep(mode, tension);
       }
 
-      // Tique-taque do relógio: leve após 22:00 e acelerando forte a partir das 23:00 até 24:00
-      if (playing && mission?.status === 'playing' && clockMin >= 22 * 60) {
-        const isFinalHour = clockMin >= 23 * 60;
-        const urgency = isFinalHour
-          ? 0.45 + clamp((clockMin - 23 * 60) / 60, 0, 1) * 0.55
-          : clamp((clockMin - 22 * 60) / 60, 0, 1) * 0.45;
-        const tickInterval = isFinalHour
-          ? 0.56 - clamp((clockMin - 23 * 60) / 60, 0, 1) * 0.34
-          : 0.92 - clamp((clockMin - 22 * 60) / 60, 0, 1) * 0.36;
+      // Tique-taque do relógio a partir das 11:00, acelerando forte rumo às 12:00
+      if (playing && mission?.status === 'playing' && clockMin >= 11 * 60) {
+        const hourProg = clamp((clockMin - 11 * 60) / 60, 0, 1);
+        const urgency = 0.25 + hourProg * 0.75;
+        const tickInterval = 0.78 - hourProg * 0.52;
         tickTimer += dt;
         if (tickTimer >= tickInterval) {
           tickTimer %= tickInterval;
@@ -759,7 +755,7 @@ export function createFlightAudio(initialSettings: GameSettings): FlightAudio {
     },
 
     playDefeat() {
-      // Badalada de meia-noite + queda menor
+      // Badalada do meio-dia + queda menor
       playSfxTone(440, 430, 0.55, 0.22, 'sine', 0);
       playSfxTone(392, 385, 0.42, 0.18, 'triangle', 0.28);
       playSfxTone(329.63, 293.66, 0.65, 0.2, 'triangle', 0.52);

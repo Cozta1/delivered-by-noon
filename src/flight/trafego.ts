@@ -1,5 +1,4 @@
-import { BLEND_ADDITIVE, Color, Entity, StandardMaterial } from 'playcanvas';
-import { sampleDayNight } from './daynight';
+import { Entity, StandardMaterial } from 'playcanvas';
 import { buildVehicleModel, type VehicleModel } from './models';
 import { rng } from './noise';
 import type { FlightContext, FlightModule } from './types';
@@ -490,17 +489,6 @@ export function createTraffic(ctx: FlightContext): FlightModule {
   const trafficRoot = new Entity('TrafegoRoot', app);
   parent.addChild(trafficRoot);
 
-  // Material compartilhado para lanternas traseiras emissivas (sem luzes dinâmicas)
-  const tailMat = new StandardMaterial();
-  tailMat.useLighting = false;
-  tailMat.diffuse = new Color(0, 0, 0);
-  tailMat.emissive = new Color(1.0, 0.1, 0.08);
-  tailMat.emissiveIntensity = 2.6;
-  tailMat.opacity = 0.92;
-  tailMat.blendType = BLEND_ADDITIVE;
-  tailMat.depthWrite = false;
-  tailMat.update();
-
   const slots: TrafficSlot[] = Array.from({ length: MAX_TRAFFIC_CARS }, (_, i) => ({
     active: false,
     variant: i % 3,
@@ -528,28 +516,11 @@ export function createTraffic(ctx: FlightContext): FlightModule {
   }));
 
   function syncCarLights(model: VehicleModel) {
-    const nightOn = sampleDayNight(ctx.mission?.clockMinutes ?? 0).night >= 0.35;
+    // Delivered by Noon: sempre de dia — faróis desligados
     const front = model.root.findByName('CarHeadlights') as Entity | null;
-    if (front) front.enabled = nightOn;
+    if (front) front.enabled = false;
     const rear = model.root.findByName('TrafficLights') as Entity | null;
-    if (rear) rear.enabled = nightOn;
-  }
-
-  function attachTaillights(model: VehicleModel, variant: number) {
-    const lights = new Entity('TrafficLights', app);
-    model.root.addChild(lights);
-
-    const halfW = variant === 0 ? 0.68 : 0.72;
-    const tailY = variant === 0 ? 0.9 : variant === 1 ? 0.8 : 0.65;
-    const tailZ = variant === 0 ? 2.02 : variant === 1 ? 2.46 : 2.27;
-    for (const side of [-1, 1] as const) {
-      const glow = new Entity(`TrafficTail_${side < 0 ? 'L' : 'R'}`, app);
-      glow.addComponent('render', { type: 'box', material: tailMat, castShadows: false, receiveShadows: false });
-      glow.setLocalScale(0.32, 0.16, 0.08);
-      glow.setLocalPosition(side * halfW, tailY, tailZ);
-      lights.addChild(glow);
-    }
-    syncCarLights(model);
+    if (rear) rear.enabled = false;
   }
 
   function applyProceduralColor(model: VehicleModel, color: [number, number, number]) {
@@ -600,7 +571,7 @@ export function createTraffic(ctx: FlightContext): FlightModule {
     if (slot.model) return slot.model;
     const model = buildVehicleModel(app, 'car', slot.variant, trafficRoot);
     applyProceduralColor(model, slot.color);
-    attachTaillights(model, slot.variant);
+    syncCarLights(model);
     model.root.enabled = false;
     slot.model = model;
     return model;
@@ -926,7 +897,7 @@ export function createTraffic(ctx: FlightContext): FlightModule {
       destroyed = true;
       if (activeObstacleProvider === getObstacles) activeObstacleProvider = null;
 
-      const mats = new Set<StandardMaterial>([tailMat]);
+      const mats = new Set<StandardMaterial>();
       for (let i = 0; i < slots.length; i++) {
         const slot = slots[i];
         slot.active = false;

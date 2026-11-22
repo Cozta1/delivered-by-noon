@@ -59,7 +59,7 @@ import { UNIACADEMIA, createWorldPhysics } from './world-data';
 export type DifficultyLevel = 'facil' | 'normal' | 'dificil';
 
 export interface FlightSimOptions {
-  /** Duração do ciclo 00:00 → 24:00 em minutos reais (padrão: 30). */
+  /** Duração do turno da manhã 06:00 → 12:00 em minutos reais (padrão: 30). */
   dayDurationMinutes?: number;
   /** Dificuldade: ajusta raio das entregas e tempo disponível. */
   difficulty?: DifficultyLevel;
@@ -69,7 +69,7 @@ export interface FlightSimOptions {
   musicVolume?: number;
   /** Volume inicial dos efeitos sonoros (0..1). */
   sfxVolume?: number;
-  /** Exibe ou oculta o minimapa no canto superior direito. */
+  /** Exibe ou oculta o minimapa no canto inferior esquerdo. */
   showMinimap?: boolean;
   /** Exibe um contador leve de FPS no canto da tela. */
   showFps?: boolean;
@@ -87,12 +87,12 @@ type VehicleSystemJumpable = FlightModule & {
 };
 
 const PRESENTATION_STAGE_CLOCK: Record<Stage, number> = {
-  car: 0, // 00:00
-  tuned: 360, // 06:00 (amanhecer)
-  heli: 720, // 12:00 (meio-dia)
-  a29: 1050, // 17:30 (fim de tarde)
+  car: 360, // 06:00 (início da manhã)
+  tuned: 450, // 07:30 (manhã clara)
+  heli: 540, // 09:00 (sol alto)
+  a29: 630, // 10:30 (reta final da manhã)
 };
-const PRESENTATION_FINAL_CLOCK = 1290; // 21:30 (noite iluminada na UniAcademia)
+const PRESENTATION_FINAL_CLOCK = 675; // 11:15 (quase hora do almoço na UniAcademia)
 
 export interface FlightSimHandle {
   destroy(): void;
@@ -118,9 +118,9 @@ const QUALITY_CONFIG: Record<
   QualityLevel,
   { pixelRatio: number; fogStart: number; fogEnd: number; clouds: number; detailDistance: number }
 > = {
-  low: { pixelRatio: 1.0, fogStart: 600, fogEnd: 2300, clouds: 0, detailDistance: 900 },
-  medium: { pixelRatio: 1.25, fogStart: 800, fogEnd: 3300, clouds: 0.5, detailDistance: 1400 },
-  high: { pixelRatio: 1.5, fogStart: 900, fogEnd: 4200, clouds: 1, detailDistance: Infinity },
+  low: { pixelRatio: 1.0, fogStart: 1200, fogEnd: 3200, clouds: 0, detailDistance: 900 },
+  medium: { pixelRatio: 1.25, fogStart: 1600, fogEnd: 4500, clouds: 0.5, detailDistance: 1400 },
+  high: { pixelRatio: 1.5, fogStart: 2000, fogEnd: 5600, clouds: 1, detailDistance: Infinity },
 };
 
 const DETAIL_CULL_PATTERN = /^(bairros|casas|lampadas dos postes|cloud|nuve|mundo-bairros|mundo-casas|mundo-nuvens|detalhe)/i;
@@ -273,12 +273,12 @@ function buildSkyDome(
   c.height = 256;
   const g = c.getContext('2d')!;
   const grad = g.createLinearGradient(0, 0, 0, 256);
-  grad.addColorStop(0.0, '#1e2046');
-  grad.addColorStop(0.26, '#4f3a6e');
-  grad.addColorStop(0.42, '#c86868');
-  grad.addColorStop(0.5, '#fab88c');
-  grad.addColorStop(0.58, '#c69888');
-  grad.addColorStop(1.0, '#3a4668');
+  grad.addColorStop(0.0, '#2266c8');
+  grad.addColorStop(0.26, '#4c96e4');
+  grad.addColorStop(0.42, '#8ac6f2');
+  grad.addColorStop(0.5, '#cde4f5');
+  grad.addColorStop(0.58, '#a4bfd4');
+  grad.addColorStop(1.0, '#445e7e');
   g.fillStyle = grad;
   g.fillRect(0, 0, 4, 256);
 
@@ -546,7 +546,7 @@ export function startFlightSim(
   const mission: MissionState = createMissionState();
   const ctx: FlightContext = { app, world, plane, camera, state, mission };
 
-  // Ordem fixa: veículos/voo → missão → dia/noite → câmeras → marcadores → cabine → HUD → fumaça
+  // Ordem fixa: veículos/voo → missão → luz da manhã → câmeras → marcadores → cabine → HUD → fumaça
   const flightModule: VehicleSystemJumpable = createVehicleSystem(ctx);
   loadingScreen.setStage('vehicles', 'Veículos e fachada da UniAcademia prontos', true);
   const missionModule: FlightModule = createMissionSystem(ctx);
@@ -780,7 +780,7 @@ export function startFlightSim(
         : `Modo apresentação · Estágio ${mission.stage.toUpperCase()}`;
     } else {
       mission.message = finalDelivery
-        ? 'Modo apresentação · Entrega final pronta (UniAcademia · 21:30)'
+        ? 'Modo apresentação · Entrega final pronta (UniAcademia · 11:15)'
         : `Modo apresentação · Estágio ${mission.stage.toUpperCase()} liberado`;
     }
     mission.messageTimer = 4;
@@ -1061,7 +1061,7 @@ export function startFlightSim(
       }
       if (e.code === 'F6') {
         e.preventDefault();
-        mission.clockMinutes = Math.min(1435, mission.clockMinutes + 60);
+        mission.clockMinutes = Math.min(715, mission.clockMinutes + 60);
         const hh = String(Math.floor(mission.clockMinutes / 60)).padStart(2, '0');
         const mm = String(Math.floor(mission.clockMinutes % 60)).padStart(2, '0');
         mission.message = `Modo apresentação · Relógio +1h (${hh}:${mm})`;
@@ -1209,12 +1209,12 @@ export function startFlightSim(
         const clockScale = 30 / effectiveDayMin;
         if (Math.abs(clockScale - 1) > 1e-4) {
           const scaled = clockBefore + (mission.clockMinutes - clockBefore) * clockScale;
-          if (scaled >= 1440) {
-            mission.clockMinutes = 1440;
+          if (scaled >= 720) {
+            mission.clockMinutes = 720;
             mission.status = 'lost';
             mission.carrying = null;
             mission.nextDeliveryId = null;
-            mission.message = 'Meia-noite! O frete virou abóbora.';
+            mission.message = 'Meio-dia! Acabou o turno — o almoço esfriou!';
             mission.messageTimer = 4;
           } else {
             mission.clockMinutes = scaled;

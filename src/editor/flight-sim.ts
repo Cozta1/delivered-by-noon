@@ -25,7 +25,7 @@ export class FlightSim extends Script {
   static scriptName = 'flightSim';
 
   /**
-   * Quantos minutos reais dura o ciclo completo de 00:00 a 24:00 (padrão: 30).
+   * Quantos minutos reais dura o turno da manhã de 06:00 a 12:00 (padrão: 30).
    * @attribute
    * @title Duração do dia (min)
    * @type {number}
@@ -36,7 +36,7 @@ export class FlightSim extends Script {
   dayDurationMinutes = 30;
 
   /**
-   * Ajusta o raio de aceitação das entregas e o tempo disponível até meia-noite.
+   * Ajusta o raio de aceitação das entregas e o tempo disponível até o meio-dia.
    * @attribute
    * @title Dificuldade
    * @type {DifficultyMode}
@@ -77,7 +77,7 @@ export class FlightSim extends Script {
   sfxVolume = 0.8;
 
   /**
-   * Exibe ou oculta o minimapa de Juiz de Fora no canto superior direito.
+   * Exibe ou oculta o minimapa de Juiz de Fora no canto inferior esquerdo.
    * @attribute
    * @title Mostrar minimapa
    * @type {boolean}

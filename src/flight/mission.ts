@@ -3,7 +3,10 @@ import { createMissionState, STAGE_ORDER, type DeliveryPoint, type FlightContext
 import { AIRPORT, CRISTO_IMPERADOR, MARCOS, UNIACADEMIA, WORKSHOP, airportData, cityData, roadStop, terrainHeight } from './world-data';
 
 export const DAY_REAL_SECONDS = 30 * 60;
-export const CLOCK_MINUTES_PER_SECOND = 1440 / DAY_REAL_SECONDS;
+export const CLOCK_START_MINUTES = 6 * 60; // 06:00
+export const CLOCK_END_MINUTES = 12 * 60; // 12:00 (almoço)
+export const CLOCK_SPAN_MINUTES = CLOCK_END_MINUTES - CLOCK_START_MINUTES;
+export const CLOCK_MINUTES_PER_SECOND = CLOCK_SPAN_MINUTES / DAY_REAL_SECONDS;
 const restartHandlers = new WeakMap<FlightContext, Set<() => void>>();
 const stageNames: Record<Stage,string> = {car:'carro',tuned:'tunado',heli:'helicóptero',a29:'A-29'};
 
@@ -55,7 +58,7 @@ export function deliveryPoints():DeliveryPoint[] {
 export function startMission(ctx:FlightContext) {
   const mission=ctx.mission??=createMissionState();
   const deliveries=deliveryPoints();
-  Object.assign(mission,createMissionState(),{status:'playing',deliveries,total:deliveries.length});
+  Object.assign(mission,createMissionState(),{status:'playing',clockMinutes:CLOCK_START_MINUTES,deliveries,total:deliveries.length});
   for(const restart of restartHandlers.get(ctx)??[])restart();
 }
 
@@ -71,6 +74,7 @@ export function canEnterVehicle(ctx:FlightContext,kind:VehicleKind) {
 interface Drop {x:number;y:number;z:number;vx:number;vy:number;vz:number;entity?:Entity}
 export function createMissionSystem(ctx:FlightContext):FlightModule {
   const mission=ctx.mission??=createMissionState();
+  if(mission.clockMinutes<CLOCK_START_MINUTES)mission.clockMinutes=CLOCK_START_MINUTES;
   if(!mission.deliveries.length){mission.deliveries=deliveryPoints();mission.total=mission.deliveries.length;}
   const drops:Drop[]=[];
   let material:StandardMaterial|undefined;
@@ -84,7 +88,7 @@ export function createMissionSystem(ctx:FlightContext):FlightModule {
   function deliver(point:DeliveryPoint) {
     if(point.delivered)return;
     point.delivered=true;mission.delivered++;
-    const points=100+Math.floor((1440-mission.clockMinutes)/12);
+    const points=100+Math.floor(Math.max(0,CLOCK_END_MINUTES-mission.clockMinutes)/3);
     mission.score+=points;message(`Entregue a ${point.name.split(' — ')[0]}! +${points}`);
     if(mission.delivered===mission.total){mission.status='won';mission.carrying=null;mission.nextDeliveryId=null;clear();return;}
     if(!mission.deliveries.some(p=>p.stage===mission.stage&&!p.delivered)) {
@@ -106,7 +110,7 @@ export function createMissionSystem(ctx:FlightContext):FlightModule {
     const drop:Drop={x:state.x,y:state.y-.8,z:state.z,vx:Math.sin(h)*horizontal,vy:state.verticalSpeed,vz:-Math.cos(h)*horizontal};
     if(ctx.app.graphicsDevice&&ctx.app.systems?.render) {
       if(!material){material=new StandardMaterial();material.diffuse=new Color(.65,.36,.12);material.update();}
-      drop.entity=new Entity('Encomenda da meia-noite',ctx.app);
+      drop.entity=new Entity('Encomenda do almoço',ctx.app);
       drop.entity.addComponent('render',{type:'box',material,castShadows:false});drop.entity.setLocalScale(.9,.9,.9);
       (ctx.plane.root.parent??ctx.app.root).addChild(drop.entity);drop.entity.setPosition(drop.x,drop.y,drop.z);
     }
@@ -115,8 +119,8 @@ export function createMissionSystem(ctx:FlightContext):FlightModule {
   return {update(dt) {
     if(!Number.isFinite(dt)||dt<=0||mission.status!=='playing')return;
     mission.messageTimer=Math.max(0,mission.messageTimer-dt);if(!mission.messageTimer)mission.message=null;
-    mission.clockMinutes=Math.min(1440,mission.clockMinutes+dt*CLOCK_MINUTES_PER_SECOND);
-    if(mission.clockMinutes>=1440){mission.status='lost';mission.carrying=null;mission.nextDeliveryId=null;message('Meia-noite! O frete virou abóbora.');clear();return;}
+    mission.clockMinutes=Math.min(CLOCK_END_MINUTES,Math.max(CLOCK_START_MINUTES,mission.clockMinutes)+dt*CLOCK_MINUTES_PER_SECOND);
+    if(mission.clockMinutes>=CLOCK_END_MINUTES){mission.status='lost';mission.carrying=null;mission.nextDeliveryId=null;message('Meio-dia! Acabou o turno — o almoço esfriou!');clear();return;}
     loadAndTarget();
     const state=ctx.state;
     if(!state.crashed) {

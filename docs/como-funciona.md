@@ -1,6 +1,6 @@
 # Como o jogo funciona — Guia de estudo do grupo
 
-Este documento explica, em linguagem simples e direta, cada parte técnica do jogo **Delivered by Midnight** (ambientado em **Juiz de Fora — MG**). Use este guia para revisar antes da apresentação e responder perguntas da banca com segurança.
+Este documento explica, em linguagem simples e direta, cada parte técnica do jogo **Delivered by Noon** (ambientado em **Juiz de Fora — MG**). Use este guia para revisar antes da apresentação e responder perguntas da banca com segurança.
 
 ---
 
@@ -18,8 +18,8 @@ flowchart TD
     Vehicles --> Car["Carros + Nitro (car.ts + carphys/model.ts)"]
     Vehicles --> Heli["Helicóptero MD 500 (helicopter.ts + fdm/rotor.ts)"]
     Vehicles --> Plane["Avião A-29 (flight.ts + fdm/model.ts)"]
-    Game --> Mission["Missão e Relógio 00:00-24:00 (mission.ts)"]
-    Game --> Visual["Dia/Noite, Câmeras, Cabine, Marcadores, HUD (hud.ts)"]
+    Game --> Mission["Missão e Relógio 06:00-12:00 (mission.ts)"]
+    Game --> Visual["Luz da Manhã, Câmeras, Cabine, Marcadores, HUD (hud.ts)"]
     Game --> Audio["Áudio Procedural Web Audio (audio/sound.ts)"]
     Blender["Modelos Blender (.glb)"] --> Vehicles
     Blender --> World
@@ -40,23 +40,23 @@ flowchart TD
 ## 2. `game.ts` — Ciclo do jogo, módulos e pausa
 
 - **Onde fica no código:** `src/flight/game.ts` e o contrato compartilhado em `src/flight/types.ts`.
-- **O que faz:** É o maestro do jogo. Ao iniciar (`startFlightSim`), reaproveita a cena do Editor se ela existir (ou constrói o mundo localmente), inicializa os módulos em **ordem fixa** (`veículos → missão → dia/noite → câmeras → marcadores → cabine → HUD → fumaça`), aplica as opções vindas do Editor (dificuldade, duração do dia, FPS, minimapa) e controla os 4 estados do jogo: **título**, **jogando**, **pausado** e **fim (vitória/derrota)**. Na pausa (`Esc`/`P` ou soltar o mouse), nenhum módulo de física ou relógio roda — tudo congela exatamente onde estava. No `destroy()`, limpa listeners, áudio, DOM e restaura a cena do Editor sem vazar memória.
+- **O que faz:** É o maestro do jogo. Ao iniciar (`startFlightSim`), reaproveita a cena do Editor se ela existir (ou constrói o mundo localmente), inicializa os módulos em **ordem fixa** (`veículos → missão → luz da manhã → câmeras → marcadores → cabine → HUD → fumaça`), aplica as opções vindas do Editor (dificuldade, duração do dia, FPS, minimapa) e controla os 4 estados do jogo: **título**, **jogando**, **pausado** e **fim (vitória/derrota)**. Na pausa (`Esc`/`P` ou soltar o mouse), nenhum módulo de física ou relógio roda — tudo congela exatamente onde estava. No `destroy()`, limpa listeners, áudio, DOM e restaura a cena do Editor sem vazar memória.
 - **Como explicar em 30 segundos:**
   > "O `game.ts` centraliza o loop principal e mantém tudo desacoplado através de um estado único (`FlightState` e `MissionState`). Cada quadro roda na ordem exata — primeiro física e missão, depois luz, câmera e interface — para evitar atraso de câmera ou tremor. Quando o jogador pausa, o relógio e a simulação congelam imediatamente."
 
 ---
 
-## 3. Missão e relógio (`00:00 → 24:00`)
+## 3. Missão e relógio (`06:00 → 12:00`)
 
-- **Onde fica no código:** `src/flight/mission.ts` (lógica das 16 entregas, pontuação e lançamento aéreo) e `src/flight/daynight.ts` (sol, céu e iluminação acompanhando o relógio).
-- **O que faz:** O turno começa às `00:00` e vai até `24:00` (por padrão 30 minutos reais, ajustável pelo atributo `Duração do dia` no Editor). São **16 entregas reais em Juiz de Fora**, divididas em 4 estágios de 4 entregas:
+- **Onde fica no código:** `src/flight/mission.ts` (lógica das 16 entregas, pontuação e lançamento aéreo) e `src/flight/daynight.ts` (sol da manhã subindo de 06:00 a 12:00, céu claro e iluminação diurna).
+- **O que faz:** O turno da manhã começa às `06:00` e vai até o almoço às `12:00` (por padrão 30 minutos reais, ajustável pelo atributo `Duração do dia` no Editor). São **16 entregas reais em Juiz de Fora**, divididas em 4 estágios de 4 entregas:
   1. **Hatch**: Centro, Granbery, Alto dos Passos e Oficina do Poço Rico (libera o Coupé Tunado).
   2. **Coupé Tunado**: Salvaterra, Mirante do Morro do Imperador, Estádio Municipal e Torre do Heliponto (libera o Helicóptero).
   3. **Helicóptero**: coberturas em Santa Helena e Santa Cecília, Cristo do Imperador e Hangar do Aeroporto da Serrinha (libera o A-29).
   4. **Avião A-29**: lançamentos aéreos (`Espaço`) na UFJF, Distrito Industrial, Linhares e a **entrega final na UniAcademia**.
-  Entregar tudo antes das `24:00` dá vitória com bônus de tempo; bater `24:00` com entregas pendentes é derrota.
+  Entregar tudo antes das `12:00` dá vitória com bônus de tempo; bater `12:00` com entregas pendentes é derrota.
 - **Como explicar em 30 segundos:**
-  > "A missão cria a progressão de 'Delivered by Midnight': começamos à meia-noite de carro comum no Centro de Juiz de Fora e vamos desbloqueando veículos cada vez mais rápidos até fechar o jogo sobrevoando a UniAcademia de A-29. A última entrega de cada estágio leva o jogador direto até o próximo veículo."
+  > "A missão cria a progressão de 'Delivered by Noon': começamos às 06:00 da manhã de carro comum no Centro de Juiz de Fora e vamos desbloqueando veículos cada vez mais rápidos até fechar o jogo sobrevoando a UniAcademia de A-29 antes do horário de almoço (12:00). A última entrega de cada estágio leva o jogador direto até o próximo veículo."
 
 ---
 
@@ -121,25 +121,25 @@ flowchart TD
 
 ---
 
-## 10. HUD, minimapa, marcadores, câmeras, cabine e dia/noite
+## 10. HUD, minimapa, marcadores, câmeras, cabine e luz da manhã
 
 - **Onde fica no código:** `src/flight/hud.ts`, `src/flight/markers.ts`, `src/flight/cameras.ts`, `src/flight/cockpit.ts`, `src/flight/daynight.ts`, `src/flight/ui/menus.ts` e `src/flight/ui/settings.ts`.
 - **O que faz:**
-  - **HUD e minimapa (`hud.ts`):** relógio `00:00 → 24:00`, velocímetro automotivo com marchas/nitro, telemetria aérea e um **minimapa de Juiz de Fora** pré-renderizado uma única vez em canvas 1024×1024 a partir de `cityLayout()` (vias por categoria, Rio Paraibuna, parques, UFJF, estádio, pista e UniAcademia em destaque dourado), girando conforme a bússola do jogador com rótulos sempre horizontais.
-  - **Marcadores 3D (`markers.ts`):** colunas luminosas aditivas visíveis de longe e à noite, seta na borda da tela apontando a próxima entrega e destaque dourado com partículas em espiral na entrega final na UniAcademia.
+  - **HUD e minimapa (`hud.ts`):** relógio `06:00 → 12:00`, velocímetro automotivo com marchas/nitro, telemetria aérea e um **minimapa de Juiz de Fora** pré-renderizado uma única vez em canvas 1024×1024 a partir de `cityLayout()` (vias por categoria, Rio Paraibuna, parques, UFJF, estádio, pista e UniAcademia em destaque dourado), girando conforme a bússola do jogador com rótulos sempre horizontais.
+  - **Marcadores 3D (`markers.ts`):** colunas luminosas visíveis de longe, seta na borda da tela apontando a próxima entrega e destaque dourado com partículas em espiral na entrega final na UniAcademia.
   - **Câmeras e cabine (`cameras.ts`, `cockpit.ts`):** câmeras de perseguição, topo e cabine (`C`/`V`), proteção contra atravessar o chão/estruturas usando `surfaceAt`, mira do mouse exclusiva do A-29 e painel de instrumentos 2D (horizonte artificial, altímetro, velocímetro).
-  - **Ciclo dia/noite (`daynight.ts`):** muda cor do céu, posição do sol, névoa, faróis dos carros e brilho dos postes e janelas conforme o relógio avança de `00:00` até `24:00`.
+  - **Iluminação da manhã (`daynight.ts`):** sempre de dia — eleva o sol da manhã clara (`06:00`) até o meio-dia (`12:00`) com céu azul e névoa diurna, mantendo postes, janelas e faróis desligados para visual limpo e mais FPS.
 - **Como explicar em 30 segundos:**
-  > "A interface se adapta ao veículo atual: velocímetro e barra de nitro nos carros, instrumentos de voo no avião e um minimapa real de Juiz de Fora pré-renderizado uma única vez para não pesar no FPS. Colunas de luz 3D, seta de borda e o ciclo completo de dia e noite guiam o jogador do começo ao fim."
+  > "A interface se adapta ao veículo atual: velocímetro e barra de nitro nos carros, instrumentos de voo no avião e um minimapa real de Juiz de Fora pré-renderizado uma única vez para não pesar no FPS. Colunas de luz 3D, rota GPS no chão e o sol da manhã subindo até o meio-dia guiam o jogador do começo ao fim."
 
 ---
 
-## 11. Áudio gerado por código (Web Audio API)
+## 11. Áudio gerado por código (Web Audio API + Engine Sim)
 
-- **Onde fica no código:** `src/flight/audio/sound.ts`.
-- **O que faz:** Sintetiza todos os sons em tempo real usando **Web Audio API** (osciladores, filtros e ruído filtrado) — ronco de motor variando com RPM/velocidade, nitro, pás do helicóptero, hélice do A-29, vento, cliques de menu, fanfarra de novo estágio, vitória/derrota e trilha dinâmica que muda de intensidade conforme o horário se aproxima da meia-noite. Tudo com zero arquivos MP3 externos, carregando instantaneamente.
+- **Onde fica no código:** `src/flight/audio/sound.ts` e `src/flight/audio/engine-sim-dsp.ts` (port MIT do *Engine Sim*).
+- **O que faz:** Sintetiza todos os sons em tempo real usando **Web Audio API** — motores de carro por ordem de ignição (Inline-4 no Hatch e V8 cross-plane encorpado com corte de giro e estouros no nitro no Coupé Tunado), pás do helicóptero, hélice do A-29, vento, efeitos de interface e trilha dinâmica que acelera perto das `11:00–12:00`. Tudo com zero arquivos MP3 externos, carregando instantaneamente.
 - **Como explicar em 30 segundos:**
-  > "Todo o áudio é procedural em Web Audio API: o som do motor muda de tom conforme a rotação e o veículo, o nitro e o helicóptero têm timbres próprios e a trilha sonora fica mais tensa perto da meia-noite — tudo sem baixar megabytes de MP3."
+  > "Todo o áudio é procedural em Web Audio API: portamos o núcleo MIT do Engine Sim para sintetizar os motores dos carros por ordem de ignição e escapamento físico, além de rotor, A-29 e trilha dinâmica que fica mais tensa perto do meio-dia — tudo sem arquivos MP3."
 
 ---
 
@@ -147,7 +147,7 @@ flowchart TD
 
 - **Onde fica no código:** `src/flight/ui/loading.ts` (tela de carregamento), `src/flight/models/glb.ts` (rastreamento real de GLBs e frustum culling), `src/flight/game.ts` (qualidade/DPR, culling por distância, medidor de FPS e `?perf=1`) e `src/flight/ui/menus.ts` / `settings.ts` (opções de qualidade e **Mostrar FPS**).
 - **O que faz:**
-  - **Tela de carregamento real:** exibe o visual noturno de *Delivered by Midnight* imediatamente antes de montar o mundo, soma o progresso real dos GLBs e texturas carregando (mundo, bairros, veículos, UniAcademia e assets do Editor), mostra o item atual + uma dica curta por vez e só abre o menu inicial quando tudo termina.
+  - **Tela de carregamento real:** exibe a identidade de *Delivered by Noon* imediatamente antes de montar o mundo, soma o progresso real dos GLBs e texturas carregando (mundo, bairros, veículos, UniAcademia e assets do Editor), mostra o item atual + uma dica curta por vez e só abre o menu inicial quando tudo termina.
   - **Qualidade e limite de resolução (`devicePixelRatio`):** aplica o teto escolhido nas Opções em `graphicsDevice.maxPixelRatio` — **Baixa = `1,0`**, **Média = `1,25`**, **Alta = `1,5`** — evitando renderização 2x/3x desnecessária em telas Retina/HiDPI.
   - **Frustum culling + culling por distância:** mantém `cull = true` em todas as malhas e `MeshInstance`s (inclusive GLBs carregados depois). Nas qualidades **Baixa** (`~900 m`) e **Média** (`~1.400 m`), oculta detalhes pequenos e bairros distantes sem nunca esconder o terreno, as vias principais nem os marcos (UniAcademia, aeroporto, Cristo). Sem sombras extras nem luzes dinâmicas novas.
   - **Medidor de FPS no canto:** ativado pelo atributo **Mostrar FPS** no Editor ou em **Opções → Mostrar FPS**, exibe a média dos últimos 3 segundos e o pior quadro em ms (`60 FPS · pior 19 ms`).

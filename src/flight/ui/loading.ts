@@ -67,7 +67,7 @@ function el<K extends keyof HTMLElementTagNameMap>(
 }
 
 /**
- * Tela de carregamento noturna com progresso real de GLBs, texturas e etapas da cena.
+ * Tela de carregamento diurna com progresso real de GLBs, texturas e etapas da cena.
  * Funciona tanto no app local (Vite) quanto no Launch do PlayCanvas Editor.
  */
 export function createLoadingScreen(uiRoot: HTMLElement | null | undefined): LoadingScreenHandle {
@@ -86,12 +86,12 @@ export function createLoadingScreen(uiRoot: HTMLElement | null | undefined): Loa
   const card = el('div', 'loading-card');
   const band = el('div', 'loading-band');
   const eyebrow = el('div', 'loading-eyebrow', 'GOPOSTAL · JUIZ DE FORA');
-  const shiftTag = el('div', 'loading-eyebrow', 'TURNO 00:00');
+  const shiftTag = el('div', 'loading-eyebrow', 'TURNO 06:00');
   band.append(eyebrow, shiftTag);
 
   const body = el('div', 'loading-body');
-  const title = el('h1', 'loading-title', 'DELIVERED BY MIDNIGHT');
-  const subtitle = el('p', 'loading-subtitle', 'Preparando as ruas e os veículos para o turno.');
+  const title = el('h1', 'loading-title', 'DELIVERED BY NOON');
+  const subtitle = el('p', 'loading-subtitle', 'Preparando as ruas e os veículos para o turno da manhã.');
 
   const barWrap = el('div', 'loading-bar-wrap');
   const barTrack = el('div', 'loading-bar-track');

@@ -1,6 +1,6 @@
 import { afterEach, expect, it, vi } from 'vitest';
 import { Entity, KEY_SPACE, KEY_SHIFT, KEY_W, KEY_D } from 'playcanvas';
-import { canEnterVehicle, CLOCK_MINUTES_PER_SECOND, createMissionSystem, DAY_REAL_SECONDS, startMission } from './mission';
+import { canEnterVehicle, CLOCK_END_MINUTES, CLOCK_MINUTES_PER_SECOND, CLOCK_START_MINUTES, createMissionSystem, DAY_REAL_SECONDS, startMission } from './mission';
 import { createFlightState, createMissionState, STAGE_ORDER, type DeliveryPoint, type FlightContext } from './types';
 import { CarDynamics, createCarController, getCarNitro } from './car';
 import { AIRPORT, HANGAR, createWorldPhysics } from './world-data';
@@ -23,12 +23,12 @@ function setup() {
   return {ctx,state,mission,module,keys,at,deliver,setGround:(y:number)=>{ground=y;}};
 }
 
-it('starts at midnight, ignores invalid time, advances at constant scale and loses at 24:00',()=>{
-  const s=setup();expect(s.mission.status).toBe('intro');s.module.update(100);expect(s.mission.clockMinutes).toBe(0);
-  startMission(s.ctx);s.module.update(60);expect(s.mission.clockMinutes).toBeCloseTo(60*CLOCK_MINUTES_PER_SECOND);
+it('starts at 06:00, ignores invalid time, advances at constant scale and loses at 12:00',()=>{
+  const s=setup();expect(s.mission.status).toBe('intro');s.module.update(100);expect(s.mission.clockMinutes).toBe(CLOCK_START_MINUTES);
+  startMission(s.ctx);s.module.update(60);expect(s.mission.clockMinutes).toBeCloseTo(CLOCK_START_MINUTES+60*CLOCK_MINUTES_PER_SECOND);
   const clock=s.mission.clockMinutes;
   for(const dt of [0,-1,NaN,Infinity])s.module.update(dt);expect(s.mission.clockMinutes).toBe(clock);
-  s.module.update(DAY_REAL_SECONDS);expect(s.mission.clockMinutes).toBe(1440);expect(s.mission.status).toBe('lost');
+  s.module.update(DAY_REAL_SECONDS);expect(s.mission.clockMinutes).toBe(CLOCK_END_MINUTES);expect(s.mission.status).toBe('lost');
   const score=s.mission.score;s.module.update(60);expect(s.mission.score).toBe(score);
 });
 
@@ -56,7 +56,7 @@ it('unlocks stages in order, accepts hovering heli and wins only after all 16 de
     expect(s.mission.stage).toBe(stage);expect(canEnterVehicle(s.ctx,stage)).toBe(true);
     for(const p of s.mission.deliveries.filter(p=>p.stage===stage))s.deliver(p);
   }
-  expect(s.mission.delivered).toBe(16);expect(s.mission.status).toBe('won');expect(s.mission.clockMinutes).toBeLessThan(1440);
+  expect(s.mission.delivered).toBe(16);expect(s.mission.status).toBe('won');expect(s.mission.clockMinutes).toBeGreaterThanOrEqual(CLOCK_START_MINUTES);expect(s.mission.clockMinutes).toBeLessThan(CLOCK_END_MINUTES);
   expect(s.mission.deliveries.every(p=>p.delivered)).toBe(true);
 });
 
@@ -86,8 +86,8 @@ it('creates a visible crate and releases its entity/material on destruction',()=
   const add=vi.spyOn(Entity.prototype,'addComponent').mockImplementation(()=>null);
   s.at(s.mission.deliveries.find(p=>p.airDrop)!,100);s.keys.add(KEY_SPACE);s.module.update(.01);
   expect(add).toHaveBeenCalledWith('render',expect.objectContaining({type:'box'}));
-  const parent=s.ctx.plane.root.parent!;expect(parent.children.some(e=>e.name==='Encomenda da meia-noite')).toBe(true);
-  s.module.destroy?.();expect(parent.children.some(e=>e.name==='Encomenda da meia-noite')).toBe(false);
+  const parent=s.ctx.plane.root.parent!;expect(parent.children.some(e=>e.name==='Encomenda do almoço')).toBe(true);
+  s.module.destroy?.();expect(parent.children.some(e=>e.name==='Encomenda do almoço')).toBe(false);
 });
 
 it('tuned car is faster and drains/refills nitro',()=>{

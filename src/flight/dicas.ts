@@ -14,7 +14,7 @@ type TipId =
   | 'heli-controls'
   | 'heli-land'
   | 'a29-controls'
-  | 'late-22h'
+  | 'late-11h'
   | 'idle-reminder';
 
 type TipTone = 'default' | 'urgent' | 'goal';
@@ -246,12 +246,12 @@ export function createDicas(ctx: FlightContext, uiRoot?: HTMLElement | null): Fl
       const nextDel = findCurrentDelivery(mission, state.x, state.z);
       const distNext = nextDel ? Math.hypot(nextDel.x - state.x, nextDel.z - state.z) : Infinity;
 
-      // Dica urgente das 22:00 pode substituir dica comum imediatamente
-      if (!shown.has('late-22h') && mission.clockMinutes >= 22 * 60) {
+      // Dica urgente das 11:00 pode substituir dica comum imediatamente
+      if (!shown.has('late-11h') && mission.clockMinutes >= 11 * 60) {
         showTip(
-          'late-22h',
+          'late-11h',
           '!',
-          [{ text: 'Corre! A meia-noite está chegando' }],
+          [{ text: 'Corre! O almoço está chegando' }],
           5.5,
           'urgent',
           1.8,

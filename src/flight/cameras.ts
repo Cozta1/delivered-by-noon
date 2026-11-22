@@ -43,11 +43,11 @@ const FOOT_SHOULDER_RIGHT = 0.62;
 const FOOT_TOP_HEIGHT = 55;
 
 const TOP_HEIGHT = 180;
-const CHASE_SMOOTH = 10;
-const CAR_SMOOTH = 12;
-const FOOT_SMOOTH = 16;
-const TOP_SMOOTH = 8;
-const HEAD_SMOOTH = 12;
+const CHASE_SMOOTH = 14;
+const CAR_SMOOTH = 18;
+const FOOT_SMOOTH = 18;
+const TOP_SMOOTH = 12;
+const HEAD_SMOOTH = 16;
 const TELEPORT_DIST_SQ = 100 * 100;
 const MOUSE_SENSITIVITY = 0.15;
 const AIM_LOOK_AHEAD = 120;
@@ -71,6 +71,7 @@ export function createCameraRig({ app, world, plane, camera, state }: FlightCont
   const aimDir = new Vec3(0, 0, -1);
   const localAim = new Vec3();
   const lookTarget = new Vec3();
+  const smoothPos = new Vec3();
   const camPos = new Vec3();
   const desiredPos = new Vec3();
   const camRot = new Quat();
@@ -98,9 +99,10 @@ export function createCameraRig({ app, world, plane, camera, state }: FlightCont
   let headYaw = 0;
   let headPitch = 0;
   let carOrbitIdle = 99;
-  // Sensação ("game feel"): tremor, inclinação nas curvas e FOV dinâmico
+  // Sensação ("game feel"): tremor suave de baixa frequência (só nitro/impacto), inclinação leve e FOV suave
   let feelTime = 0;
   let impactShake = 0;
+  let nitroShake = 0;
   let carRollDeg = 0;
   let prevHeading = state.heading;
   let prevHeightAboveGround = state.heightAboveGround;
@@ -271,7 +273,8 @@ export function createCameraRig({ app, world, plane, camera, state }: FlightCont
       // Quando o veículo segue sem mexer o mouse, a câmera realinha suavemente atrás do rumo
       const defaultPitch = state.vehicle === 'heli' ? -10 : -4;
       if (!isPointerLocked() || (carOrbitIdle > 1.5 && Math.abs(state.speed) > 1.5)) {
-        const alpha = 1 - Math.exp(-4.5 * Math.max(dt, 0.001));
+        const safeDt = clamp(dt, 0.001, 0.1);
+        const alpha = 1 - Math.exp(-6.0 * safeDt);
         aimYaw = ((aimYaw + shortestAngleDiff(aimYaw, state.heading) * alpha) % 360 + 360) % 360;
         aimPitch += (defaultPitch - aimPitch) * alpha;
       }
@@ -373,20 +376,22 @@ export function createCameraRig({ app, world, plane, camera, state }: FlightCont
     if (desiredPos.y < minGroundY) desiredPos.y = minGroundY;
 
     if (snap) {
-      camPos.copy(desiredPos);
+      smoothPos.copy(desiredPos);
     } else {
-      const alpha = 1 - Math.exp(-FOOT_SMOOTH * dt);
-      camPos.copy(camera.getPosition()).lerp(camPos, desiredPos, alpha);
-      const minCamY = surfaceFloorAt(camPos.x, camPos.z, Math.max(planePos.y + 2.2, camPos.y + 0.6)) + 0.55;
-      if (camPos.y < minCamY) camPos.y = minCamY;
+      const safeDt = clamp(dt, 0, 0.1);
+      const alpha = 1 - Math.exp(-FOOT_SMOOTH * safeDt);
+      smoothPos.lerp(smoothPos, desiredPos, alpha);
+      const minCamY = surfaceFloorAt(smoothPos.x, smoothPos.z, Math.max(planePos.y + 2.2, smoothPos.y + 0.6)) + 0.55;
+      if (smoothPos.y < minCamY) smoothPos.y = minCamY;
     }
-    camera.setPosition(camPos);
+    camera.setPosition(smoothPos);
     lookTarget.set(anchorX + aimDir.x * 35, anchorY + aimDir.y * 35, anchorZ + aimDir.z * 35);
     safeLookAt(lookTarget, aimYaw);
   }
 
   function updateCarChase(dt: number, snap: boolean) {
-    // Chase baixa automotiva: segue o rumo do carro ou órbita do mouse
+    // Chase baixa automotiva: segue o rumo do carro ou órbita do mouse sem atraso borrado
+    const safeDt = clamp(dt, 0, 0.1);
     const yawRad = aimYaw * DEG_TO_RAD;
     const pitchRad = aimPitch * DEG_TO_RAD;
     const backX = -Math.sin(yawRad) * Math.cos(pitchRad);
@@ -402,23 +407,23 @@ export function createCameraRig({ app, world, plane, camera, state }: FlightCont
     if (desiredPos.y < minGroundY) desiredPos.y = minGroundY;
 
     if (snap) {
-      camPos.copy(desiredPos);
+      smoothPos.copy(desiredPos);
     } else {
-      const alpha = 1 - Math.exp(-CAR_SMOOTH * dt);
-      camPos.copy(camera.getPosition()).lerp(camPos, desiredPos, alpha);
-      const minCamY = surfaceFloorAt(camPos.x, camPos.z, Math.max(planePos.y + 3.5, camPos.y + 0.8)) + 0.9;
-      if (camPos.y < minCamY) camPos.y = minCamY;
+      const alpha = 1 - Math.exp(-CAR_SMOOTH * safeDt);
+      smoothPos.lerp(smoothPos, desiredPos, alpha);
+      const minCamY = surfaceFloorAt(smoothPos.x, smoothPos.z, Math.max(planePos.y + 3.5, smoothPos.y + 0.8)) + 0.9;
+      if (smoothPos.y < minCamY) smoothPos.y = minCamY;
     }
-    camera.setPosition(camPos);
+    camera.setPosition(smoothPos);
     lookTarget.set(planePos.x, planePos.y + 1.45, planePos.z);
     safeLookAt(lookTarget, aimYaw);
     // Leve inclinação da câmera nas curvas do carro (respeita "reduzir movimento")
     const reduceMotion = getRuntime(state).settings.reduceMotion;
     const targetRoll =
-      !reduceMotion && Math.abs(state.speed) > 4 && dt > 0.0005
-        ? clamp((shortestAngleDiff(prevHeading, state.heading) / dt) * 0.055, -3.8, 3.8)
+      !reduceMotion && Math.abs(state.speed) > 5 && safeDt > 0.0005
+        ? clamp((shortestAngleDiff(prevHeading, state.heading) / safeDt) * 0.04, -2.6, 2.6)
         : 0;
-    carRollDeg = snap ? 0 : carRollDeg + (targetRoll - carRollDeg) * (1 - Math.exp(-9 * dt));
+    carRollDeg = snap ? 0 : carRollDeg + (targetRoll - carRollDeg) * (1 - Math.exp(-8 * safeDt));
     if (Math.abs(carRollDeg) > 0.03) {
       tiltQuat.setFromAxisAngle(Vec3.FORWARD, carRollDeg);
       camRot.copy(camera.getRotation()).mul(tiltQuat);
@@ -427,17 +432,18 @@ export function createCameraRig({ app, world, plane, camera, state }: FlightCont
     if (camera.camera) {
       const nitroOn = isTunedNitroActive(state);
       const speedAbs = Math.abs(state.speed);
-      const maxAdd = reduceMotion ? 3.5 : state.vehicle === 'tuned' ? 15 : 6.5;
+      const maxAdd = reduceMotion ? 2.0 : state.vehicle === 'tuned' ? 8.5 : 4.5;
       const baseAdd =
         state.vehicle === 'tuned'
-          ? clamp((speedAbs - 18) / 38, 0, 1) * 10 + (nitroOn ? 5.5 : 0)
-          : clamp((speedAbs - 16) / 32, 0, 1) * 6.5;
+          ? clamp((speedAbs - 18) / 42, 0, 1) * 5.5 + (nitroOn ? 3.0 : 0)
+          : clamp((speedAbs - 16) / 34, 0, 1) * 4.5;
       const targetFov = FOV.chase + Math.min(maxAdd, baseAdd);
-      camera.camera.fov = snap ? targetFov : camera.camera.fov + (targetFov - camera.camera.fov) * (1 - Math.exp(-7 * dt));
+      camera.camera.fov = snap ? targetFov : camera.camera.fov + (targetFov - camera.camera.fov) * (1 - Math.exp(-4.2 * safeDt));
     }
   }
 
   function updateAircraftChase(dt: number, snap: boolean) {
+    const safeDt = clamp(dt, 0, 0.1);
     const isHeli = state.vehicle === 'heli';
     const chaseDist = isHeli ? HELI_CHASE_DISTANCE : A29_CHASE_DISTANCE;
     const chaseHeight = isHeli ? HELI_CHASE_HEIGHT : A29_CHASE_HEIGHT;
@@ -469,22 +475,22 @@ export function createCameraRig({ app, world, plane, camera, state }: FlightCont
     if (desiredPos.y < minGroundY) desiredPos.y = minGroundY;
 
     if (snap) {
-      camPos.copy(desiredPos);
+      smoothPos.copy(desiredPos);
     } else {
-      const alpha = 1 - Math.exp(-CHASE_SMOOTH * dt);
-      camPos.copy(camera.getPosition()).lerp(camPos, desiredPos, alpha);
-      const minCamY = surfaceFloorAt(camPos.x, camPos.z, Math.max(planePos.y + 4.5, camPos.y + 1.0)) + 2.2;
-      if (camPos.y < minCamY) camPos.y = minCamY;
+      const alpha = 1 - Math.exp(-CHASE_SMOOTH * safeDt);
+      smoothPos.lerp(smoothPos, desiredPos, alpha);
+      const minCamY = surfaceFloorAt(smoothPos.x, smoothPos.z, Math.max(planePos.y + 4.5, smoothPos.y + 1.0)) + 2.2;
+      if (smoothPos.y < minCamY) smoothPos.y = minCamY;
     }
-    camera.setPosition(camPos);
+    camera.setPosition(smoothPos);
     safeLookAt(lookTarget, isHeli || useMouseAim ? aimYaw : state.heading);
     if (camera.camera) {
       const reduceMotion = getRuntime(state).settings.reduceMotion;
       const speedNorm = isHeli
         ? clamp((Math.abs(state.speed) - 12) / 42, 0, 1)
         : clamp((Math.abs(state.speed) - 45) / 100, 0, 1);
-      const targetFov = FOV.chase + speedNorm * (reduceMotion ? 2.5 : isHeli ? 5.5 : 9.5);
-      camera.camera.fov = snap ? targetFov : camera.camera.fov + (targetFov - camera.camera.fov) * (1 - Math.exp(-6 * dt));
+      const targetFov = FOV.chase + speedNorm * (reduceMotion ? 2.0 : isHeli ? 4.0 : 7.0);
+      camera.camera.fov = snap ? targetFov : camera.camera.fov + (targetFov - camera.camera.fov) * (1 - Math.exp(-4.2 * safeDt));
     }
   }
 
@@ -499,6 +505,7 @@ export function createCameraRig({ app, world, plane, camera, state }: FlightCont
   }
 
   function updateTop(dt: number, snap: boolean) {
+    const safeDt = clamp(dt, 0, 0.1);
     const topHeight =
       state.vehicle === 'foot' ? FOOT_TOP_HEIGHT : isCar(state.vehicle) ? CAR_TOP_HEIGHT : TOP_HEIGHT;
     desiredPos.set(planePos.x, planePos.y + topHeight, planePos.z);
@@ -507,21 +514,23 @@ export function createCameraRig({ app, world, plane, camera, state }: FlightCont
     targetRot.mul2(yawRot, pitchRot);
 
     if (snap) {
-      camPos.copy(desiredPos);
+      smoothPos.copy(desiredPos);
       camRot.copy(targetRot);
     } else {
-      const alpha = 1 - Math.exp(-TOP_SMOOTH * dt);
-      camPos.copy(camera.getPosition()).lerp(camPos, desiredPos, alpha);
+      const alpha = 1 - Math.exp(-TOP_SMOOTH * safeDt);
+      smoothPos.lerp(smoothPos, desiredPos, alpha);
       camRot.copy(camera.getRotation()).slerp(camRot, targetRot, alpha);
     }
-    camera.setPosition(camPos);
+    camera.setPosition(smoothPos);
     camera.setRotation(camRot);
   }
 
   function updateCockpit(dt: number, snap: boolean) {
+    const safeDt = clamp(dt, 0, 0.1);
     const offset = state.vehicle === 'heli' ? HELI_COCKPIT_OFFSET : A29_COCKPIT_OFFSET;
     planeRot.transformVector(offset, desiredPos).add(planePos);
-    camera.setPosition(desiredPos);
+    smoothPos.copy(desiredPos);
+    camera.setPosition(smoothPos);
 
     let targetHeadYaw = 0;
     let targetHeadPitch = 0;
@@ -539,7 +548,7 @@ export function createCameraRig({ app, world, plane, camera, state }: FlightCont
       headYaw = targetHeadYaw;
       headPitch = targetHeadPitch;
     } else {
-      const alpha = 1 - Math.exp(-HEAD_SMOOTH * dt);
+      const alpha = 1 - Math.exp(-HEAD_SMOOTH * safeDt);
       headYaw += (targetHeadYaw - headYaw) * alpha;
       headPitch += (targetHeadPitch - headPitch) * alpha;
     }
@@ -559,31 +568,35 @@ export function createCameraRig({ app, world, plane, camera, state }: FlightCont
     const reduceMotion = getRuntime(state).settings.reduceMotion;
     if (reduceMotion) {
       impactShake = 0;
+      nitroShake = 0;
       return;
     }
 
-    feelTime = (feelTime + Math.max(dt, 0)) % 1000;
-    impactShake *= Math.exp(-7.5 * Math.max(dt, 0));
-    if (impactShake < 0.005) impactShake = 0;
+    const safeDt = clamp(dt, 0, 0.1);
+    feelTime = (feelTime + safeDt) % 1000;
+    impactShake *= Math.exp(-7.0 * safeDt);
+    if (impactShake < 0.004) impactShake = 0;
 
-    let speedRumble = 0;
-    if (state.vehicle === 'tuned' && !state.crashed) {
-      const speedNorm = clamp((Math.abs(state.speed) - 18) / 42, 0, 1);
-      speedRumble = speedNorm * 0.055 + (isTunedNitroActive(state) ? 0.095 : 0);
-    }
+    // ZERO tremor em velocidade normal: vibração suave e baixa frequência apenas no nitro ou em impacto/pouso
+    const targetNitro = state.vehicle === 'tuned' && !state.crashed && isTunedNitroActive(state) ? 0.022 : 0;
+    nitroShake += (targetNitro - nitroShake) * (1 - Math.exp(-8.0 * safeDt));
+    if (nitroShake < 0.0008) nitroShake = 0;
 
-    const amp = Math.min(0.45, speedRumble + impactShake * 0.36);
-    if (amp <= 0.002) return;
+    const amp = Math.min(0.24, nitroShake + impactShake * 0.24);
+    if (amp <= 0.001) return;
 
-    const sx = (Math.sin(feelTime * 47.3) * 0.6 + Math.cos(feelTime * 83.1) * 0.4) * amp;
-    const sy = (Math.cos(feelTime * 59.7) * 0.65 + Math.sin(feelTime * 97.3) * 0.35) * amp * 0.85;
+    // Ondas contínuas de baixa frequência (~1.8–3.2 Hz) sem ruído quadro-a-quadro que pareça motion blur
+    const freqScale = impactShake > 0.05 ? 1.25 : 1.0;
+    const sx = (Math.sin(feelTime * 11.5 * freqScale) * 0.65 + Math.cos(feelTime * 16.2 * freqScale) * 0.35) * amp;
+    const sy = (Math.cos(feelTime * 13.7 * freqScale) * 0.7 + Math.sin(feelTime * 18.4 * freqScale) * 0.3) * amp * 0.72;
     camRot.copy(camera.getRotation());
     camRot.transformVector(Vec3.RIGHT, shakeRight);
     camRot.transformVector(Vec3.UP, shakeUp);
-    camPos.copy(camera.getPosition());
-    camPos.x += shakeRight.x * sx + shakeUp.x * sy;
-    camPos.y += shakeRight.y * sx + shakeUp.y * sy;
-    camPos.z += shakeRight.z * sx + shakeUp.z * sy;
+    camPos.set(
+      smoothPos.x + shakeRight.x * sx + shakeUp.x * sy,
+      smoothPos.y + shakeRight.y * sx + shakeUp.y * sy,
+      smoothPos.z + shakeRight.z * sx + shakeUp.z * sy,
+    );
     camera.setPosition(camPos);
   }
 

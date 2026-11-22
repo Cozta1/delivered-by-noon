@@ -1,4 +1,4 @@
-# Roteiro de Apresentação — Delivered by Midnight
+# Roteiro de Apresentação — Delivered by Noon
 
 - **Disciplina / Projeto:** Trabalho de faculdade (PlayCanvas 2.x + TypeScript + Blender)
 - **Datas previstas em sala:** 24 e 25/11/2026
@@ -14,10 +14,10 @@ Cada integrante apresenta **uma parte técnica curta** e conduz **uma etapa prá
 
 | Tempo | Integrante | Parte Técnica (explicação) | Parte Prática (demo ao vivo) |
 |---|---|---|---|
-| **0:00 – 2:45** *(2m45)* | **João Victor da Costa** | Abertura, conceito de *Delivered by Midnight*, arquitetura modular (`game.ts` + `types.ts`) e **como aproveitamos o PlayCanvas Editor** (Hierarchy, assets GLB, cena montada e atributos ao vivo). | Mostra a cena aberta no **PlayCanvas Editor** (entidades `Jogo`, `Mundo`, `UniAcademia`), altera **Mostrar FPS** e **Duração do dia** no Inspector e clica em **Launch** mostrando menu inicial e tela de história. |
-| **2:45 – 5:30** *(2m45)* | **Gabriel Monteiro** | **Mapa real de Juiz de Fora** (OpenStreetMap ODbL + AWS Terrain Tiles, escala 0,49), otimizações de FPS (*batching*, spatial hash, postes emissivos) e **física dos carros** (`carphysics2d` MIT, FWD vs RWD, nitro). | Dirige o **Hatch** no Centro, faz uma entrega guiado pelas colunas de luz e pelo minimapa de Juiz de Fora, mostra sair/entrar no veículo com **`E`** e acelera o **Coupé Tunado** com **nitro (`Shift`)** e drift. |
+| **0:00 – 2:45** *(2m45)* | **João Victor da Costa** | Abertura, conceito de *Delivered by Noon*, arquitetura modular (`game.ts` + `types.ts`) e **como aproveitamos o PlayCanvas Editor** (Hierarchy, assets GLB, cena montada e atributos ao vivo). | Mostra a cena aberta no **PlayCanvas Editor** (entidades `Jogo`, `Mundo`, `UniAcademia`), altera **Mostrar FPS** e **Duração do dia** no Inspector e clica em **Launch** mostrando menu inicial e tela de história. |
+| **2:45 – 5:30** *(2m45)* | **Gabriel Monteiro** | **Mapa real de Juiz de Fora** (OpenStreetMap ODbL + AWS Terrain Tiles, escala 0,49), otimizações de FPS (*batching*, spatial hash, iluminação diurna limpa) e **física dos carros** (`carphysics2d` MIT, FWD vs RWD, nitro). | Dirige o **Hatch** no Centro, faz uma entrega guiado pelas colunas de luz e pelo minimapa de Juiz de Fora, mostra sair/entrar no veículo com **`E`** e acelera o **Coupé Tunado** com **nitro (`Shift`)** e drift. |
 | **5:30 – 8:15** *(2m45)* | **Rafael Lima Henriques** | **Física aérea**: helicóptero MD 500 (`FGRotor` do JSBSim, LGPL-2.1, pairado estável) e avião **A-29 Super Tucano** (6-DOF JSBSim + instrutor de mira por mouse), além do sistema de câmeras e cabine 2D. | Decola com o **Helicóptero** no heliponto, pousa em uma cobertura/Cristo do Imperador; depois decola o **A-29** na pista da Serrinha (SBJF), alterna câmera de cabine (`C`), solta fumaça (`F`) e faz um lançamento aéreo (`Espaço`). |
-| **8:15 – 11:00** *(2m45)* | **Lucas Tostes** | **Modelagem 3D no Blender** (veículos e fachada histórica da UniAcademia), **HUD/minimapa/dia-noite**, **áudio procedural** em Web Audio API e **qualidade** (100 testes em Vitest + pipeline de publicação). | Sobrevoa e faz a **entrega final na UniAcademia** (destaque dourado com partículas), mostra a **tela de vitória**, abre rapidamente a tela de **Créditos** (mostrando licenças JSBSim, MIT e OpenStreetMap ODbL) e encerra passando para perguntas. |
+| **8:15 – 11:00** *(2m45)* | **Lucas Tostes** | **Modelagem 3D no Blender** (veículos e fachada histórica da UniAcademia), **HUD/minimapa/luz da manhã**, **áudio procedural** em Web Audio API (Engine Sim MIT) e **qualidade** (testes em Vitest + pipeline de publicação). | Sobrevoa e faz a **entrega final na UniAcademia** (destaque dourado com partículas), mostra a **tela de vitória**, abre rapidamente a tela de **Créditos** (mostrando licenças JSBSim, MIT e OpenStreetMap ODbL) e encerra passando para perguntas. |
 
 ---
 
@@ -27,12 +27,12 @@ Uma partida normal dura **30 minutos reais**; na banca (~10 minutos), use o **Mo
 
 | Tecla | Ação (só no Modo apresentação) | Momento no roteiro |
 |---|---|---|
-| **F1** | Estágio 1 — Hatch no Centro (`00:00`) | Gabriel abre a demo dirigindo no Centro |
-| **F2** | Estágio 2 — Coupé Tunado (`06:00`, amanhecer) | Gabriel mostra nitro (`Shift`) e drift (`Espaço`) |
-| **F3** | Estágio 3 — Helicóptero (`12:00`, meio-dia) | Rafael mostra pairado e pouso em cobertura / Cristo |
-| **F4** | Estágio 4 — A-29 na Serrinha (`17:30`, fim de tarde) | Rafael decola, mostra mira por mouse, cabine (`C`) e fumaça (`F`) |
-| **F5** | **Entrega final** — A-29 no ar perto da UniAcademia (`21:30`, noite) | Lucas solta a última caixa (`Espaço`) sobre a UniAcademia e mostra a vitória |
-| **F6** | **Avança +1h no relógio** | Qualquer integrante pode apertar para demonstrar o ciclo dia/noite e os postes acendendo ao vivo |
+| **F1** | Estágio 1 — Hatch no Centro (`06:00`, início da manhã) | Gabriel abre a demo dirigindo no Centro |
+| **F2** | Estágio 2 — Coupé Tunado (`07:30`, manhã clara) | Gabriel mostra nitro (`Shift`) e drift (`Espaço`) |
+| **F3** | Estágio 3 — Helicóptero (`09:00`, sol alto) | Rafael mostra pairado e pouso em cobertura / Cristo |
+| **F4** | Estágio 4 — A-29 na Serrinha (`10:30`, reta final da manhã) | Rafael decola, mostra mira por mouse, cabine (`C`) e fumaça (`F`) |
+| **F5** | **Entrega final** — A-29 no ar perto da UniAcademia (`11:15`, quase almoço) | Lucas solta a última caixa (`Espaço`) sobre a UniAcademia e mostra a vitória |
+| **F6** | **Avança +1h no relógio** | Qualquer integrante pode apertar para mostrar o sol da manhã subindo até 12:00 e a urgência das 11:00 |
 
 Ordem recomendada (mantenha o **PlayCanvas Editor** já aberto em uma aba e o jogo pronto em **Launch**):
 
@@ -46,13 +46,13 @@ Ordem recomendada (mantenha o **PlayCanvas Editor** já aberto em uma aba e o jo
    - Dirigir pelas ruas reais do Centro observando o **minimapa de Juiz de Fora** (Rio Paraibuna, marcos e UniAcademia em dourado) e as colunas de luz.
    - Concluir uma entrega, parar, apertar **`E`** para sair a pé (mostrar o personagem) e entrar novamente com **`E`**; apertar **`F6`** uma vez se quiser mostrar o céu mudando.
 4. **Estágio 2 — Coupé Tunado com Nitro (1 min — Gabriel):**
-   - Apertar **`F2`** para pular direto ao estágio do Coupé Tunado (`06:00`, amanhecer), ativar **`Shift`** (barra de nitro + chamas no escape + ronco mais agudo) e fazer uma curva puxando o freio de mão (**`Espaço`**).
+   - Apertar **`F2`** para pular direto ao estágio do Coupé Tunado (`07:30`, manhã clara), ativar **`Shift`** (barra de nitro + chamas no escape + ronco V8 com estouros) e fazer uma curva puxando o freio de mão (**`Espaço`**).
 5. **Estágio 3 — Helicóptero no heliponto e morros (1m15 — Rafael):**
-   - Apertar **`F3`** para ir ao estágio do Helicóptero (`12:00`), subir do heliponto no Centro, mostrar o pairado estável sobre Juiz de Fora e pousar numa cobertura ou junto ao Cristo do Imperador.
+   - Apertar **`F3`** para ir ao estágio do Helicóptero (`09:00`), subir do heliponto no Centro, mostrar o pairado estável sobre Juiz de Fora e pousar numa cobertura ou junto ao Cristo do Imperador.
 6. **Estágio 4 — A-29 decolando da Serrinha (1m30 — Rafael):**
-   - Apertar **`F4`** para ir ao estágio do A-29 (`17:30`, pôr do sol), acelerar na pista da Serrinha (SBJF), decolar, mostrar a mira por mouse (e alternar **`M`** para teclado), abrir câmera de cabine (**`C`**) com horizonte artificial, ligar a fumaça (**`F`**) e lançar uma carga aérea (**`Espaço`**).
+   - Apertar **`F4`** para ir ao estágio do A-29 (`10:30`), acelerar na pista da Serrinha (SBJF), decolar, mostrar a mira por mouse (e alternar **`M`** para teclado), abrir câmera de cabine (**`C`**) com horizonte artificial, ligar a fumaça (**`F`**) e lançar uma carga aérea (**`Espaço`**).
 7. **Entrega final na UniAcademia e Vitória (1 min — Lucas):**
-   - Apertar **`F5`** (ou marcar *"Ir direto para a entrega final"* no menu do Modo apresentação) para posicionar o A-29 perto da **UniAcademia** à noite (`21:30`, postes e janelas acesos + feixe dourado duplo com partículas), apertar **`Espaço`** para concluir a 16ª entrega, mostrar a **tela de vitória (`MISSÃO CUMPRIDA!`)** e abrir rapidamente **Créditos** (licenças JSBSim, MIT, OpenStreetMap ODbL e AWS Terrain Tiles).
+   - Apertar **`F5`** (ou marcar *"Ir direto para a entrega final"* no menu do Modo apresentação) para posicionar o A-29 perto da **UniAcademia** (`11:15`, reta final antes do almoço + feixe dourado duplo com partículas), apertar **`Espaço`** para concluir a 16ª entrega, mostrar a **tela de vitória (`MISSÃO CUMPRIDA!`)** e abrir rapidamente **Créditos** (licenças JSBSim, MIT, OpenStreetMap ODbL e AWS Terrain Tiles).
 
 ### Plano B (se algo falhar na hora)
 
@@ -60,7 +60,7 @@ Ordem recomendada (mantenha o **PlayCanvas Editor** já aberto em uma aba e o jo
 |---|---|
 | **Wi-Fi da sala cair ou Editor ficar lento** | Rodar a cópia local já preparada no notebook com `npm run dev` (`http://localhost:5173`) e entrar pelo botão **`Modo apresentação`** — funciona 100% offline com exatamente o mesmo código. |
 | **Falta de tempo ou acidente no meio de um estágio** | Apertar **`F1–F4`** para pular instantaneamente para o estágio seguinte ou **`F5`** para ir direto à entrega final na UniAcademia sem perder o ritmo da apresentação. |
-| **Querer mostrar o ciclo dia/noite rápido sem esperar** | Apertar **`F6`** repetidamente (+1h por clique) para passar de madrugada → amanhecer → meio-dia → pôr do sol → noite com os postes acendendo ao vivo. |
+| **Querer mostrar a manhã avançando e a urgência das 11:00** | Apertar **`F6`** repetidamente (+1h por clique) para passar de `06:00` até `11:00+` com o sol subindo e a vinheta/tique de urgência ativando. |
 | **Travamento de navegador / áudio mudo** | Ter o **vídeo gravado em 1080p (~2 min)** pronto em tela cheia cobrindo Editor, os 4 veículos, entrega final na UniAcademia e tela de vitória. |
 | **Controle difícil durante nervosismo** | Deixar **`Dificuldade = Fácil`** (+35% raio das entregas) e **`Duração do dia = 10 min`** selecionados antes de começar. |
 
@@ -73,7 +73,7 @@ Destaque explicitamente estes **5 recursos nativos do PlayCanvas** durante a fal
 1. **Editor online + cena na Hierarchy:** mundo de Juiz de Fora, veículos e UniAcademia organizados como entidades reais na cena, inspecionáveis e navegáveis no Viewport (não apenas um canvas vazio).
 2. **Pipeline de assets 3D (GLB):** modelos exportados do Blender importados como assets nativos do PlayCanvas (`template`/`render` ou `model`), com nós internos animados (`Prop`, `Rotor`, `TailRotor`, `Roda_*`).
 3. **Atributos de Script no Inspector (ESM e Clássico):** 8 parâmetros expostos com título, descrição, limites e enum (`@attribute` em `flight-sim.mjs` e `attributes.add` em `flight-sim.js`), incluindo **Mostrar FPS** e **Modo apresentação**, reagindo **ao vivo** ao evento `attr` sem reiniciar o jogo.
-4. **Ciclo de vida e componentes da Engine 2.x:** uso de `camera` (tone mapping ACES, FOV dinâmico), `light` direcional com ciclo dia/noite, névoa linear, `StandardMaterial` com canais emissivos e `destroy()` limpo no `disable`/`destroy` do script.
+4. **Ciclo de vida e componentes da Engine 2.x:** uso de `camera` (tone mapping ACES, FOV dinâmico), `light` direcional com sol da manhã subindo de `06:00` a `12:00`, névoa linear diurna, `StandardMaterial` e `destroy()` limpo no `disable`/`destroy` do script.
 5. **Publicação automatizada via REST API oficial:** `npm run build:editor` + `npm run publicar:editor` enviam scripts e modelos diretamente para o branch do projeto no PlayCanvas.
 
 ---
@@ -131,7 +131,7 @@ Destaque explicitamente estes **5 recursos nativos do PlayCanvas** durante a fal
 - [ ] Abrir duas abas no Chrome: (1) **PlayCanvas Editor** já na cena com `Jogo` selecionado; (2) **Launch** pronto (ou `localhost:5173` offline já aquecido).
 - [ ] Testar o projetor (resolução 1080p/720p) e o áudio da sala (deixar volume moderado para não estourar os alto-falantes).
 - [ ] Fechar notificações do sistema (Modo Não Perturbe) e abas desnecessárias.
-- [ ] Configurar no Inspector: **`Mostrar FPS = ligado`**, **`Dificuldade = Fácil`**, **`Duração do dia = 30`** (ou `10` para mostrar o pôr do sol mais rápido).
+- [ ] Configurar no Inspector: **`Mostrar FPS = ligado`**, **`Dificuldade = Fácil`**, **`Duração do dia = 30`** (ou `10` para mostrar o sol da manhã subindo e a urgência das 11:00 mais rápido).
 
 ### Na hora da banca
 - [ ] Falar devagar olhando para o professor e a turma; quem está no teclado só joga enquanto o colega explica (ou cada um pilota sua própria etapa).

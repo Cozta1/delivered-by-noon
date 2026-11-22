@@ -41,7 +41,7 @@ const SimuladorVoo = pc.createScript('simuladorVoo');
 SimuladorVoo.attributes.add('dayDurationMinutes', {
   type: 'number',
   title: 'Duração do dia (min)',
-  description: 'Quantos minutos reais dura o ciclo completo de 00:00 a 24:00 (padrão: 30).',
+  description: 'Quantos minutos reais dura o turno da manhã de 06:00 a 12:00 (padrão: 30).',
   default: 30,
   min: 2,
   max: 60,
@@ -52,7 +52,7 @@ SimuladorVoo.attributes.add('dayDurationMinutes', {
 SimuladorVoo.attributes.add('difficulty', {
   type: 'string',
   title: 'Dificuldade',
-  description: 'Ajusta o raio de aceitação das entregas e o tempo disponível até meia-noite.',
+  description: 'Ajusta o raio de aceitação das entregas e o tempo disponível até o meio-dia.',
   default: 'normal',
   enum: [
     { 'Fácil (+35% raio, +25% tempo)': 'facil' },
@@ -97,7 +97,7 @@ SimuladorVoo.attributes.add('sfxVolume', {
 SimuladorVoo.attributes.add('showMinimap', {
   type: 'boolean',
   title: 'Mostrar minimapa',
-  description: 'Exibe ou oculta o minimapa de Juiz de Fora no canto superior direito.',
+  description: 'Exibe ou oculta o minimapa de Juiz de Fora no canto inferior esquerdo.',
   default: true,
 });
 

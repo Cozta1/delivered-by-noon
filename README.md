@@ -1,14 +1,14 @@
-# Delivered by Midnight
+# Delivered by Noon
 
-**Entregue tudo antes do relógio bater meia-noite — ou a noite engole suas encomendas.**
+**Entregue tudo antes do meio-dia — ou perca seu horário de almoço.**
 
 ---
 
 ## Descrição geral
 
-**Enredo:** Você é um entregador que começa à meia-noite e tem até a meia-noite seguinte (24 horas no relógio do jogo) para completar todas as entregas. A progressão é de veículos cada vez mais malucos: carro comum → carro tunado → helicóptero → avião de ataque leve A-29 Super Tucano. Cada veículo já traz suas encomendas ao entrar nele; a última entrega do estágio leva o jogador ao próximo veículo.
+**Enredo:** Você é um entregador da GoPostal em Juiz de Fora que começa o turno às **06:00** e tem até o horário de almoço (**12:00**) para completar as **16 entregas** da manhã. A progressão é de veículos cada vez mais rápidos: Hatch → Coupé Tunado → Helicóptero MD 500 → avião A-29 Super Tucano. Cada veículo já traz suas encomendas ao entrar nele; a última entrega de cada estágio leva o jogador ao próximo veículo, fechando na fachada histórica da **UniAcademia**.
 
-**Objetivos:** Entregar todas as encomendas antes das 24:00. O relógio no HUD mostra o tempo restante (0 = 00:00, 1440 = 24:00). O ciclo de dia/noite acompanha o relógio. **Vitória:** todas as entregas concluídas antes do prazo. **Derrota:** relógio chega a 24:00 com encomendas pendentes. Pontuação por entrega feita; bônus por tempo restante.
+**Objetivos:** Entregar todas as 16 encomendas antes das **12:00**. O relógio no HUD avança de **06:00 a 12:00** (30 minutos reais por padrão, ajustável no atributo `dayDurationMinutes`), sempre de dia enquanto o sol da manhã sobe sobre Juiz de Fora. **Vitória:** todas as entregas concluídas antes do meio-dia (com bônus de tempo e placar de recordes). **Derrota:** relógio chega a 12:00 com encomendas pendentes.
 
 ---
 
@@ -59,17 +59,17 @@ npm test           # roda testes (vitest)
 | Tecla | Ação |
 |-------|------|
 | **W / A / S / D** | Dirigir |
-| **Espaço** | Freio de mão |
+| **Shift** | Nitro (Coupé Tunado) |
+| **Espaço** | Freio de mão / drift |
 | **Mouse** | Girar câmera |
 
 ### Helicóptero
 | Tecla | Ação |
 |-------|------|
-| **W / S** | Coletivo (subir / descer) |
-| **A / D** | Guinada (leme) |
-| **Mouse** | Mira (inclinação do rotor) |
-| **Q / E** | Leme / pedais |
-| **Shift / Ctrl** | Acelerador (+ / −) |
+| **Shift / Ctrl** | Coletivo (subir / descer) |
+| **W / A / S / D** | Inclinar (frente / trás / lados) |
+| **Q / E** | Girar (leme / pedais) |
+| **Mouse** | Girar câmera |
 
 ### A-29 Super Tucano
 | Tecla | Ação |

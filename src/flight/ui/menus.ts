@@ -105,8 +105,7 @@ const CONTROLS_LIST: ReadonlyArray<[readonly string[], string]> = [
 ];
 
 function formatClock(minutes: number): string {
-  const clamped = Math.max(0, Math.min(1440, Math.floor(minutes)));
-  if (clamped >= 1440) return '24:00';
+  const clamped = Math.max(360, Math.min(720, Math.floor(minutes)));
   const hh = Math.floor(clamped / 60);
   const mm = clamped % 60;
   return `${String(hh).padStart(2, '0')}:${String(mm).padStart(2, '0')}`;
@@ -148,7 +147,7 @@ export function createGameMenus(
     const emptyEl = node(
       'p',
       'menu-lb-empty',
-      'Quadro vazio — feche todas as entregas antes das 24:00 para assinar seu ponto.',
+      'Quadro vazio — feche todas as entregas antes das 12:00 para assinar seu ponto.',
     );
     const listEl = node('div', 'menu-lb-list');
     root.append(lbHeader, emptyEl, listEl);
@@ -206,15 +205,15 @@ export function createGameMenus(
   const header = node('div', 'menu-header');
   const brandStrip = node('div', 'menu-brand-strip');
   const brandStamp = node('span', 'menu-brand-stamp', 'GOPOSTAL');
-  const eyebrow = node('span', 'menu-eyebrow', 'Juiz de Fora · Turno 00:00 → 24:00');
+  const eyebrow = node('span', 'menu-eyebrow', 'Juiz de Fora · Turno 06:00 → 12:00');
   brandStrip.append(brandStamp, eyebrow);
 
   const titleEl = node('h1', 'menu-title');
   const titleLine1 = node('span', '', 'DELIVERED');
-  const titleLine2 = node('span', 'menu-title-accent', 'BY MIDNIGHT');
+  const titleLine2 = node('span', 'menu-title-accent', 'BY NOON');
   titleEl.append(titleLine1, titleLine2);
 
-  const subtitleEl = node('p', 'menu-subtitle', 'Entregue tudo antes da próxima meia-noite com veículos cada vez mais rápidos.');
+  const subtitleEl = node('p', 'menu-subtitle', 'Entregue tudo antes do meio-dia para garantir seu horário de almoço.');
   header.append(brandStrip, titleEl, subtitleEl);
 
   const actions = node('div', 'menu-actions');
@@ -224,7 +223,7 @@ export function createGameMenus(
   const secondaryLinks = node('div', 'menu-secondary-links');
   const btnPresentation = node('button', 'menu-btn menu-btn--link', 'Modo apresentação');
   btnPresentation.type = 'button';
-  const btnRestart = node('button', 'menu-btn menu-btn--link', 'Reiniciar turno (00:00)');
+  const btnRestart = node('button', 'menu-btn menu-btn--link', 'Reiniciar turno (06:00)');
   btnRestart.type = 'button';
   const btnOptions = node('button', 'menu-btn menu-btn--link', 'Opções');
   btnOptions.type = 'button';
@@ -247,8 +246,8 @@ export function createGameMenus(
   storyView.hidden = true;
   const storyBanner = node('div', 'menu-sub-banner');
   storyBanner.append(
-    node('div', 'menu-eyebrow', 'GOPOSTAL · TURNO DA MEIA-NOITE'),
-    node('h2', 'menu-section-title', 'ENTREGUE TUDO ATÉ AS 24:00'),
+    node('div', 'menu-eyebrow', 'GOPOSTAL · TURNO DA MANHÃ'),
+    node('h2', 'menu-section-title', 'ENTREGUE TUDO ATÉ O ALMOÇO (12:00)'),
   );
   const storySubBody = node('div', 'menu-sub-body');
   const storyBody = node('div', 'menu-story-body');
@@ -256,12 +255,12 @@ export function createGameMenus(
     node(
       'p',
       'menu-story-p',
-      'A GoPostal prometeu o impossível na cidade inteira: todas as encomendas serão entregues até a próxima meia-noite — sem atraso e sem desculpa.',
+      'A GoPostal prometeu todas as 16 encomendas da manhã em Juiz de Fora antes do meio-dia — sem atraso e sem perder a hora do almoço.',
     ),
     node(
       'p',
       'menu-story-p',
-      'Michael De Santa, o patrão, deixou um recado no rádio das 00:00: só sobrou você no plantão. A cada etapa concluída, a garagem libera veículos ainda mais insanos para vencer o relógio.',
+      'Michael De Santa, o patrão, deixou um recado no rádio das 06:00: só tem almoço depois da última caixa. A cada etapa concluída, a garagem libera veículos ainda mais rápidos para vencer o relógio.',
     ),
   );
   const storyLadder = node('div', 'menu-story-ladder');
@@ -334,7 +333,7 @@ export function createGameMenus(
   stageRow.append(stageSeg);
 
   const durRow = node('div', 'menu-opt-row');
-  durRow.append(node('span', 'menu-opt-label', 'Duração do dia (00:00 → 24:00)'));
+  durRow.append(node('span', 'menu-opt-label', 'Duração do turno (06:00 → 12:00)'));
   const durSeg = node('div', 'menu-segments');
   const durBtns = new Map<5 | 10 | 30, HTMLButtonElement>();
   for (const mins of [5, 10, 30] as const) {
@@ -401,7 +400,7 @@ export function createGameMenus(
   const resultSubBody = node('div', 'menu-sub-body');
   const resultMsg = node('p', 'menu-result-msg', '');
   const resultStats = node('div', 'menu-result-stats');
-  const statTimeVal = node('span', 'menu-stat-value', '00:00');
+  const statTimeVal = node('span', 'menu-stat-value', '06:00');
   const statScoreVal = node('span', 'menu-stat-value', '0');
   const statDeliveriesVal = node('span', 'menu-stat-value', '0/0');
   const statStageVal = node('span', 'menu-stat-value', '1/4 · Hatch');
@@ -661,7 +660,7 @@ export function createGameMenus(
   creditsView.hidden = true;
   const credBanner = node('div', 'menu-sub-banner');
   credBanner.append(
-    node('div', 'menu-eyebrow', 'DELIVERED BY MIDNIGHT'),
+    node('div', 'menu-eyebrow', 'DELIVERED BY NOON'),
     node('h2', 'menu-section-title', 'CRÉDITOS'),
   );
   const credSubBody = node('div', 'menu-sub-body');
@@ -673,7 +672,7 @@ export function createGameMenus(
     ['Motor gráfico', 'PlayCanvas'],
     ['Modelos 3D', 'Modelos feitos no Blender (A-29, helicóptero, Hatch, Coupé Tunado, carros, UniAcademia e personagem)'],
     ['Homenagens (texto)', 'GoPostal, Michael De Santa (o patrão) e entregas com nomes em homenagem a clássicos dos games'],
-    ['Áudio e interface', 'Trilha dinâmica, efeitos procedurais, ciclo dia/noite e HUD em Web Audio API'],
+    ['Áudio e interface', 'Trilha dinâmica, motor procedural (Engine Sim MIT), iluminação da manhã e HUD em Web Audio API'],
   ];
   for (const [role, value] of creditEntries) {
     const item = node('div', 'menu-credit-item');
@@ -766,11 +765,11 @@ export function createGameMenus(
     creditsView.hidden = screen !== 'credits';
 
     if (mode === 'title') {
-      eyebrow.textContent = 'Juiz de Fora · 00:00 → 24:00';
+      eyebrow.textContent = 'Juiz de Fora · 06:00 → 12:00';
       titleLine1.textContent = 'DELIVERED';
-      titleLine2.textContent = 'BY MIDNIGHT';
+      titleLine2.textContent = 'BY NOON';
       titleLine2.hidden = false;
-      subtitleEl.textContent = 'Entregue tudo antes da próxima meia-noite com veículos cada vez mais rápidos.';
+      subtitleEl.textContent = 'Entregue tudo antes do meio-dia para garantir seu horário de almoço.';
       subtitleEl.hidden = false;
       btnPrimary.textContent = 'Jogar';
       btnPresentation.hidden = false;
@@ -789,7 +788,7 @@ export function createGameMenus(
       subtitleEl.hidden = false;
       btnPrimary.textContent = 'Continuar';
       btnPresentation.hidden = true;
-      btnRestart.textContent = 'Reiniciar turno (00:00)';
+      btnRestart.textContent = 'Reiniciar turno (06:00)';
       btnRestart.hidden = false;
       btnControls.textContent = 'Ver controles';
       btnCredits.hidden = true;
@@ -1010,7 +1009,7 @@ export function createGameMenus(
           ? 'MODO APRESENTAÇÃO · ENTREGUE NO PRAZO'
           : 'GOPOSTAL · ENTREGUE NO PRAZO';
         resultTitle.textContent = 'MISSÃO CUMPRIDA!';
-        resultMsg.textContent = `Michael De Santa, o patrão, carimbou a ficha: todas as ${mission.delivered} entregas da GoPostal chegaram às ${formatClock(mission.clockMinutes)}.`;
+        resultMsg.textContent = `Michael De Santa, o patrão, liberou seu almoço: todas as ${mission.delivered} entregas da GoPostal chegaram às ${formatClock(mission.clockMinutes)}!`;
 
         const currentRecords = loadRecords();
         resultLeaderboard.root.hidden = false;
@@ -1023,7 +1022,7 @@ export function createGameMenus(
           recordNote.textContent = 'Armazenamento do navegador indisponível — o jogo continua sem recorde.';
           recordNote.hidden = false;
         } else {
-          const finishMinutes = Math.max(0, Math.min(1440, Math.floor(mission.clockMinutes)));
+          const finishMinutes = Math.max(360, Math.min(720, Math.floor(mission.clockMinutes)));
           if (wouldMakeTopRecords({ finishMinutes, score: mission.score, delivered: mission.delivered }, currentRecords)) {
             pendingWinRecord = {
               finishMinutes,
@@ -1046,22 +1045,22 @@ export function createGameMenus(
         }
       } else {
         resultEyebrow.textContent = presentationMode
-          ? 'MODO APRESENTAÇÃO · 24:00'
-          : 'GOPOSTAL · TURNO ENCERRADO';
-        resultTitle.textContent = 'MEIA-NOITE!';
+          ? 'MODO APRESENTAÇÃO · 12:00'
+          : 'GOPOSTAL · HORA DO ALMOÇO';
+        resultTitle.textContent = 'MEIO-DIA!';
         resultMsg.textContent =
           remaining === 1
-            ? 'Deu meia-noite! Faltou 1 entrega — Michael De Santa, o patrão, mandou recomeçar o turno.'
-            : `Deu meia-noite! Faltaram ${remaining} entregas — Michael De Santa, o patrão, mandou recomeçar o turno.`;
+            ? 'Deu meio-dia! Faltou 1 entrega — Michael De Santa, o patrão, cancelou seu almoço e mandou recomeçar o turno.'
+            : `Deu meio-dia! Faltaram ${remaining} entregas — Michael De Santa, o patrão, cancelou seu almoço e mandou recomeçar o turno.`;
 
         lossGoalMissing.textContent =
           remaining === 1
-            ? 'Faltou apenas 1 entrega para fechar o turno.'
-            : `Faltaram ${remaining} entregas para fechar o turno.`;
+            ? 'Faltou apenas 1 entrega para fechar o turno antes do almoço.'
+            : `Faltaram ${remaining} entregas para fechar o turno antes do almoço.`;
         const best = getBestRecord();
         lossGoalTarget.textContent = best
           ? `Meta — Melhor turno: ${best.initials} · ${formatRecordClock(best.finishMinutes)} · ${best.score.toLocaleString('pt-BR')} pts (${best.delivered}/${best.total})`
-          : `Meta: entregue todas as ${mission.total} encomendas antes das 24:00 para abrir o quadro.`;
+          : `Meta: entregue todas as ${mission.total} encomendas antes das 12:00 para abrir o quadro.`;
         lossGoalBox.hidden = false;
 
         if (presentationMode) {
@@ -1070,7 +1069,7 @@ export function createGameMenus(
         }
       }
 
-      statTimeVal.textContent = formatClock(outcome === 'lost' ? 1440 : mission.clockMinutes);
+      statTimeVal.textContent = formatClock(outcome === 'lost' ? 720 : mission.clockMinutes);
       statScoreVal.textContent = `${mission.score.toLocaleString('pt-BR')} pts`;
       statDeliveriesVal.textContent = `${mission.delivered}/${mission.total}`;
       statStageVal.textContent = STAGE_LABEL[mission.stage];

@@ -23,146 +23,77 @@ interface SkyKeyframe {
   night: number;
 }
 
+// Delivered by Noon: manhã clara e ensolarada de 06:00 até 12:00 (sem noite)
 const KEYFRAMES: readonly SkyKeyframe[] = [
   {
-    hour: 0,
-    zenith: [0.02, 0.03, 0.09],
-    upper: [0.04, 0.07, 0.16],
-    mid: [0.07, 0.11, 0.24],
-    horizon: [0.1, 0.14, 0.26],
-    below: [0.06, 0.08, 0.16],
-    nadir: [0.02, 0.03, 0.07],
-    sunColor: [0.38, 0.54, 0.85],
-    sunIntensity: 0.3,
-    ambient: [0.13, 0.16, 0.26],
-    fog: [0.08, 0.11, 0.21],
-    night: 1.0,
-  },
-  {
-    hour: 4.5,
-    zenith: [0.04, 0.06, 0.16],
-    upper: [0.08, 0.1, 0.24],
-    mid: [0.16, 0.15, 0.3],
-    horizon: [0.24, 0.2, 0.35],
-    below: [0.11, 0.11, 0.2],
-    nadir: [0.04, 0.04, 0.09],
-    sunColor: [0.55, 0.58, 0.82],
-    sunIntensity: 0.38,
-    ambient: [0.17, 0.18, 0.29],
-    fog: [0.16, 0.16, 0.28],
-    night: 0.88,
-  },
-  {
-    hour: 6,
-    zenith: [0.12, 0.2, 0.42],
-    upper: [0.32, 0.29, 0.48],
-    mid: [0.76, 0.44, 0.46],
-    horizon: [0.98, 0.68, 0.46],
-    below: [0.72, 0.56, 0.48],
-    nadir: [0.18, 0.22, 0.34],
-    sunColor: [1.0, 0.74, 0.5],
-    sunIntensity: 1.25,
-    ambient: [0.42, 0.37, 0.44],
-    fog: [0.85, 0.62, 0.48],
-    night: 0.25,
-  },
-  {
-    hour: 8,
-    zenith: [0.14, 0.42, 0.78],
-    upper: [0.3, 0.58, 0.88],
-    mid: [0.55, 0.77, 0.94],
-    horizon: [0.78, 0.88, 0.95],
-    below: [0.62, 0.72, 0.8],
-    nadir: [0.24, 0.34, 0.48],
-    sunColor: [1.0, 0.95, 0.86],
-    sunIntensity: 1.85,
-    ambient: [0.58, 0.62, 0.68],
-    fog: [0.76, 0.85, 0.92],
-    night: 0.0,
-  },
-  {
-    hour: 12,
-    zenith: [0.1, 0.36, 0.76],
-    upper: [0.24, 0.56, 0.9],
-    mid: [0.5, 0.78, 0.96],
-    horizon: [0.76, 0.89, 0.97],
-    below: [0.58, 0.72, 0.82],
-    nadir: [0.22, 0.34, 0.48],
-    sunColor: [1.0, 0.98, 0.93],
-    sunIntensity: 2.05,
-    ambient: [0.64, 0.68, 0.74],
-    fog: [0.74, 0.86, 0.94],
-    night: 0.0,
-  },
-  {
-    hour: 16,
-    zenith: [0.14, 0.36, 0.7],
-    upper: [0.34, 0.54, 0.82],
-    mid: [0.66, 0.74, 0.84],
-    horizon: [0.92, 0.8, 0.64],
-    below: [0.68, 0.62, 0.56],
-    nadir: [0.24, 0.3, 0.42],
-    sunColor: [1.0, 0.9, 0.74],
-    sunIntensity: 1.85,
-    ambient: [0.58, 0.56, 0.58],
-    fog: [0.88, 0.77, 0.64],
-    night: 0.0,
-  },
-  {
-    hour: 18,
-    zenith: [0.12, 0.13, 0.28],
-    upper: [0.31, 0.23, 0.43],
-    mid: [0.78, 0.41, 0.41],
-    horizon: [0.98, 0.72, 0.55],
-    below: [0.78, 0.6, 0.53],
-    nadir: [0.23, 0.27, 0.41],
-    sunColor: [1.0, 0.76, 0.52],
+    hour: 6.0,
+    zenith: [0.18, 0.44, 0.78],
+    upper: [0.36, 0.62, 0.88],
+    mid: [0.68, 0.78, 0.88],
+    horizon: [0.97, 0.85, 0.72],
+    below: [0.76, 0.74, 0.72],
+    nadir: [0.28, 0.36, 0.48],
+    sunColor: [1.0, 0.88, 0.72],
     sunIntensity: 1.55,
-    ambient: [0.52, 0.44, 0.5],
-    fog: [0.92, 0.68, 0.54],
-    night: 0.3,
+    ambient: [0.56, 0.56, 0.62],
+    fog: [0.89, 0.83, 0.76],
+    night: 0.0,
   },
   {
-    hour: 19.75,
-    zenith: [0.05, 0.06, 0.16],
-    upper: [0.14, 0.12, 0.26],
-    mid: [0.29, 0.19, 0.32],
-    horizon: [0.36, 0.23, 0.34],
-    below: [0.16, 0.14, 0.24],
-    nadir: [0.05, 0.06, 0.12],
-    sunColor: [0.58, 0.5, 0.72],
-    sunIntensity: 0.48,
-    ambient: [0.2, 0.2, 0.32],
-    fog: [0.24, 0.19, 0.3],
-    night: 0.85,
+    hour: 7.5,
+    zenith: [0.14, 0.44, 0.8],
+    upper: [0.3, 0.6, 0.9],
+    mid: [0.56, 0.78, 0.94],
+    horizon: [0.84, 0.9, 0.94],
+    below: [0.66, 0.75, 0.82],
+    nadir: [0.25, 0.36, 0.5],
+    sunColor: [1.0, 0.95, 0.85],
+    sunIntensity: 1.82,
+    ambient: [0.6, 0.63, 0.69],
+    fog: [0.81, 0.88, 0.93],
+    night: 0.0,
   },
   {
-    hour: 21.5,
-    zenith: [0.02, 0.03, 0.1],
-    upper: [0.05, 0.07, 0.17],
-    mid: [0.08, 0.11, 0.24],
-    horizon: [0.11, 0.14, 0.26],
-    below: [0.06, 0.08, 0.16],
-    nadir: [0.02, 0.03, 0.07],
-    sunColor: [0.38, 0.54, 0.85],
-    sunIntensity: 0.32,
-    ambient: [0.14, 0.16, 0.26],
-    fog: [0.09, 0.11, 0.22],
-    night: 1.0,
+    hour: 9.5,
+    zenith: [0.11, 0.4, 0.8],
+    upper: [0.26, 0.59, 0.92],
+    mid: [0.52, 0.8, 0.96],
+    horizon: [0.78, 0.9, 0.97],
+    below: [0.6, 0.74, 0.83],
+    nadir: [0.23, 0.35, 0.5],
+    sunColor: [1.0, 0.97, 0.91],
+    sunIntensity: 1.98,
+    ambient: [0.63, 0.67, 0.73],
+    fog: [0.76, 0.87, 0.95],
+    night: 0.0,
   },
   {
-    hour: 24,
-    zenith: [0.02, 0.03, 0.09],
-    upper: [0.04, 0.07, 0.16],
-    mid: [0.07, 0.11, 0.24],
-    horizon: [0.1, 0.14, 0.26],
-    below: [0.06, 0.08, 0.16],
-    nadir: [0.02, 0.03, 0.07],
-    sunColor: [0.38, 0.54, 0.85],
-    sunIntensity: 0.3,
-    ambient: [0.13, 0.16, 0.26],
-    fog: [0.08, 0.11, 0.21],
-    night: 1.0,
+    hour: 11.0,
+    zenith: [0.1, 0.38, 0.78],
+    upper: [0.24, 0.57, 0.91],
+    mid: [0.5, 0.79, 0.97],
+    horizon: [0.76, 0.9, 0.98],
+    below: [0.58, 0.73, 0.83],
+    nadir: [0.22, 0.34, 0.49],
+    sunColor: [1.0, 0.98, 0.94],
+    sunIntensity: 2.08,
+    ambient: [0.65, 0.69, 0.75],
+    fog: [0.75, 0.87, 0.95],
+    night: 0.0,
+  },
+  {
+    hour: 12.0,
+    zenith: [0.09, 0.36, 0.76],
+    upper: [0.23, 0.56, 0.9],
+    mid: [0.49, 0.78, 0.97],
+    horizon: [0.75, 0.89, 0.98],
+    below: [0.57, 0.72, 0.82],
+    nadir: [0.22, 0.34, 0.48],
+    sunColor: [1.0, 0.99, 0.95],
+    sunIntensity: 2.15,
+    ambient: [0.66, 0.7, 0.76],
+    fog: [0.74, 0.87, 0.95],
+    night: 0.0,
   },
 ];
 
@@ -226,8 +157,8 @@ function findCityMaterials(root: Entity, out: StandardMaterial[]): void {
 }
 
 export function sampleDayNight(clockMinutes: number) {
-  const wrapped = ((clockMinutes % 1440) + 1440) % 1440;
-  const hour = wrapped / 60;
+  const clampedMin = Math.max(360, Math.min(720, Number.isFinite(clockMinutes) ? clockMinutes : 360));
+  const hour = clampedMin / 60;
 
   let lo = KEYFRAMES[0];
   let hi = KEYFRAMES[KEYFRAMES.length - 1];
@@ -274,13 +205,13 @@ export function sampleDayNight(clockMinutes: number) {
     sunIntensity: lerp(lo.sunIntensity, hi.sunIntensity, t),
     ambient,
     fog,
-    night: lerp(lo.night, hi.night, t),
+    night: 0,
   };
 }
 
 /**
- * Ciclo de dia e noite dirigido por `ctx.mission.clockMinutes`:
- * atualiza degradê do céu (`world.sky`), sol, luz ambiente, névoa, janelas da cidade e faróis dos carros.
+ * Ciclo diurno da manhã (06:00 → 12:00) dirigido por `ctx.mission.clockMinutes`:
+ * eleva o sol da manhã até o meio-dia em céu claro e mantém emissivos noturnos/faróis desligados.
  */
 export function createDayNight(ctx: FlightContext, sun: Entity): FlightModule {
   const { app, world, camera } = ctx;
@@ -326,44 +257,49 @@ export function createDayNight(ctx: FlightContext, sun: Entity): FlightModule {
     }
   }
 
-  // Materiais emissivos da cidade (janelas brilham mais à noite) e postes (`world.streetLightMaterial`)
+  // Sem noite: desliga o brilho noturno das janelas e das lâmpadas dos postes uma única vez
   const cityMats: StandardMaterial[] = [];
   const savedCityEmissive = new Map<StandardMaterial, number>();
   findCityMaterials(app.root, cityMats);
   for (const mat of cityMats) {
     if (mat.emissiveMap) {
       savedCityEmissive.set(mat, mat.emissiveIntensity);
+      mat.emissiveIntensity = 0;
+      mat.update();
     }
   }
 
   const streetLightMat = (world as { streetLightMaterial?: StandardMaterial }).streetLightMaterial ?? null;
   const savedStreetLightEmissive = streetLightMat ? streetLightMat.emissiveIntensity : null;
+  if (streetLightMat) {
+    streetLightMat.emissiveIntensity = 0;
+    streetLightMat.update();
+  }
 
   const headlights: Entity[] = [];
   let headlightScanTimer = 0;
   let lastAppliedMinute = Number.NaN;
-  let lastHeadlightsOn: boolean | null = null;
   let destroyed = false;
 
-  function refreshHeadlights(forceOn: boolean) {
+  function disableHeadlights() {
     headlights.length = 0;
     collectByName(app.root, 'CarHeadlights', headlights);
     collectByName(app.root, 'TrafficLights', headlights);
     for (let i = 0; i < headlights.length; i++) {
-      headlights[i].enabled = forceOn;
+      if (headlights[i].enabled) headlights[i].enabled = false;
     }
   }
 
   function applyClock(clockMinutes: number, force = false) {
-    const wrapped = ((clockMinutes % 1440) + 1440) % 1440;
-    if (!force && Number.isFinite(lastAppliedMinute) && Math.abs(wrapped - lastAppliedMinute) < 0.75) {
+    const clamped = Math.max(360, Math.min(720, Number.isFinite(clockMinutes) ? clockMinutes : 360));
+    if (!force && Number.isFinite(lastAppliedMinute) && Math.abs(clamped - lastAppliedMinute) < 0.75) {
       return;
     }
-    lastAppliedMinute = wrapped;
+    lastAppliedMinute = clamped;
 
-    const s = sampleDayNight(wrapped);
+    const s = sampleDayNight(clamped);
 
-    // 1) Degradê do céu
+    // 1) Degradê do céu da manhã
     if (sky2d && skyCanvas && skyTex) {
       const grad = sky2d.createLinearGradient(0, 0, 0, skyCanvas.height);
       grad.addColorStop(0.0, rgbCss(s.zenith));
@@ -377,64 +313,41 @@ export function createDayNight(ctx: FlightContext, sun: Entity): FlightModule {
       skyTex.upload();
     }
 
-    // 2) Sol / Lua direcional (sem novas sombras)
+    // 2) Sol da manhã subindo do leste (06:00) até o alto do céu ao meio-dia (12:00)
     if (sun.light) {
       sun.light.color.set(s.sunColor[0], s.sunColor[1], s.sunColor[2]);
       sun.light.intensity = s.sunIntensity;
     }
-    if (s.hour >= 5.5 && s.hour <= 19.0) {
-      const dayFrac = Math.max(0, Math.min(1, (s.hour - 5.5) / 13.5));
-      const elev = 12 + Math.sin(dayFrac * Math.PI) * 64;
-      const yaw = 80 + dayFrac * 180;
-      sun.setEulerAngles(elev, yaw, 0);
-    } else {
-      // Ângulo suave da lua à noite para manter silhuetas legíveis
-      const nightFrac = s.hour > 19.0 ? (s.hour - 19.0) / 10.5 : (s.hour + 5.0) / 10.5;
-      const moonElev = 24 + Math.sin(nightFrac * Math.PI) * 32;
-      sun.setEulerAngles(moonElev, 210 + nightFrac * 70, 0);
-    }
+    const morningFrac = Math.max(0, Math.min(1, (s.hour - 6.0) / 6.0));
+    const elev = 22 + Math.sin(morningFrac * Math.PI * 0.5) * 54; // 22° às 06:00 → 76° às 12:00
+    const yaw = 88 + morningFrac * 82; // leste → norte/zênite
+    sun.setEulerAngles(elev, yaw, 0);
 
-    // 3) Luz ambiente, névoa e cor de fundo da câmera
+    // 3) Luz ambiente, névoa diurna e cor de fundo da câmera
     app.scene.ambientLight.set(s.ambient[0], s.ambient[1], s.ambient[2]);
     app.scene.fog.color.set(s.fog[0], s.fog[1], s.fog[2]);
     if (camera.camera) {
       camera.camera.clearColor.set(s.fog[0], s.fog[1], s.fog[2], 1);
     }
 
-    // 4) Janelas emissivas da cidade e postes (`world.streetLightMaterial`) destacam-se à noite
-    const cityGlow = lerp(0.45, 2.35, s.night);
-    for (const mat of savedCityEmissive.keys()) {
-      mat.emissiveIntensity = cityGlow;
-      mat.update();
-    }
-    if (streetLightMat) {
-      streetLightMat.emissiveIntensity = lerp(0.12, 3.4, s.night);
-      streetLightMat.update();
-    }
-
-    // 5) Faróis nos carros à noite
-    const headlightsOn = s.night >= 0.35;
-    if (headlightsOn !== lastHeadlightsOn || force) {
-      lastHeadlightsOn = headlightsOn;
-      refreshHeadlights(headlightsOn);
+    if (force) {
+      disableHeadlights();
     }
   }
 
-  applyClock(ctx.mission?.clockMinutes ?? 0, true);
+  applyClock(ctx.mission?.clockMinutes ?? 360, true);
 
   return {
     update(dt: number) {
       if (destroyed) return;
-      const clockMinutes = ctx.mission?.clockMinutes ?? 0;
+      const clockMinutes = ctx.mission?.clockMinutes ?? 360;
       applyClock(clockMinutes, false);
 
-      // Revarre faróis periodicamente caso carros tenham sido recriados (ex.: reinício)
+      // Garante que faróis de carros recriados permaneçam desligados durante o dia
       headlightScanTimer += dt;
-      if (headlightScanTimer >= 1.0) {
+      if (headlightScanTimer >= 2.0) {
         headlightScanTimer = 0;
-        if (lastHeadlightsOn !== null) {
-          refreshHeadlights(lastHeadlightsOn);
-        }
+        disableHeadlights();
       }
     },
 

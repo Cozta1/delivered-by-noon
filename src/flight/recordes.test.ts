@@ -6,6 +6,7 @@ import {
   isRecordStorageAvailable,
   loadRecords,
   MAX_RECORDS,
+  RECORDS_STORAGE_KEY,
   sanitizeInitials,
   saveRecord,
   type StorageLike,
@@ -42,62 +43,65 @@ function createFailingStorage(): StorageLike {
 }
 
 describe('recordes (Melhores entregadores)', () => {
-  it('ordena pelo horário de término mais cedo e desempata pela maior pontuação', () => {
+  it('ordena pelo horário de término mais cedo (06:00–12:00) e desempata pela maior pontuação', () => {
     const storage = createMemoryStorage();
+    expect(RECORDS_STORAGE_KEY).toBe('delivered-by-noon:recordes:v1');
 
     saveRecord(
-      { initials: 'jvc', finishMinutes: 1120, score: 2600, delivered: 20, total: 20, dateIso: '2026-11-20T18:00:00Z' },
+      { initials: 'jvc', finishMinutes: 640, score: 2600, delivered: 16, total: 16, dateIso: '2026-11-22T11:00:00Z' },
       storage,
     );
     saveRecord(
-      { initials: 'GMR', finishMinutes: 980, score: 2200, delivered: 20, total: 20, dateIso: '2026-11-20T18:10:00Z' },
+      { initials: 'GMR', finishMinutes: 580, score: 2200, delivered: 16, total: 16, dateIso: '2026-11-22T11:10:00Z' },
       storage,
     );
     saveRecord(
-      { initials: 'rlh', finishMinutes: 980, score: 2950, delivered: 20, total: 20, dateIso: '2026-11-20T18:20:00Z' },
+      { initials: 'rlh', finishMinutes: 580, score: 2950, delivered: 16, total: 16, dateIso: '2026-11-22T11:20:00Z' },
       storage,
     );
     saveRecord(
-      { initials: 'lt', finishMinutes: 845, score: 1900, delivered: 20, total: 20, dateIso: '2026-11-20T18:30:00Z' },
+      { initials: 'lt', finishMinutes: 505, score: 1900, delivered: 16, total: 16, dateIso: '2026-11-22T11:30:00Z' },
       storage,
     );
 
     const list = loadRecords(storage);
     expect(list.map((r) => [r.initials, r.finishMinutes, r.score])).toEqual([
-      ['LT', 845, 1900],
-      ['RLH', 980, 2950],
-      ['GMR', 980, 2200],
-      ['JVC', 1120, 2600],
+      ['LT', 505, 1900],
+      ['RLH', 580, 2950],
+      ['GMR', 580, 2200],
+      ['JVC', 640, 2600],
     ]);
     expect(getBestRecord(storage)?.initials).toBe('LT');
-    expect(formatRecordClock(845)).toBe('14:05');
+    expect(formatRecordClock(505)).toBe('08:25');
+    expect(formatRecordClock(360)).toBe('06:00');
+    expect(formatRecordClock(720)).toBe('12:00');
   });
 
   it('mantém no máximo 5 registros e descarta os piores resultados', () => {
     const storage = createMemoryStorage();
     const runs = [
-      { initials: 'AAA', finishMinutes: 1300, score: 2000 },
-      { initials: 'BBB', finishMinutes: 1200, score: 2100 },
-      { initials: 'CCC', finishMinutes: 1100, score: 2200 },
-      { initials: 'DDD', finishMinutes: 1000, score: 2300 },
-      { initials: 'EEE', finishMinutes: 900, score: 2400 },
-      { initials: 'FFF', finishMinutes: 950, score: 2500 },
-      { initials: 'ZZZ', finishMinutes: 1390, score: 9999 },
+      { initials: 'AAA', finishMinutes: 700, score: 2000 },
+      { initials: 'BBB', finishMinutes: 660, score: 2100 },
+      { initials: 'CCC', finishMinutes: 620, score: 2200 },
+      { initials: 'DDD', finishMinutes: 580, score: 2300 },
+      { initials: 'EEE', finishMinutes: 520, score: 2400 },
+      { initials: 'FFF', finishMinutes: 550, score: 2500 },
+      { initials: 'ZZZ', finishMinutes: 715, score: 9999 },
     ];
 
     let lastRes = null;
     for (const run of runs) {
-      lastRes = saveRecord({ ...run, delivered: 20, total: 20 }, storage);
+      lastRes = saveRecord({ ...run, delivered: 16, total: 16 }, storage);
     }
 
     const list = loadRecords(storage);
     expect(list).toHaveLength(MAX_RECORDS);
     expect(list.map((r) => r.initials)).toEqual(['EEE', 'FFF', 'DDD', 'CCC', 'BBB']);
     expect(lastRes?.rank).toBeNull();
-    expect(wouldMakeTopRecords({ finishMinutes: 1199, score: 1000, delivered: 20 }, list)).toBe(true);
-    expect(wouldMakeTopRecords({ finishMinutes: 1200, score: 2500, delivered: 20 }, list)).toBe(true);
-    expect(wouldMakeTopRecords({ finishMinutes: 1200, score: 1800, delivered: 20 }, list)).toBe(false);
-    expect(wouldMakeTopRecords({ finishMinutes: 1250, score: 9999, delivered: 20 }, list)).toBe(false);
+    expect(wouldMakeTopRecords({ finishMinutes: 659, score: 1000, delivered: 16 }, list)).toBe(true);
+    expect(wouldMakeTopRecords({ finishMinutes: 660, score: 2500, delivered: 16 }, list)).toBe(true);
+    expect(wouldMakeTopRecords({ finishMinutes: 660, score: 1800, delivered: 16 }, list)).toBe(false);
+    expect(wouldMakeTopRecords({ finishMinutes: 685, score: 9999, delivered: 16 }, list)).toBe(false);
 
     expect(clearRecords(storage)).toBe(true);
     expect(loadRecords(storage)).toEqual([]);

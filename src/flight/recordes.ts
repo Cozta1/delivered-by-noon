@@ -1,5 +1,7 @@
-export const RECORDS_STORAGE_KEY = 'delivered-by-midnight:recordes:v1';
+export const RECORDS_STORAGE_KEY = 'delivered-by-noon:recordes:v1';
 export const MAX_RECORDS = 5;
+export const RECORD_MIN_MINUTES = 6 * 60; // 06:00
+export const RECORD_MAX_MINUTES = 12 * 60; // 12:00
 
 export interface StorageLike {
   getItem(key: string): string | null;
@@ -10,7 +12,7 @@ export interface StorageLike {
 export interface RecordEntry {
   id: string;
   initials: string;
-  /** Horário do jogo em minutos (0..1440): quanto mais cedo, melhor. */
+  /** Horário do jogo em minutos (360..720 = 06:00..12:00): quanto mais cedo, melhor. */
   finishMinutes: number;
   score: number;
   delivered: number;
@@ -63,8 +65,10 @@ export function sanitizeInitials(raw: string): string {
 }
 
 export function formatRecordClock(minutes: number): string {
-  const clamped = Math.max(0, Math.min(1440, Math.floor(Number.isFinite(minutes) ? minutes : 0)));
-  if (clamped >= 1440) return '24:00';
+  const clamped = Math.max(
+    RECORD_MIN_MINUTES,
+    Math.min(RECORD_MAX_MINUTES, Math.floor(Number.isFinite(minutes) ? minutes : RECORD_MIN_MINUTES)),
+  );
   const hh = Math.floor(clamped / 60);
   const mm = clamped % 60;
   return `${String(hh).padStart(2, '0')}:${String(mm).padStart(2, '0')}`;
@@ -97,7 +101,7 @@ function sanitizeEntry(raw: unknown, fallbackIndex: number): RecordEntry | null 
   const obj = raw as Partial<RecordEntry>;
   const finishMinutes =
     typeof obj.finishMinutes === 'number' && Number.isFinite(obj.finishMinutes)
-      ? clamp(obj.finishMinutes, 0, 1440)
+      ? clamp(obj.finishMinutes, RECORD_MIN_MINUTES, RECORD_MAX_MINUTES)
       : null;
   const score =
     typeof obj.score === 'number' && Number.isFinite(obj.score) ? Math.max(0, Math.round(obj.score)) : null;
@@ -178,7 +182,11 @@ export function wouldMakeTopRecords(
   const probe: RecordEntry = {
     id: '__probe__',
     initials: 'GOP',
-    finishMinutes: clamp(Number.isFinite(candidate.finishMinutes) ? candidate.finishMinutes : 1440, 0, 1440),
+    finishMinutes: clamp(
+      Number.isFinite(candidate.finishMinutes) ? candidate.finishMinutes : RECORD_MAX_MINUTES,
+      RECORD_MIN_MINUTES,
+      RECORD_MAX_MINUTES,
+    ),
     score: Math.max(0, Math.round(Number.isFinite(candidate.score) ? candidate.score : 0)),
     delivered: Math.max(0, Math.round(Number.isFinite(candidate.delivered) ? candidate.delivered : 0)),
     total: Math.max(0, Math.round(Number.isFinite(candidate.delivered) ? candidate.delivered : 0)),
@@ -201,7 +209,11 @@ export function saveRecord(input: RecordInput, explicitStorage?: StorageLike | n
   const entry: RecordEntry = {
     id: input.id ?? `rec-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
     initials: sanitizeInitials(input.initials),
-    finishMinutes: clamp(Number.isFinite(input.finishMinutes) ? input.finishMinutes : 1440, 0, 1440),
+    finishMinutes: clamp(
+      Number.isFinite(input.finishMinutes) ? input.finishMinutes : RECORD_MAX_MINUTES,
+      RECORD_MIN_MINUTES,
+      RECORD_MAX_MINUTES,
+    ),
     score: Math.max(0, Math.round(Number.isFinite(input.score) ? input.score : 0)),
     delivered: Math.max(0, Math.round(Number.isFinite(input.delivered) ? input.delivered : 0)),
     total: Math.max(
