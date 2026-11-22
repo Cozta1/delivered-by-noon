@@ -449,12 +449,13 @@ function buildTunedCar(app: AppBase, parent: Entity): VehicleModel {
 }
 
 function buildCharacter(app: AppBase, parent: Entity): VehicleModel {
-  const mSuit = makeMaterial(0.08, 0.24, 0.58, 0.35);
-  const mOrange = makeMaterial(0.94, 0.42, 0.06, 0.45);
-  const mHelmet = makeMaterial(0.94, 0.95, 0.97, 0.78);
+  const mYellow = makeMaterial(0.95, 0.76, 0.1, 0.42);
+  const mDark = makeMaterial(0.11, 0.12, 0.14, 0.36);
+  const mPants = makeMaterial(0.16, 0.18, 0.21, 0.3);
+  const mHelmet = makeMaterial(0.94, 0.95, 0.97, 0.8);
   const mVisor = makeMaterial(0.05, 0.07, 0.12, 0.92);
-  const mDark = makeMaterial(0.1, 0.11, 0.14, 0.35);
-  const materials: StandardMaterial[] = [mSuit, mOrange, mHelmet, mVisor, mDark];
+  const mReflect = makeMaterial(0.82, 0.84, 0.86, 0.65);
+  const materials: StandardMaterial[] = [mYellow, mDark, mPants, mHelmet, mVisor, mReflect];
 
   const root = new Entity('Personagem', app);
   parent.addChild(root);
@@ -463,8 +464,16 @@ function buildCharacter(app: AppBase, parent: Entity): VehicleModel {
   root.addChild(procedural);
   const exterior: Entity[] = [];
 
+  const joint = (name: string, parentNode: Entity, p: [number, number, number]) => {
+    const e = new Entity(name, app);
+    e.setLocalPosition(...p);
+    parentNode.addChild(e);
+    return e;
+  };
+
   const part = (
     name: string,
+    parentNode: Entity,
     m: StandardMaterial,
     p: [number, number, number],
     s: [number, number, number],
@@ -474,40 +483,63 @@ function buildCharacter(app: AppBase, parent: Entity): VehicleModel {
     e.addComponent('render', { type, material: m });
     e.setLocalScale(...s);
     e.setLocalPosition(...p);
-    procedural.addChild(e);
+    parentNode.addChild(e);
     exterior.push(e);
     return e;
   };
 
-  // Personagem original: macacão azul + detalhes laranja + capacete branco fechado com viseira escura
+  // Fallback procedural articulado do entregador GoPostal (mesma hierarquia e pivôs do personagem.glb)
+  const tronco = joint('Tronco', procedural, [0, 0.9, 0]);
+  part('pelvis', tronco, mPants, [0, -0.01, 0], [0.35, 0.12, 0.23]);
+  part('belt', tronco, mDark, [0, 0.068, 0], [0.37, 0.05, 0.24]);
+  part('jacket', tronco, mYellow, [0, 0.27, -0.008], [0.42, 0.36, 0.26]);
+  part('chestBand', tronco, mReflect, [0, 0.25, -0.012], [0.43, 0.045, 0.27]);
+  part('yoke', tronco, mDark, [0, 0.48, -0.008], [0.41, 0.09, 0.24]);
+  part('collar', tronco, mDark, [0, 0.545, -0.01], [0.18, 0.07, 0.17], 'cylinder');
+  // Mochila térmica GoPostal nas costas (+Z local = atrás)
+  part('backpack', tronco, mYellow, [0, 0.318, 0.26], [0.365, 0.425, 0.255]);
+  part('backpackLid', tronco, mDark, [0, 0.512, 0.26], [0.376, 0.056, 0.266]);
+  part('backpackBase', tronco, mDark, [0, 0.116, 0.26], [0.374, 0.042, 0.264]);
+
+  const cabeca = joint('Cabeca', tronco, [0, 0.56, -0.01]);
+  part('helmet', cabeca, mHelmet, [0, 0.185, -0.005], [0.29, 0.29, 0.33], 'sphere');
+  part('visor', cabeca, mVisor, [0, 0.175, -0.075], [0.26, 0.11, 0.24], 'sphere');
+  part('helmetCrest', cabeca, mYellow, [0, 0.33, 0.01], [0.045, 0.025, 0.22]);
+
   for (const s of [-1, 1] as const) {
-    part(`boot_${s}`, mDark, [s * 0.13, 0.08, -0.03], [0.13, 0.16, 0.24]);
-    part(`leg_${s}`, mSuit, [s * 0.13, 0.52, 0], [0.17, 0.64, 0.17], 'cylinder');
-    part(`knee_${s}`, mOrange, [s * 0.13, 0.48, -0.08], [0.11, 0.1, 0.06]);
-    part(`shoulder_${s}`, mOrange, [s * 0.28, 1.35, 0], [0.17, 0.16, 0.17], 'sphere');
-    part(`arm_${s}`, mSuit, [s * 0.31, 1.1, -0.01], [0.13, 0.44, 0.13], 'cylinder');
-    part(`glove_${s}`, mDark, [s * 0.33, 0.83, -0.03], [0.12, 0.14, 0.13], 'sphere');
+    const tag = s < 0 ? 'E' : 'D';
+    const braco = joint(`Braco${tag}`, tronco, [s * 0.228, 0.47, -0.004]);
+    part(`shoulder_${tag}`, braco, mDark, [0, 0, 0], [0.14, 0.14, 0.14], 'sphere');
+    part(`upperArm_${tag}`, braco, mYellow, [s * 0.01, -0.14, 0], [0.115, 0.25, 0.115], 'cylinder');
+
+    const antebraco = joint(`Antebraco${tag}`, braco, [s * 0.02, -0.27, 0]);
+    part(`forearm_${tag}`, antebraco, mDark, [0, -0.11, -0.004], [0.092, 0.22, 0.092], 'cylinder');
+    part(`glove_${tag}`, antebraco, mDark, [0, -0.265, -0.012], [0.055, 0.09, 0.075]);
+
+    const perna = joint(`Perna${tag}`, procedural, [s * 0.105, 0.88, 0]);
+    part(`thigh_${tag}`, perna, mPants, [0, -0.215, 0], [0.15, 0.43, 0.155], 'cylinder');
+    part(`kneePad_${tag}`, perna, mYellow, [s * 0.005, -0.422, -0.068], [0.064, 0.074, 0.022]);
+
+    const canela = joint(`Canela${tag}`, perna, [s * 0.005, -0.43, -0.005]);
+    part(`shin_${tag}`, canela, mPants, [0, -0.155, 0.004], [0.118, 0.31, 0.124], 'cylinder');
+    part(`bootShaft_${tag}`, canela, mDark, [0, -0.355, -0.004], [0.112, 0.13, 0.125], 'cylinder');
+    // Sola encostada exatamente em y local = -0.45 -> mundo y = 0.000
+    part(`bootSole_${tag}`, canela, mDark, [0, -0.415, -0.046], [0.11, 0.07, 0.23]);
   }
-  part('belt', mOrange, [0, 0.94, 0], [0.44, 0.07, 0.27]);
-  part('torso', mSuit, [0, 1.19, 0], [0.46, 0.45, 0.26]);
-  part('chestBand', mOrange, [0, 1.24, -0.135], [0.36, 0.1, 0.03]);
-  part('helmet', mHelmet, [0, 1.61, 0.01], [0.31, 0.34, 0.34], 'sphere');
-  part('visor', mVisor, [0, 1.62, -0.07], [0.27, 0.17, 0.24], 'sphere');
-  part('helmetCrest', mOrange, [0, 1.77, 0.02], [0.06, 0.04, 0.22]);
 
   const prop = new Entity('prop', app);
   root.addChild(prop);
   const tipL = new Entity('wingTipL', app);
   const tipR = new Entity('wingTipR', app);
-  tipL.setLocalPosition(-0.38, 1.0, 0);
-  tipR.setLocalPosition(0.38, 1.0, 0);
+  tipL.setLocalPosition(-0.36, 1.0, 0);
+  tipR.setLocalPosition(0.36, 1.0, 0);
   root.addChild(tipL);
   root.addChild(tipR);
 
   const hitbox: [number, number, number][] = [];
-  for (const x of [-0.36, 0.36]) {
-    for (const y of [0, 1.78]) {
-      for (const z of [-0.22, 0.22]) hitbox.push([x, y, z]);
+  for (const x of [-0.35, 0.35]) {
+    for (const y of [0, 1.79]) {
+      for (const z of [-0.24, 0.39]) hitbox.push([x, y, z]);
     }
   }
 
