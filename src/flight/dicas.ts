@@ -1,4 +1,4 @@
-import { KEY_SPACE } from 'playcanvas';
+﻿import { KEY_SPACE } from 'playcanvas';
 import { isTunedNitroActive } from './hud';
 import { onMissionRestart } from './mission';
 import type { DeliveryPoint, FlightContext, FlightModule, MissionState, Stage, VehicleKind } from './types';
@@ -14,6 +14,7 @@ type TipId =
   | 'heli-controls'
   | 'heli-land'
   | 'a29-controls'
+  | 'air-camera'
   | 'late-11h'
   | 'idle-reminder';
 
@@ -185,6 +186,8 @@ export function createDicas(ctx: FlightContext, uiRoot?: HTMLElement | null): Fl
         return mission.delivered > prevDelivered;
       case 'a29-controls':
         return Boolean(app.keyboard?.isPressed(KEY_SPACE));
+      case 'air-camera':
+        return state.camera !== 'chase';
       case 'idle-reminder':
         return speedAbs > 2.2;
       default:
@@ -362,6 +365,23 @@ export function createDicas(ctx: FlightContext, uiRoot?: HTMLElement | null): Fl
             (state.heightAboveGround > 5 || distNext < 160)
           ) {
             showTip('heli-land', '◎', [{ text: 'Pouse devagar no círculo' }], 6.0, 'goal', 1.4);
+          }
+          // 5b/6b) Aeronaves: depois dos controles, mostra como trocar a câmera (de cima mostra o alvo da caixa no A-29)
+          else if (
+            (state.vehicle === 'heli' || state.vehicle === 'a29') &&
+            shown.has(state.vehicle === 'heli' ? 'heli-controls' : 'a29-controls') &&
+            !shown.has('air-camera')
+          ) {
+            showTip(
+              'air-camera',
+              '◉',
+              state.vehicle === 'a29'
+                ? [{ key: 'C' }, { text: ' troca a câmera (atrás · de cima · cabine) — de cima mostra onde a caixa cai' }]
+                : [{ key: 'C' }, { text: ' troca a câmera (atrás · de cima · cabine)' }],
+              6.5,
+              'default',
+              1.2,
+            );
           }
           // 6) A-29: controles de mira, acelerador e lançamento aéreo
           else if (state.vehicle === 'a29' && !shown.has('a29-controls')) {
