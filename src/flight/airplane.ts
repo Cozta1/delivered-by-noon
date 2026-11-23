@@ -1,4 +1,4 @@
-import {
+﻿import {
   type AppBase,
   type Asset,
   BLEND_NORMAL,
@@ -11,7 +11,7 @@ import {
   type MeshInstance,
   StandardMaterial,
 } from 'playcanvas';
-import { glbUrl } from './models/glb';
+import { glbUrl, sanitizeGlbMaterials } from './models/glb';
 
 type PrimitiveType = 'box' | 'cylinder' | 'cone' | 'sphere';
 
@@ -408,6 +408,7 @@ export function buildAirplane(app: AppBase, parent: Entity = app.root): Airplane
     if (destroyed || glbApplied || !root.parent || typeof resource.instantiateRenderEntity !== 'function') return;
     const glbRoot = resource.instantiateRenderEntity({ castShadows: false, receiveShadows: false });
     if (!glbRoot) return;
+    sanitizeGlbMaterials(glbRoot);
     glbApplied = true;
 
     const showExterior = exterior.length === 0 ? true : (exterior[0].render?.enabled ?? true);

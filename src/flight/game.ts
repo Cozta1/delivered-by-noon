@@ -1143,6 +1143,8 @@ export function startFlightSim(
 
   function onKeyDown(e: KeyboardEvent) {
     if (destroyed || isLoading) return;
+    // Ctrl é tecla de jogo (freio/potência): bloqueia os atalhos do navegador (Ctrl+S salvar, Ctrl+A selecionar, Ctrl+D favorito...)
+    if ((e.ctrlKey || e.metaKey) && mode === 'playing' && /^(Key[A-Z]|Digit\d|Space|Arrow\w+)$/.test(e.code)) e.preventDefault();
     audio.unlock();
     if (e.repeat) return;
 

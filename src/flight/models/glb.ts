@@ -1,4 +1,4 @@
-import {
+﻿import {
   type AppBase,
   type Asset,
   BLEND_NORMAL,
@@ -60,6 +60,34 @@ export function collectVisualEntities(rootNode: Entity, out: Entity[] = []): Ent
     collectVisualEntities(children[i] as Entity, out);
   }
   return out;
+}
+
+
+/**
+ * Desliga refração/transmissão dos materiais de um GLB (vidros de modelos baixados).
+ * Refração exige o mapa de cor da cena (uSceneColorMap), que a câmera do jogo não tem: no WebGPU isso
+ * gerava erro a cada quadro e derrubava o navegador no heli e no A-29. Vidro vira transparência simples.
+ */
+export function sanitizeGlbMaterials(rootEntity: Entity): void {
+  const seen = new Set<StandardMaterial>();
+  const renders = rootEntity.findComponents('render') as unknown as Array<{ meshInstances?: ReadonlyArray<{ material: unknown }> }>;
+  for (const r of renders) {
+    for (const mi of r.meshInstances ?? []) {
+      const m = mi.material;
+      if (!(m instanceof StandardMaterial) || seen.has(m)) continue;
+      seen.add(m);
+      const anyM = m as StandardMaterial & { refraction?: number; useDynamicRefraction?: boolean; refractionMap?: unknown };
+      if ((anyM.refraction ?? 0) > 0 || anyM.useDynamicRefraction || anyM.refractionMap) {
+        anyM.refraction = 0;
+        anyM.useDynamicRefraction = false;
+        anyM.refractionMap = null;
+        m.opacity = Math.min(m.opacity, 0.45);
+        m.blendType = BLEND_NORMAL;
+        m.depthWrite = false;
+        m.update();
+      }
+    }
+  }
 }
 
 export function collectNodesByPrefix(rootNode: Entity, prefixLower: string, out: Entity[] = []): Entity[] {
@@ -446,6 +474,7 @@ export function attachAsyncGlb({
     if (destroyed || applied || !root.parent || typeof resource.instantiateRenderEntity !== 'function') return;
     const glbRoot = resource.instantiateRenderEntity({ castShadows: false, receiveShadows: false });
     if (!glbRoot) return;
+    sanitizeGlbMaterials(glbRoot);
     applied = true;
 
     const showExterior = model.exterior.length === 0 ? true : (model.exterior[0].render?.enabled ?? true);
