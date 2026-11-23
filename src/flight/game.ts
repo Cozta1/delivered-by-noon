@@ -22,6 +22,7 @@ import { createEfeitos } from './efeitos';
 import { createHud, isTunedNitroActive } from './hud';
 import { createMarkers } from './markers';
 import { createMissionSystem, startMission } from './mission';
+import { applySave, clearSave, describeSave, loadSave, writeSave } from './save';
 import { enableFrustumCulling } from './models/glb';
 import { clearSmoke, createSmoke } from './smoke';
 import { createGpsRoute } from './rota';
@@ -841,6 +842,35 @@ export function startFlightSim(
     requestPointerLockForFlight();
   }
 
+  function refreshSaveInfo() {
+    const save = loadSave();
+    menus.setSaveInfo(save ? describeSave(save) : null);
+  }
+
+  /** Salva o turno em andamento (fora do modo apresentação). */
+  function persistProgress() {
+    if (!presentationActive && (mode === 'playing' || mode === 'paused')) writeSave(mission);
+  }
+
+  function continueSavedMission() {
+    const save = loadSave();
+    beginMissionPlay(false);
+    if (!save) return;
+    applySave(mission, save);
+    baseDeliveryRadii.clear();
+    syncDeliveryDifficulty();
+    if (typeof flightModule.enterStageVehicle === 'function') flightModule.enterStageVehicle(mission.stage);
+    mission.message = `Turno retomado · ${describeSave(save)}`;
+    mission.messageTimer = 4;
+    syncMissionTracking();
+    requestCameraSnap(state);
+    dayNightModule.update(0);
+    cameraRig.update(0);
+    gpsModule.update(0);
+    markersModule.update(0);
+    hudModule.update(0);
+  }
+
   function beginPresentationPlay(config: PresentationLaunchConfig) {
     audio.unlock();
     presentationActive = true;
@@ -858,6 +888,7 @@ export function startFlightSim(
 
   function pauseFlight() {
     if (mode !== 'playing') return;
+    persistProgress();
     mode = 'paused';
     lastPauseAt = Date.now();
     hadPointerLockInFlight = false;
@@ -881,6 +912,7 @@ export function startFlightSim(
   }
 
   function returnToTitle() {
+    persistProgress();
     startMission(ctx);
     baseDeliveryRadii.clear();
     syncDeliveryDifficulty();
@@ -895,6 +927,7 @@ export function startFlightSim(
     setRuntimeMode(state, 'title');
     releasePointerLock();
     showPlaneExterior();
+    refreshSaveInfo();
     menus.setMode('title');
     dayNightModule.update(0);
     gpsModule.update(0);
@@ -906,6 +939,7 @@ export function startFlightSim(
   }
 
   function enterEndScreen(outcome: 'won' | 'lost') {
+    if (!presentationActive) clearSave();
     mode = 'ended';
     hadPointerLockInFlight = false;
     setRuntimeMode(state, 'ended');
@@ -952,13 +986,18 @@ export function startFlightSim(
   let destroyed = false;
   let isLoading = true;
   const menus = createGameMenus(uiRoot, settings, {
-    onStartFlight: () => beginMissionPlay(false),
+    onStartFlight: () => {
+      clearSave();
+      beginMissionPlay(false);
+    },
+    onContinue: continueSavedMission,
     onStartPresentation: beginPresentationPlay,
     onResume: resumeFlight,
     onRestart: () => {
       if (presentationActive && lastPresentationConfig) {
         beginPresentationPlay(lastPresentationConfig);
       } else {
+        if (!presentationActive) clearSave();
         beginMissionPlay(presentationActive);
       }
     },
@@ -971,6 +1010,9 @@ export function startFlightSim(
     },
   });
   menus.setHiddenByLoading(true);
+  refreshSaveInfo();
+  const onPageHide = () => persistProgress();
+  if (typeof window !== 'undefined') window.addEventListener('pagehide', onPageHide);
 
   // Opções "Tráfego" e "GPS no chão" injetadas na lista de opções (sem alterar ui/menus.ts)
   let syncTrafficControl: ((level: TrafficLevel) => void) | null = null;
@@ -1236,10 +1278,12 @@ export function startFlightSim(
       // Reage a eventos escritos em ctx.mission pelo mission.ts
       if (mission.delivered > prevDelivered) {
         audio.playDelivery();
+        if (!presentationActive) writeSave(mission);
       }
       prevDelivered = mission.delivered;
 
       if (mission.stage !== prevStage) {
+        if (!presentationActive) writeSave(mission);
         const prevIdx = STAGE_ORDER.indexOf(prevStage);
         const nextIdx = STAGE_ORDER.indexOf(mission.stage);
         prevStage = mission.stage;
@@ -1378,6 +1422,7 @@ export function startFlightSim(
       if (typeof window !== 'undefined') {
         window.removeEventListener('pointerdown', onPointerDown);
         window.removeEventListener('keydown', onKeyDown);
+        window.removeEventListener('pagehide', onPageHide);
       }
       if (typeof document !== 'undefined') {
         document.removeEventListener('pointerlockchange', onPointerLockChange);

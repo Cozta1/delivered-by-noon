@@ -30,6 +30,8 @@ export interface PresentationLaunchConfig {
 
 export interface MenuCallbacks {
   onStartFlight(): void;
+  /** Continua o turno salvo (botão aparece só quando há save). */
+  onContinue?(): void;
   onStartPresentation?(config: PresentationLaunchConfig): void;
   onResume(): void;
   onRestart(): void;
@@ -41,6 +43,8 @@ export interface MenuCallbacks {
 export interface GameMenus {
   setMode(mode: GameMode): void;
   setHiddenByLoading(hidden: boolean): void;
+  /** Resumo do save (ex.: "5/16 entregas · 08:12") ou null sem save. */
+  setSaveInfo(info: string | null): void;
   getScreen(): MenuScreen;
   back(): boolean;
   syncSettings(settings: GameSettings): void;
@@ -219,6 +223,12 @@ export function createGameMenus(
   const actions = node('div', 'menu-actions');
   const btnPrimary = node('button', 'menu-btn menu-btn--primary', 'Jogar');
   btnPrimary.type = 'button';
+  const btnContinue = node('button', 'menu-btn menu-btn--primary', 'Continuar');
+  btnContinue.type = 'button';
+  btnContinue.hidden = true;
+  const saveInfoEl = node('p', 'menu-subtitle menu-save-info', '');
+  saveInfoEl.hidden = true;
+  let saveInfo: string | null = null;
 
   const secondaryLinks = node('div', 'menu-secondary-links');
   const btnPresentation = node('button', 'menu-btn menu-btn--link', 'Modo apresentação');
@@ -235,7 +245,7 @@ export function createGameMenus(
   btnReturnTitle.type = 'button';
 
   secondaryLinks.append(btnPresentation, btnRestart, btnOptions, btnControls, btnCredits, btnReturnTitle);
-  actions.append(btnPrimary, secondaryLinks);
+  actions.append(btnContinue, saveInfoEl, btnPrimary, secondaryLinks);
 
   mainCol.append(header, actions);
   const titleLeaderboard = createLeaderboardBox();
@@ -771,7 +781,11 @@ export function createGameMenus(
       titleLine2.hidden = false;
       subtitleEl.textContent = 'Entregue tudo antes do meio-dia para garantir seu horário de almoço.';
       subtitleEl.hidden = false;
-      btnPrimary.textContent = 'Jogar';
+      btnPrimary.textContent = saveInfo ? 'Novo jogo' : 'Jogar';
+      btnPrimary.className = saveInfo ? 'menu-btn menu-btn--link' : 'menu-btn menu-btn--primary';
+      btnContinue.hidden = !saveInfo;
+      saveInfoEl.hidden = !saveInfo;
+      saveInfoEl.textContent = saveInfo ? `Turno salvo: ${saveInfo}` : '';
       btnPresentation.hidden = false;
       btnRestart.hidden = true;
       btnControls.textContent = 'Controles';
@@ -787,6 +801,9 @@ export function createGameMenus(
       subtitleEl.textContent = 'Relógio congelado — aperte Esc ou P para voltar ao volante.';
       subtitleEl.hidden = false;
       btnPrimary.textContent = 'Continuar';
+      btnPrimary.className = 'menu-btn menu-btn--primary';
+      btnContinue.hidden = true;
+      saveInfoEl.hidden = true;
       btnPresentation.hidden = true;
       btnRestart.textContent = 'Reiniciar turno (06:00)';
       btnRestart.hidden = false;
@@ -840,6 +857,11 @@ export function createGameMenus(
     clearFeedback.textContent = ok ? 'Recordes apagados.' : 'Armazenamento indisponível.';
     clearFeedback.hidden = false;
     refreshTitleLeaderboard();
+  });
+
+  btnContinue.addEventListener('click', () => {
+    callbacks.onButtonClick(true);
+    callbacks.onContinue?.();
   });
 
   btnPrimary.addEventListener('click', () => {
@@ -946,6 +968,10 @@ export function createGameMenus(
   renderView();
 
   return {
+    setSaveInfo(info: string | null) {
+      saveInfo = info;
+      if (mode === 'title') renderView();
+    },
     setMode(nextMode: GameMode) {
       mode = nextMode;
       if (nextMode !== 'ended') {
