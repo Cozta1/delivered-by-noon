@@ -93,7 +93,7 @@ export const ENGINE_PROFILES: Readonly<Record<EngineProfileId, EngineProfile>> =
   },
   v8cross: {
     id: 'v8cross',
-    label: 'V8 cross-plane 5.0 (SUV Esportivo)',
+    label: 'V8 cross-plane 5.0 (Esportivo)',
     cylinders: 8,
     firingOrder: [1, 8, 7, 3, 6, 5, 4, 2],
     banks: [

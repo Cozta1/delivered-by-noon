@@ -30,7 +30,7 @@ interface MinimapBlip {
 
 const NEARBY_LABEL: Record<Exclude<VehicleKind, 'foot'>, string> = {
   car: 'Hatch',
-  tuned: 'SUV Esportivo',
+  tuned: 'Esportivo',
   a29: 'A-29',
   heli: 'helicóptero',
 };
@@ -288,7 +288,7 @@ function buildMinimapBlueprint(): MinimapBlueprint | null {
   g.strokeRect(-uniW * 0.5, -uniD * 0.5, uniW, uniD);
   g.restore();
 
-  // 8) Oficina do SUV Esportivo
+  // 8) Oficina do Esportivo
   const wkX = wx(layout.workshop.x);
   const wkZ = wz(layout.workshop.z);
   g.fillStyle = '#171512';
@@ -599,7 +599,7 @@ export function createHud(ctx: FlightContext, uiRoot?: HTMLElement | null): Flig
   dialBox.append(dialSvg, dialReadout);
   gaugeRow.append(airSub, dialBox);
 
-  // Barra de nitro (exclusiva do SUV Esportivo)
+  // Barra de nitro (exclusiva do Esportivo)
   const nitroWrap = el('div', 'hud-nitro-wrap');
   nitroWrap.hidden = true;
   const nitroHead = el('div', 'hud-nitro-head');
@@ -645,7 +645,7 @@ export function createHud(ctx: FlightContext, uiRoot?: HTMLElement | null): Flig
   const presBox = el('div', 'hud-pres-wrap');
   presBox.hidden = true;
   const presBadge = el('div', 'hud-pres-badge', 'MODO APRESENTAÇÃO');
-  const presKeys = el('div', 'hud-pres-keys', 'F1 Carro · F2 SUV · F3 Heli · F4 A-29 · F5 Final · F6 +1h');
+  const presKeys = el('div', 'hud-pres-keys', 'F1 Carro · F2 Esportivo · F3 Heli · F4 A-29 · F5 Final · F6 +1h');
   presBox.append(presBadge, presKeys);
 
   // Vinheta vermelha a partir das 11:00 + contagem regressiva nos últimos 60 s antes de 12:00

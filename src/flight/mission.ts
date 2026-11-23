@@ -8,7 +8,7 @@ export const CLOCK_END_MINUTES = 12 * 60; // 12:00 (almoço)
 export const CLOCK_SPAN_MINUTES = CLOCK_END_MINUTES - CLOCK_START_MINUTES;
 export const CLOCK_MINUTES_PER_SECOND = CLOCK_SPAN_MINUTES / DAY_REAL_SECONDS;
 const restartHandlers = new WeakMap<FlightContext, Set<() => void>>();
-const stageNames: Record<Stage,string> = {car:'carro',tuned:'SUV esportivo',heli:'helicóptero',a29:'A-29'};
+const stageNames: Record<Stage,string> = {car:'carro',tuned:'esportivo',heli:'helicóptero',a29:'A-29'};
 
 export function onMissionRestart(ctx:FlightContext,handler:()=>void) {
   let handlers=restartHandlers.get(ctx);
@@ -39,7 +39,7 @@ export function deliveryPoints():DeliveryPoint[] {
   street('car','Mario, o Encanador','centro',11);
   street('car','Pizzaria do Luigi','granbery',11);
   street('car','CJ, na Grove Street','altoDosPassos',11);
-  add('car','Oficina do Lamar (onde está o SUV esportivo)',WORKSHOP.x,WORKSHOP.y,WORKSHOP.z,11,true);
+  add('car','Oficina do Lamar (onde está o esportivo)',WORKSHOP.x,WORKSHOP.y,WORKSHOP.z,11,true);
   street('tuned','Rancho do Arthur Morgan','salvaterra',13);
   const mirante=roadStop('cristo');add('tuned','Mirante do Steve',mirante.x,ground(mirante.x,mirante.z),mirante.z,15);
   street('tuned','Jonesy, no Ônibus de Batalha','estadio',20);

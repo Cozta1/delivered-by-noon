@@ -31,7 +31,7 @@ const CAR_VARIANTS: ReadonlyArray<{
     body: [0.94, 0.95, 0.97],
     accent: [0.06, 0.065, 0.08],
     rim: [0.18, 0.19, 0.22],
-    size: [1.73, 1.25, 4.07], // hatch branco em alta qualidade (Meshy)
+    size: [1.73, 1.44, 4.07], // Fiesta ST branco
     wheelRadius: 0.3,
     wheelX: 0.72,
     wheelZ: 1.2,
@@ -338,9 +338,9 @@ function buildTunedCar(app: AppBase, parent: Entity): VehicleModel {
     return e;
   };
 
-  const w = 1.91; // SUV Esportivo (Fastback do Meshy): medidas da carroceria do GLB
-  const h = 1.6;
-  const l = 4.43;
+  const w = 1.80; // Esportivo (911 GT3): medidas da carroceria do GLB
+  const h = 1.2;
+  const l = 4.57;
   const r = 0.32;
   const wheelX = 0.7;
   const wheelZ = 1.32;
