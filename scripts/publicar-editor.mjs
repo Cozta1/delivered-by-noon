@@ -1,10 +1,12 @@
 import { existsSync, readFileSync, statSync } from 'node:fs';
-import { dirname, resolve } from 'node:path';
+import { dirname, posix, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { moduleFiles, MODULE_DIR } from './verificar-editor-modulos.mjs';
 
 const ROOT_DIR = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const API_BASE = 'https://playcanvas.com/api';
 const DEFAULT_PROJECT_ID = '1606932';
+const SCRIPT_FOLDER = 'Scripts do jogo';
 
 const TARGET_ASSETS = [
   ...['terreno', 'cidade', 'mar', 'nuvens', 'ceu', 'aeroporto'].map((part) => ({
@@ -178,14 +180,22 @@ async function listAssets(projectId, branchId, token) {
   return assets;
 }
 
-function findMatchingAsset(assets, target) {
+export function findMatchingAsset(assets, target) {
   const lowerName = target.name.toLowerCase();
   const candidates = assets.filter((a) => {
+    if ('parentId' in target && assetParentId(a) !== String(target.parentId ?? '')) return false;
     const aName = String(a?.name ?? '').toLowerCase();
     const fName = String(a?.file?.filename ?? '').toLowerCase();
     return aName === lowerName || fName === lowerName;
   });
   if (candidates.length === 0) return null;
+
+  if ('parentId' in target) {
+    if (candidates.length > 1 || !target.preferredTypes.includes(candidates[0].type)) {
+      throw new Error(`Nome ambíguo ou tipo incorreto na pasta: ${target.folderPath}/${target.name}`);
+    }
+    return candidates[0];
+  }
 
   for (const preferredType of target.preferredTypes) {
     const match = candidates.find((a) => String(a?.type ?? '').toLowerCase() === preferredType);
@@ -194,7 +204,47 @@ function findMatchingAsset(assets, target) {
   return candidates[0];
 }
 
-async function uploadAsset({ projectId, branchId, token, target, existing }) {
+function assetParentId(asset) {
+  return String(asset.parent ?? asset.path?.at(-1) ?? '');
+}
+
+export function planModuleAssets(assets, files = moduleFiles()) {
+  const folders = [];
+  const folderByPath = new Map();
+  function folder(path) {
+    if (folderByPath.has(path)) return folderByPath.get(path);
+    const parentPath = posix.dirname(path);
+    const parentId = parentPath === '.' ? null : folder(parentPath).id;
+    const target = { name: posix.basename(path), preferredTypes: ['folder'], parentId, folderPath: parentPath };
+    const existing = findMatchingAsset(assets, target);
+    const entry = { ...target, path, existing, id: existing?.id ?? `new:${path}` };
+    folders.push(entry);
+    folderByPath.set(path, entry);
+    return entry;
+  }
+  const modules = files.map((file) => {
+    const path = posix.join(SCRIPT_FOLDER, posix.dirname(file));
+    const target = {
+      name: posix.basename(file), relPath: `dist-editor/modules/${file}`,
+      mime: 'application/javascript', preferredTypes: ['script'],
+      folderPath: path, parentId: folder(path).id,
+    };
+    return { target, existing: findMatchingAsset(assets, target) };
+  });
+  return { folders, modules };
+}
+
+export async function createFolder({ projectId, branchId, token, name, parentId }) {
+  const form = new FormData();
+  for (const [key, value] of Object.entries({ name, projectId, branchId, type: 'folder', parent: parentId })) {
+    if (value != null) form.append(key, String(value));
+  }
+  const result = await apiRequest('POST', '/assets', token, form);
+  if (!result?.id) throw new Error(`A API não retornou o id da pasta ${name}.`);
+  return result;
+}
+
+export async function uploadAsset({ projectId, branchId, token, target, existing }) {
   const fullPath = resolve(ROOT_DIR, target.relPath);
   if (!existsSync(fullPath)) {
     throw new Error(`Arquivo local ausente: ${target.relPath}`);
@@ -216,12 +266,15 @@ async function uploadAsset({ projectId, branchId, token, target, existing }) {
   form.append('projectId', projectId);
   form.append('branchId', branchId);
   form.append('preload', 'true');
+  if (target.parentId != null) form.append('parent', String(target.parentId));
   form.append('file', file, target.name);
   return apiRequest('POST', '/assets', token, form);
 }
 
 async function main() {
   const dryRun = process.argv.includes('--dry-run');
+  const files = moduleFiles();
+  if (!files.includes('editor/flight-sim.mjs')) throw new Error(`Entrada separada ausente em ${MODULE_DIR}. Rode npm run build:editor.`);
   const { token, projectId, branchId: envBranchId } = readConfig();
 
   const branch = await resolveBranch(projectId, envBranchId, token);
@@ -231,8 +284,11 @@ async function main() {
   console.log(`Branch: ${branch.name} (${branch.id})`);
   console.log(`Assets listados no branch: ${assets.length}`);
 
-  const plan = TARGET_ASSETS.map((target) => {
-    const existing = findMatchingAsset(assets, target);
+  const separated = planModuleAssets(assets, files);
+  const moduleFolderIds = new Set(separated.folders.map((folder) => String(folder.id)));
+  // O bundle legado e a entrada modular têm o mesmo nome em pastas diferentes.
+  const legacyAssets = assets.filter((asset) => !moduleFolderIds.has(assetParentId(asset)));
+  const plan = [...TARGET_ASSETS.map((target) => ({ target, existing: findMatchingAsset(legacyAssets, target) })), ...separated.modules].map(({ target, existing }) => {
     const fullPath = resolve(ROOT_DIR, target.relPath);
     const fileExists = existsSync(fullPath);
     const sizeKb = fileExists ? (statSync(fullPath).size / 1024).toFixed(1) : null;
@@ -241,6 +297,9 @@ async function main() {
 
   if (dryRun) {
     console.log('Modo: --dry-run (somente leitura, nada enviado)');
+    for (const folder of separated.folders) {
+      console.log(`- Pasta ${folder.path}: ${folder.existing ? `REUTILIZADA (id=${folder.id})` : 'SERIA CRIADA'} (parent=${folder.parentId ?? 'raiz'})`);
+    }
     for (const item of plan) {
       const action = item.existing
         ? `ATUALIZADO (id=${item.existing.id}, tipo=${item.existing.type ?? 'desconhecido'})`
@@ -248,30 +307,45 @@ async function main() {
       const localInfo = item.fileExists
         ? `${item.target.relPath} (${item.sizeKb} kB)`
         : `${item.target.relPath} [AUSENTE]`;
-      console.log(`- ${item.target.name}: será ${action} | local: ${localInfo}`);
+      const label = item.target.folderPath ? `${item.target.folderPath}/${item.target.name}` : item.target.name;
+      console.log(`- ${label}: será ${action} | preload=${item.existing?.preload ?? true} | local: ${localInfo}`);
     }
     return;
   }
 
+  for (const item of plan) {
+    if (!item.fileExists) throw new Error(`Arquivo local ausente: ${item.target.relPath}`);
+    if (item.target.folderPath && item.existing?.preload === false) {
+      throw new Error(`Ative Preload no Editor antes de atualizar ${item.target.folderPath}/${item.target.name}; a API REST de atualização não aceita preload.`);
+    }
+  }
   console.log('Publicando assets no PlayCanvas Editor...');
+  const folderIds = new Map();
+  for (const folder of separated.folders) {
+    const result = folder.existing ?? await createFolder({
+      projectId, branchId: branch.id, token, name: folder.name,
+      parentId: folderIds.get(String(folder.parentId)) ?? folder.parentId,
+    });
+    folderIds.set(String(folder.id), result.id);
+  }
   for (const item of plan) {
     const result = await uploadAsset({
       projectId,
       branchId: branch.id,
       token,
-      target: item.target,
+      target: { ...item.target, parentId: folderIds.get(String(item.target.parentId)) ?? item.target.parentId },
       existing: item.existing,
     });
     const verb = item.existing ? 'ATUALIZADO' : 'CRIADO';
     const resultId = result?.id ?? item.existing?.id ?? '?';
     const resultType = result?.type ?? item.existing?.type ?? 'desconhecido';
-    console.log(`- ${item.target.name}: ${verb} (id=${resultId}, tipo=${resultType}, preload=true)`);
+    console.log(`- ${item.target.folderPath ? `${item.target.folderPath}/` : ''}${item.target.name}: ${verb} (id=${resultId}, tipo=${resultType}, preload=${result?.preload ?? item.existing?.preload ?? true})`);
   }
 
   console.log(`Editor: https://playcanvas.com/editor/project/${projectId}`);
 }
 
-main().catch((err) => {
+if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url)) main().catch((err) => {
   const msg = err instanceof Error ? err.message : String(err);
   console.error(`Falha na publicação: ${msg}`);
   process.exit(1);

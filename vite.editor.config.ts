@@ -6,12 +6,12 @@ import { defineConfig, type Plugin } from 'vite';
  * `var FlightSim = class extends Script` + `export { FlightSim }`, que o Editor ignora
  * (o script não aparecia na lista do componente Script). Reescreve para a forma direta.
  */
-function editorScriptExport(): Plugin {
+export function editorScriptExport(): Plugin {
   return {
     name: 'editor-script-export',
     generateBundle(_options, bundle) {
       for (const chunk of Object.values(bundle)) {
-        if (chunk.type !== 'chunk') continue;
+        if (chunk.type !== 'chunk' || !chunk.isEntry) continue;
         const before = chunk.code;
         let code = before.replace(/^var FlightSim = class extends Script \{/m, 'export class FlightSim extends Script {');
         code = code.replace(/^export \{ FlightSim \};\s*$/m, '');

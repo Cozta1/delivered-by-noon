@@ -1,11 +1,11 @@
 # Como publicar "Delivered by Noon" no Editor online do PlayCanvas
 
-Este guia explica como levar o jogo **Delivered by Noon** (ambientado em **Juiz de Fora — MG**) compilado em arquivo único (`dist-editor/flight-sim.mjs` para scripts ESM e `dist-editor/flight-sim.js` para script clássico) para um projeto no **PlayCanvas Editor** (`playcanvas.com`) usando engine **2.x**.
+Este guia explica como levar o jogo **Delivered by Noon** (ambientado em **Juiz de Fora — MG**) para um projeto no **PlayCanvas Editor** (`playcanvas.com`) usando engine **2.x**. O build oferece os bundles atuais (`dist-editor/flight-sim.mjs` e `dist-editor/flight-sim.js`) e módulos separados por sistema em `dist-editor/modules/`.
 O Hatch inicial (`public/models/carro.glb`), o Coupé Tunado (`public/models/carro-tunado.glb`), o helicóptero leve (`public/models/helicoptero.glb`), o A-29 (`public/models/a29.glb`), a fachada da **UniAcademia** (`public/models/uniacademia.glb`, entrega final), os marcadores 3D de entrega, a iluminação da manhã (`06:00 → 12:00`), o minimapa de Juiz de Fora e o áudio dinâmico funcionam automaticamente no **Launch**.
 
 ## 1. Gerar os arquivos do Editor (localmente)
 
-No diretório do projeto, gere os bundles ESM e clássico:
+No diretório do projeto, gere os bundles ESM, clássico e os módulos separados:
 
 ```bash
 npm run build:editor
@@ -14,6 +14,9 @@ npm run build:editor
 Isso cria:
 - `dist-editor/flight-sim.mjs` (script ESM `flightSim`, com CSS embutido, atributos via JSDoc `@attribute` e `playcanvas` externo);
 - `dist-editor/flight-sim.js` (script clássico `simuladorVoo` via `pc.createScript` + `attributes.add`, compatível com projetos clássicos do Editor).
+- `dist-editor/modules/` (ESM sem minificação nem hashes, preservando a estrutura de `src/`, com `playcanvas` externo).
+
+O comando também executa `scripts/verificar-editor-modulos.mjs`: valida imports e reexports relativos com extensão `.mjs`, arquivos existentes e sintaxe; importa a entrada e cada módulo no Node com o PlayCanvas real e confere a classe `FlightSim`. JSON vira módulo com `export default` (por exemplo, `flight/jf-mundo.mjs` e `flight/fdm/aircraft-a29.mjs`); o CSS inline vira `flight.mjs`. Esse teste não inicia uma cena nem substitui a conferência de Launch no Editor.
 
 ## 2. Criar e configurar o projeto no Editor online
 
@@ -42,6 +45,46 @@ Você pode enviar os scripts e todos os modelos GLB (`mundo-*.glb`, veículos, p
    ```bash
    npm run publicar:editor
    ```
+
+O publicador mantém os dois bundles legados e os modelos. Para os módulos, cria a pasta **Scripts do jogo** e suas subpastas, enviando cada `.mjs` como asset `script`, com `preload: true` na criação. Pastas e scripts são reutilizados por **nome + pasta**, inclusive quando existe outro `flight-sim.mjs` na raiz. Duplicatas na mesma pasta interrompem a publicação para evitar sobrescrever o asset errado. O dry-run lista essas pastas e todos os arquivos, usando apenas consultas GET; rode `build:editor` antes dele.
+
+A atualização REST mantém o preload existente (o endpoint PUT aceita arquivo e branch, mas rejeita o campo `preload`). Se algum módulo separado existente estiver com Preload desligado, o publicador pede para ligá-lo no Editor antes de prosseguir. Ele não altera a cena nem escolhe automaticamente qual versão do script usar.
+
+### Scripts separados e troca da cena
+
+Depois da publicação pelo responsável, os Assets terão esta estrutura (nomes sem hashes):
+
+```text
+Assets/
+├─ flight-sim.js              # clássico atual: simuladorVoo
+├─ flight-sim.mjs             # bundle ESM legado: flightSim
+└─ Scripts do jogo/
+   ├─ editor/flight-sim.mjs   # entrada ESM separada: FlightSim / flightSim
+   ├─ flight.mjs             # CSS inline
+   ├─ _virtual/_rolldown/runtime.mjs
+   └─ flight/
+      ├─ game.mjs
+      ├─ car.mjs
+      ├─ mission.mjs
+      ├─ hud.mjs
+      ├─ jf-mundo.mjs        # dados JSON
+      ├─ fdm/heli.mjs
+      ├─ fdm/aircraft-a29.mjs
+      ├─ ui/menus.mjs
+      └─ ...                # demais sistemas importados pelo jogo
+```
+
+Os módulos utilitários são dependências; somente `editor/flight-sim.mjs` fornece o script de componente `FlightSim`. Não adicione `car.mjs`, `hud.mjs` etc. como componentes separados. A cena continua usando **simuladorVoo** até a troca manual:
+
+1. Feche a aba Launch. Anote os oito atributos atuais da entidade **Jogo → Script** (ou crie um checkpoint).
+2. Nos Assets, selecione o **`flight-sim.mjs` da raiz** e **desligue Preload**. Ele e a entrada separada registram o mesmo nome `flightSim`; carregar ambos torna a escolha dependente da ordem. Deixe os módulos de **Scripts do jogo** com Preload ligado.
+3. Abra **Scripts do jogo/editor/flight-sim.mjs** e use **Parse** se necessário. Confirme o script `FlightSim` / `flightSim` e seus atributos.
+4. Na entidade **Jogo → componente Script**, remova `simuladorVoo` e adicione **FlightSim (`flightSim`) da pasta Scripts do jogo/editor**. Copie os valores anotados. Mantenha somente uma versão ativa no componente.
+5. Abra um novo **Launch** e confira menu, início da partida, controles, modelos, minimapa e som. Alterar assets por upload não faz esta troca de componente automaticamente.
+
+**Voltar ao clássico:** feche Launch, remova `flightSim` de **Jogo → Script**, adicione novamente `simuladorVoo` do `flight-sim.js` da raiz, restaure os atributos e abra Launch. Os módulos podem permanecer nos Assets; eles não iniciam o jogo sem a instância do componente. Para voltar ao bundle ESM antigo, desligue Preload da entrada **Scripts do jogo/editor/flight-sim.mjs**, ligue o do `flight-sim.mjs` da raiz e use o `flightSim` antigo. Antes de publicar atualizações dos módulos separados novamente, restaure Preload da entrada separada e desligue o bundle ESM antigo.
+
+Referências: [imports relativos em scripts ESM](https://developer.playcanvas.com/user-manual/scripting/esm-scripts/), [criação de assets pela API](https://developer.playcanvas.com/user-manual/api/asset-create/) e [criação de pastas no sincronizador oficial](https://github.com/playcanvas/playcanvas-sync/blob/main/src/watch-actions/action-created.js).
 
 ### Alternativa manual (upload pelo navegador)
 
@@ -137,6 +180,6 @@ Ao abrir o projeto no PlayCanvas Editor, os controles aparecem no lado direito d
 
 Sempre que alterar o código-fonte do simulador:
 
-1. Rode `npm run build:editor` localmente para atualizar `dist-editor/flight-sim.mjs` e `dist-editor/flight-sim.js`.
+1. Rode `npm run build:editor` localmente para atualizar `dist-editor/flight-sim.mjs`, `dist-editor/flight-sim.js` e `dist-editor/modules/`, incluindo a verificação ESM.
 2. Publique com `npm run publicar:editor` (ou faça upload manual sobre os assets existentes no painel **Assets**).
 3. No Inspector de `Jogo`, clique em **Parse** no componente Script se tiver mudado atributos e recarregue a aba de **Launch**.

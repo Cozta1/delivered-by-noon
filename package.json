@@ -6,7 +6,7 @@
   "scripts": {
     "dev": "vite",
     "build": "tsc --noEmit && vite build",
-    "build:editor": "vite build --config vite.editor.config.ts && vite build --config vite.editor-classic.config.ts",
+    "build:editor": "vite build --config vite.editor.config.ts && vite build --config vite.editor-classic.config.ts && vite build --config vite.editor-modules.config.ts && node scripts/verificar-editor-modulos.mjs",
     "publicar:editor": "npm run exportar:mundo && npm run build:editor && node scripts/publicar-editor.mjs",
     "publicar:editor:teste": "node scripts/publicar-editor.mjs --dry-run",
     "preview": "vite preview",
