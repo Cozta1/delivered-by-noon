@@ -1,6 +1,7 @@
 ﻿import { calculateNormals } from 'playcanvas';
 import { clamp01, fbm, rng, smoothstep } from './noise';
 import jf from './jf-mundo.json';
+import { buildNodeGraph, type RoadGraph } from './road-graph';
 
 // ---------------------------------------------------------------------------
 // Juiz de Fora (MG), versão leve: dados reais do OpenStreetMap + relevo AWS Terrain Tiles,
@@ -212,7 +213,10 @@ function simplifyNetwork(input: NetLine[]): NetLine[] {
 /** Vias reamostradas com spline (a cada ~8 m): fita, cotas, física, GPS, tráfego e bairros usam estas linhas. */
 const SMOOTH_STEP = 8;
 const SIMPLE = simplifyNetwork(ROAD_CLASSES.flatMap((c, cls) => (jf.vias[c] as number[][]).map((pts) => ({ cls, pts }))));
-const VIAS = Object.fromEntries(ROAD_CLASSES.map((c, cls) => [c, SIMPLE.filter((l) => l.cls === cls).map((l) => smoothLine(l.pts, SMOOTH_STEP))])) as Record<RoadClass, number[][]>;
+/** Grafo viário por nós (road-graph.ts): nós fundidos a < 12 m, arestas >= 15 m, junção contínua nos nós de grau 2; cada aresta é suavizada com spline e termina exatamente no nó. */
+const ROAD_GRAPH = buildNodeGraph(SIMPLE, { width: ASPHALT[0], heightAt: rawHeight, smooth: (p) => smoothLine(p, SMOOTH_STEP) });
+export const roadGraph = (): RoadGraph => ROAD_GRAPH;
+const VIAS = Object.fromEntries(ROAD_CLASSES.map((c, cls) => [c, ROAD_GRAPH.edges.filter((e) => e.cls === cls).map((e) => e.pts)])) as Record<RoadClass, number[][]>;
 const segmentGrid = new Map<number, Segment[]>();
 const segments: Segment[] = [];
 function addSegment(s: Segment) {
@@ -432,8 +436,9 @@ export function terrainData() {
 }
 
 const WINDOW_M = 3.2;
-const TEX_WINDOWS = 16;
-const FACADES = ['#9aa3b5', '#7c86a3', '#c9b79a', '#b97a5f', '#6f9ea3', '#a99ab8', '#d8d2c4', '#5f6b8a'].map(hex);
+const TEX_WINDOWS = 8;
+const TEX_ROWS = 16;
+const FACADES = ['#e3d9c8', '#eae3d5', '#d5c4ac', '#c9a38c', '#d4d6d8', '#b8c3ce', '#e7e4dd', '#ccc3b4'].map(hex);
 
 export type Box = { x0: number; x1: number; z0: number; z1: number; top: number; bottom?: number; curb?: boolean; radius?: number; x?: number; z?: number; ramp?: { x0:number; z0:number; x1:number; z1:number; y0:number; y1:number };
   /** Prisma orientado (prédios girados): x0..z1 é só a caixa envolvente para o grid; a colisão usa este retângulo. */
@@ -474,7 +479,7 @@ const CURB = .12, CURB_RAMP = .24, CURB_CUT = 5, SIDEWALK_RADIUS = 600;
 interface Station { x: number; z: number; s: number; lx: number; lz: number; rx: number; rz: number; hl: number; hr: number; cf: number }
 interface RoadWay { cls: number; half: number; sw: number; st: Station[] }
 interface RoadSegH { x0: number; z0: number; hl0: number; hr0: number; x1: number; z1: number; hl1: number; hr1: number; half: number; way: number; sw: number; cf0: number; cf1: number; i: number }
-let netCache: { ways: RoadWay[]; grid: Map<number, RoadSegH[]>; junctions: Junction[]; discGrid: Map<number, Junction[]>; ringGrid: Map<number, RingSeg[]> } | undefined;
+let netCache: { base: RoadWay[]; ways: RoadWay[]; grid: Map<number, RoadSegH[]>; junctions: Junction[]; discGrid: Map<number, Junction[]>; ringGrid: Map<number, RingSeg[]> } | undefined;
 function liftRibbonOverTerrain(st: Station[], minLift: number) {
   // Verifica 15 amostras baricêntricas por triângulo de cada quad para garantir que a malha do terreno nunca ultrapasse o asfalto
   const checkTri = (
@@ -592,52 +597,17 @@ interface JPt { x: number; z: number; h: number }
 interface RingChain { pts: JPt[]; out: number[]; sw: number[]; nrm: [number, number][]; cf: number }
 interface RingSeg { first: boolean; last: boolean; x0: number; z0: number; h0: number; o0: number; w0: number; x1: number; z1: number; h1: number; o1: number; w1: number; nx: number; nz: number; cf: number }
 /** Cruzamento no estilo QuickRoad: cada rua é cortada num recuo e o miolo é um polígono com filetes de esquina (raio ~4,5 m). */
-interface Junction { x: number; z: number; r: number; hc: number; poly: JPt[]; chains: RingChain[]; /** remendo de reserva (disco por cima das fitas): desenhado PATCH_LIFT acima */ patch?: boolean }
+interface Junction { x: number; z: number; r: number; hc: number; poly: JPt[]; chains: RingChain[]; /** bocas das ruas (índice em `base`): onde ficam as faixas de pedestre */ arms?: { way: number; s: number; dir: 1 | -1; m: number; a: number }[]; /** remendo de reserva (disco por cima das fitas): desenhado PATCH_LIFT acima */ patch?: boolean }
 const PATCH_LIFT = .04;
+/** Faixas de pedestre só no Centro (m do marco do Centro) */
+const ZEBRA_RADIUS = 600;
 const FILLET = 3.2;
-/** Cruzamentos: pontos onde vias de mesma/diferente categoria se encontram (>= 3 braços), com um disco de asfalto único. */
-function findJunctions(ways: RoadWay[], grid: Map<number, RoadSegH[]>) {
-  const cell = (x: number, z: number) => grid.get(hashKey(Math.floor(x / HASH), Math.floor(z / HASH))) ?? [];
-  const dist = (sg: RoadSegH, x: number, z: number) => {
-    const dx = sg.x1 - sg.x0, dz = sg.z1 - sg.z0, len2 = dx * dx + dz * dz;
-    const t = len2 ? Math.max(0, Math.min(1, ((x - sg.x0) * dx + (z - sg.z0) * dz) / len2)) : 0;
-    return Math.hypot(x - sg.x0 - dx * t, z - sg.z0 - dz * t);
-  };
-  const cands: { x: number; z: number }[] = [];
-  ways.forEach((w, i) => {
-    for (const e of [w.st[0], w.st[w.st.length - 1]]) if (cell(e.x, e.z).some((sg) => sg.way !== i && dist(sg, e.x, e.z) <= 3.5)) cands.push({ x: e.x, z: e.z });
-  });
-  for (const [key, list] of grid) {
-    for (let a = 0; a < list.length; a++) for (let b = a + 1; b < list.length; b++) {
-      const p = list[a], q = list[b];
-      if (p.way === q.way) continue;
-      const rx = p.x1 - p.x0, rz = p.z1 - p.z0, sx = q.x1 - q.x0, sz = q.z1 - q.z0, den = rx * sz - rz * sx;
-      if (Math.abs(den) < 1e-6) continue;
-      const t = ((q.x0 - p.x0) * sz - (q.z0 - p.z0) * sx) / den, u = ((q.x0 - p.x0) * rz - (q.z0 - p.z0) * rx) / den;
-      if (t < 0 || t > 1 || u < 0 || u > 1) continue;
-      const x = p.x0 + rx * t, z = p.z0 + rz * t;
-      if (hashKey(Math.floor(x / HASH), Math.floor(z / HASH)) === key) cands.push({ x, z });
-    }
-  }
-  const centers: { x: number; z: number; n: number }[] = [];
-  for (const c of cands) {
-    const m = centers.find((q) => Math.hypot(q.x - c.x, q.z - c.z) < 7);
-    if (m) { m.x = (m.x * m.n + c.x) / (m.n + 1); m.z = (m.z * m.n + c.z) / (m.n + 1); m.n++; } else centers.push({ x: c.x, z: c.z, n: 1 });
-  }
-  const out: { x: number; z: number; r: number }[] = [];
-  for (const c of centers) {
-    const segs = cell(c.x, c.z).filter((sg) => dist(sg, c.x, c.z) <= 3);
-    const byWay = new Map<number, RoadSegH[]>();
-    for (const sg of segs) byWay.set(sg.way, [...(byWay.get(sg.way) ?? []), sg]);
-    let arms = 0, half = 0;
-    for (const [wi, list] of byWay) {
-      const st = ways[wi].st, ends = [st[0], st[st.length - 1]].filter((e) => Math.hypot(e.x - c.x, e.z - c.z) <= 4).length;
-      arms += ends || 2;
-      for (const sg of list) half = Math.max(half, sg.half);
-    }
-    if (arms >= 3) out.push({ x: c.x, z: c.z, r: half * 1.05 + .3 });
-  }
-  return out;
+/** Cruzamentos = nós de grau >= 3 do grafo viário (sem heurística geométrica de interseção). */
+function findJunctions(ways: RoadWay[]) {
+  const deg = new Array<number>(ROAD_GRAPH.nodes.length).fill(0);
+  for (const e of ROAD_GRAPH.edges) { deg[e.a]++; deg[e.b]++; }
+  void ways;
+  return ROAD_GRAPH.nodes.filter((n) => deg[n.id] >= 3).map((n) => ({ x: n.x, z: n.z, r: stripWidth(0) / 2 * 1.05 + .3 }));
 }
 function lerpStation(a: Station, b: Station, t: number): Station {
   const l = (p: number, q: number) => p + (q - p) * t;
@@ -673,24 +643,21 @@ function buildGrid(ways: RoadWay[]) {
 /** Braço de um cruzamento: um sentido de uma via saindo do centro. `tp/tm`: recuo da esquina no lado + / -; `fp/fm`: tangente do filete. */
 interface Arm { way: number; s: number; dir: 1 | -1; ang: number; a: number; sw: number; half: number; tp: number; tm: number; fp: number; fm: number; m: number }
 function armsAt(ways: RoadWay[], grid: Map<number, RoadSegH[]>, j: { x: number; z: number }) {
-  const arms: Arm[] = [], stubs = new Set<number>(), best = new Map<number, { d: number; sg: RoadSegH; t: number }>();
+  // grafo por nós: cada via (aresta) termina exatamente no nó, então os braços são as pontas de via a < 1,5 m do centro
+  const arms: Arm[] = [], stubs = new Set<number>(), seenWay = new Set<number>();
   for (const sg of grid.get(hashKey(Math.floor(j.x / HASH), Math.floor(j.z / HASH))) ?? []) {
-    const dx = sg.x1 - sg.x0, dz = sg.z1 - sg.z0, len2 = dx * dx + dz * dz, t = len2 ? Math.max(0, Math.min(1, ((j.x - sg.x0) * dx + (j.z - sg.z0) * dz) / len2)) : 0;
-    const d = Math.hypot(j.x - sg.x0 - dx * t, j.z - sg.z0 - dz * t), cur = best.get(sg.way);
-    if (d <= 4 && (!cur || d < cur.d)) best.set(sg.way, { d, sg, t });
-  }
-  for (const [wayIdx, { sg, t }] of best) {
-    const w = ways[wayIdx], st = w.st, s0 = st[0].s, last = st[st.length - 1].s, sJ = st[sg.i].s + (st[sg.i + 1].s - st[sg.i].s) * t;
-    let any = false;
-    for (const dir of [-1, 1] as const) {
-      const room = dir === 1 ? last - sJ : sJ - s0;
+    if (seenWay.has(sg.way)) continue;
+    seenWay.add(sg.way);
+    const w = ways[sg.way], st = w.st, first = st[0], last = st[st.length - 1];
+    for (const dir of [1, -1] as const) {
+      const e = dir === 1 ? first : last;
+      if (Math.hypot(e.x - j.x, e.z - j.z) > 1.5) continue;
+      const room = dir === 1 ? last.s - first.s : last.s - first.s;
       if (room < 4) continue;
-      const p = stationAt(st, sJ + dir * Math.min(12, room)), ax = p.x - j.x, az = p.z - j.z;
+      const p = stationAt(st, e.s + dir * Math.min(12, room)), ax = p.x - j.x, az = p.z - j.z;
       if (Math.hypot(ax, az) < 1) continue;
-      any = true;
-      arms.push({ way: wayIdx, s: sJ, dir, ang: Math.atan2(az, ax), a: w.sw ? w.half - w.sw : w.half, sw: w.sw, half: w.half, tp: .5, tm: .5, fp: 0, fm: 0, m: 0 });
+      arms.push({ way: sg.way, s: e.s, dir, ang: Math.atan2(az, ax), a: w.sw ? w.half - w.sw : w.half, sw: w.sw, half: w.half, tp: .5, tm: .5, fp: 0, fm: 0, m: 0 });
     }
-    if (!any) stubs.add(wayIdx); // coto de OSM (< 4 m de cada lado): some inteiro dentro do miolo
   }
   return { arms: arms.sort((p, q) => p.ang - q.ang), stubs };
 }
@@ -718,8 +685,8 @@ function buildJunction(ways: RoadWay[], grid: Map<number, RoadSegH[]>, j: { x: n
   });
   for (const A of arms) {
     const st = ways[A.way].st, room = A.dir === 1 ? st[st.length - 1].s - A.s : A.s - st[0].s;
-    A.m = Math.min(Math.max(A.tp, A.tm) + FILLET, room - .5);
-    A.m = Math.max(A.m, Math.min(A.a + 1, room - .5));
+    A.m = Math.min(Math.max(A.tp, A.tm) + FILLET, room * .48);
+    A.m = Math.max(A.m, Math.min(A.a + 1, room * .48));
     A.tp = Math.min(A.tp, A.m); A.tm = Math.min(A.tm, A.m);
   }
   const mouth = arms.map((A) => ({ m: armEdge(ways, A, A.m, false), p: armEdge(ways, A, A.m, true) }));
@@ -738,7 +705,7 @@ function buildJunction(ways: RoadWay[], grid: Map<number, RoadSegH[]>, j: { x: n
     }
     poly.push(...inner);
     // calçada onde as duas vias têm (largura sw); onde não há, a cadeia só serve de chanfro físico até o terreno (sw = 0)
-    const both = A.sw > 0 && B.sw > 0, swA = both ? A.sw : 0, swB = both ? B.sw : 0;
+    const both = A.sw > 0 && B.sw > 0 && gaps[k] > .6, swA = both ? A.sw : 0, swB = both ? B.sw : 0;
     const pts: EdgePt[] = [t0, ...inner, t1];
     const lens = [0]; for (let i = 1; i < pts.length; i++) lens.push(lens[i - 1] + Math.hypot(pts[i].x - pts[i - 1].x, pts[i].z - pts[i - 1].z));
     const total = lens[lens.length - 1] || 1;
@@ -774,7 +741,7 @@ function buildJunction(ways: RoadWay[], grid: Map<number, RoadSegH[]>, j: { x: n
   }
   const hs = stripsHeight(grid, j.x, j.z, true, true);
   const hc = hs > -Infinity ? hs : poly.reduce((a, p) => a + p.h, 0) / poly.length;
-  const junction: Junction = { x: j.x, z: j.z, r: Math.max(...poly.map((p) => Math.hypot(p.x - j.x, p.z - j.z))) + .5, hc: Math.max(hc, terrainHeight(j.x, j.z) + .24), poly, chains };
+  const junction: Junction = { x: j.x, z: j.z, r: Math.max(...poly.map((p) => Math.hypot(p.x - j.x, p.z - j.z))) + .5, hc: Math.max(hc, terrainHeight(j.x, j.z) + .24), poly, chains, arms: arms.map((A) => ({ way: A.way, s: A.s, dir: A.dir, m: A.m, a: A.a })) };
   // validação: nenhum degrau > 15 cm cruzando o contorno do miolo (para fora ele é calçada, chanfro ou a rua cortada)
   {
     const segs = ringSegsOf(junction), pts: [number, number, number, number][] = [];
@@ -797,7 +764,7 @@ function buildJunction(ways: RoadWay[], grid: Map<number, RoadSegH[]>, j: { x: n
       const ex = x + ux * .25, ez = z + uz * .25;
       if (fanAt(junction, ex, ez) !== undefined) return null;
       const hOut = Math.max(terrainHeight(ex, ez), stripsHeight(grid, ex, ez, false), ringHeightFrom(segs, ex, ez));
-      if (Math.abs(hIn - hOut) > .15) return null;
+      if (Math.abs(hIn - hOut) > .18) return null; // a borda do miolo pode ter o degrau do meio-fio (12 cm) mais a inclinação
     }
   }
   const stubCuts = [...stubs].map((way) => ({ way, lo: -Infinity, hi: Infinity }));
@@ -837,11 +804,12 @@ function roadNet() {
   // cruzamentos: braços, recuos, polígono do miolo e a calçada das esquinas; as fitas são cortadas na boca de cada braço
   let tempGrid = buildGrid(base);
   const junctions: Junction[] = [], fallbacks: { x: number; z: number; r: number }[] = [], cutsByWay = new Map<number, { lo: number; hi: number }[]>();
-  const found = findJunctions(base, tempGrid), built = found.map((c) => buildJunction(base, tempGrid, c));
+  const found = findJunctions(base), built = found.map((c) => buildJunction(base, tempGrid, c));
   found.forEach((c, i) => {
     const b = built[i];
     // dois cruzamentos que se sobrepõem (< raio + raio) não têm polígono limpo: ficam com o disco de reserva
-    const clash = b && found.some((o, k) => k !== i && Math.hypot(o.x - c.x, o.z - c.z) < b.junction.r + o.r);
+    const polyIn = (pl: JPt[], x: number, z: number) => { let c2 = false; for (let q = 0, k2 = pl.length - 1; q < pl.length; k2 = q++) { const u = pl[q], v = pl[k2]; if ((u.z > z) !== (v.z > z) && x < (v.x - u.x) * (z - u.z) / (v.z - u.z) + u.x) c2 = !c2; } return c2; };
+    const clash = b && built.some((o, k) => k !== i && o && Math.hypot(o.junction.x - c.x, o.junction.z - c.z) < b.junction.r + o.junction.r && (o.junction.poly.some((p) => polyIn(b.junction.poly, p.x, p.z)) || b.junction.poly.some((p) => polyIn(o.junction.poly, p.x, p.z))));
     if (!b || clash) { fallbacks.push(c); return; }
     junctions.push(b.junction);
     for (const cu of b.cuts) { let l = cutsByWay.get(cu.way); if (!l) cutsByWay.set(cu.way, l = []); l.push({ lo: cu.lo, hi: cu.hi }); }
@@ -881,7 +849,7 @@ function roadNet() {
       put(ringGrid, seg, Math.min(seg.x0, seg.x1) - reach, Math.max(seg.x0, seg.x1) + reach, Math.min(seg.z0, seg.z1) - reach, Math.max(seg.z0, seg.z1) + reach);
     }
   }
-  return netCache = { ways, grid, junctions, discGrid, ringGrid };
+  return netCache = { base, ways, grid, junctions, discGrid, ringGrid };
 }
 /** Altura do leque do miolo de `d` em (x, z); undefined fora do polígono. */
 function fanAt(d: Junction, x: number, z: number) {
@@ -1064,7 +1032,7 @@ function buildCity() {
   const r = rng(2024);
   const pos: number[] = [], col: number[] = [], uv: number[] = [], idx: number[] = [];
   const hp: number[] = [], hc: number[] = [], hi: number[] = [];
-  const ROOF_UV = 0.5 / TEX_WINDOWS;
+  const ROOF_UV = 0.5;
   const hash = new Map<number, Box[]>();
   const put = (b: Box) => {
     boxes.push(b);
@@ -1079,27 +1047,86 @@ function buildCity() {
     return false;
   };
   const corners = (x0: number, x1: number, z0: number, z1: number) => [terrainHeight(x0, z0), terrainHeight(x1, z0), terrainHeight(x0, z1), terrainHeight(x1, z1)];
-  const addBuilding = (x: number, z: number, w: number, d: number, h: number, c: number[]) => {
+  const addRoofBox = (bx0: number, bx1: number, bz0: number, bz1: number, by0: number, by1: number, sideCol: number[], topCol: number[]) => {
+    const base = pos.length / 3;
+    const ring: [number, number][] = [[bx0, bz1], [bx1, bz1], [bx1, bz0], [bx0, bz0]];
+    for (const [px, pz] of ring) { pos.push(px, by0, pz); uv.push(ROOF_UV, ROOF_UV); col.push(sideCol[0], sideCol[1], sideCol[2], 255); }
+    for (const [px, pz] of ring) { pos.push(px, by1, pz); uv.push(ROOF_UV, ROOF_UV); col.push(topCol[0], topCol[1], topCol[2], 255); }
+    for (let i = 0; i < 4; i++) {
+      const j = (i + 1) % 4;
+      idx.push(base + i, base + j, base + 4 + j, base + i, base + 4 + j, base + 4 + i);
+    }
+    idx.push(base + 4, base + 5, base + 6, base + 4, base + 6, base + 7);
+  };
+  const addBuilding = (x: number, z: number, w: number, d: number, h: number, c: number[], isHelipad = false) => {
     const x0 = x - w / 2, x1 = x + w / 2, z0 = z - d / 2, z1 = z + d / 2;
     const heights = corners(x0, x1, z0, z1);
-    const y0 = Math.min(...heights) - 1, y1 = Math.max(...heights) + h;
-    const shade = 0.85 + r() * 0.3;
-    const [cr, cg, cb] = c.map((v) => Math.min(255, v * shade));
-    const roof = [cr * 0.75, cg * 0.75, cb * 0.75];
-    const vScale = (y1 - y0) / WINDOW_M / TEX_WINDOWS;
+    const yGround = Math.max(...heights);
+    const y0 = Math.min(...heights) - 1.2;
+    const nFloors = Math.max(3, Math.round(h / WINDOW_M));
+    const y1 = isHelipad ? yGround + h : yGround + nFloors * WINDOW_M;
+    const shade = 0.90 + r() * 0.14;
+    const [cr, cg, cb] = c.map((v) => Math.min(255, Math.round(v * shade)));
+    const roof = [Math.min(255, Math.round(cr * 0.76 + 18)), Math.min(255, Math.round(cg * 0.76 + 18)), Math.min(255, Math.round(cb * 0.76 + 20))];
     const u0 = Math.floor(r() * TEX_WINDOWS) / TEX_WINDOWS;
+    const br = rng(Math.imul(Math.round(x * 10), 73856093) ^ Math.imul(Math.round(z * 10), 19349663) ^ 0x51a7);
     const faces: [number, number, number, number][] = [[x0, z1, x1, z1], [x1, z1, x1, z0], [x1, z0, x0, z0], [x0, z0, x0, z1]];
-    for (const [ax, az, bx, bz] of faces) {
-      const base = pos.length / 3, len = Math.hypot(bx - ax, bz - az), uMax = u0 + len / WINDOW_M / TEX_WINDOWS;
-      pos.push(ax, y0, az, bx, y0, bz, bx, y1, bz, ax, y1, az);
-      uv.push(u0, 0, uMax, 0, uMax, vScale, u0, vScale);
-      for (let k = 0; k < 4; k++) col.push(cr, cg, cb, 255);
-      idx.push(base, base + 1, base + 2, base, base + 2, base + 3);
+    const pushBand = (ya: number, yb: number, va: number, vb: number, uOff: number) => {
+      for (const [ax, az, bx, bz] of faces) {
+        const base = pos.length / 3, len = Math.hypot(bx - ax, bz - az);
+        const cols = Math.max(2, Math.round(len / WINDOW_M));
+        const uMax = uOff + cols / TEX_WINDOWS;
+        pos.push(ax, ya, az, bx, ya, bz, bx, yb, bz, ax, yb, az);
+        uv.push(uOff, va, uMax, va, uMax, vb, uOff, vb);
+        for (let k = 0; k < 4; k++) col.push(cr, cg, cb, 255);
+        idx.push(base, base + 1, base + 2, base, base + 2, base + 3);
+      }
+    };
+    // Térreo + primeiros 14 andares superiores numa única faixa (v=0 no térreo, v=15/16 no 15º piso)
+    const maxSingle = TEX_ROWS - 1; // 15 pisos (48 m) sem corte vertical extra
+    const firstFloors = Math.min(maxSingle, nFloors);
+    const ySplit = nFloors <= maxSingle ? y1 : yGround + maxSingle * WINDOW_M;
+    const vBot = Math.max(-0.012, ((y0 - yGround) / WINDOW_M) / TEX_ROWS);
+    pushBand(y0, ySplit, vBot, firstFloors / TEX_ROWS, u0);
+    // Andares extras somente nas torres mais altas (> 48 m): usa as 14 fileiras superiores (v = 1/16..15/16)
+    let rem = nFloors - maxSingle;
+    let yCur = ySplit;
+    let band = 1;
+    while (rem > 0) {
+      const chunk = Math.min(TEX_ROWS - 2, rem);
+      const yNext = rem <= TEX_ROWS - 2 ? y1 : yCur + chunk * WINDOW_M;
+      pushBand(yCur, yNext, 1 / TEX_ROWS, (1 + chunk) / TEX_ROWS, u0 + (band * 3) / TEX_WINDOWS);
+      yCur = yNext;
+      rem -= chunk;
+      band++;
     }
+    // Laje de topo (sem janelas: amostra a faixa de concreto em v=0,5)
     const base = pos.length / 3;
     pos.push(x0, y1, z1, x1, y1, z1, x1, y1, z0, x0, y1, z0);
     for (let k = 0; k < 4; k++) { uv.push(ROOF_UV, ROOF_UV); col.push(roof[0], roof[1], roof[2], 255); }
     idx.push(base, base + 1, base + 2, base, base + 2, base + 3);
+
+    // Casa de máquinas e caixa d'água deslocadas para um canto (mantém centro da laje livre e preserva o heliponto)
+    if (!isHelipad) {
+      const dcB = dcCentro(x, z);
+      const sx = br() < 0.5 ? -1 : 1, sz = br() < 0.5 ? -1 : 1;
+      const wallCol = [Math.min(255, Math.round(cr * 0.84 + 14)), Math.min(255, Math.round(cg * 0.84 + 14)), Math.min(255, Math.round(cb * 0.84 + 14))];
+      const capCol = [Math.min(255, Math.round(cr * 0.92 + 12)), Math.min(255, Math.round(cg * 0.92 + 12)), Math.min(255, Math.round(cb * 0.92 + 12))];
+      if (nFloors >= 5 && (dcB < 680 || br() < 0.20)) {
+        const mw = Math.min(w * 0.34, 4.0 + br() * 2.2);
+        const md = Math.min(d * 0.34, 3.8 + br() * 2.0);
+        const mh = 2.3 + br() * 1.2;
+        const mcx = x + sx * (w / 2 - mw / 2 - 1.2);
+        const mcz = z + sz * (d / 2 - md / 2 - 1.2);
+        addRoofBox(mcx - mw / 2, mcx + mw / 2, mcz - md / 2, mcz + md / 2, y1, y1 + mh, wallCol, capCol);
+        if (nFloors >= 9 && dcB < 580) {
+          const tw = mw * 0.56, td = md * 0.56, th = 1.7 + br() * 0.9;
+          const tankSide = [168, 176, 184], tankTop = [196, 204, 212];
+          addRoofBox(mcx - tw / 2, mcx + tw / 2, mcz - td / 2, mcz + td / 2, y1 + mh, y1 + mh + th, tankSide, tankTop);
+        }
+      }
+    }
+
     const box: Box = { x0, x1, z0, z1, top: y1, bottom: y0 };
     put(box);
     return box;
@@ -1122,7 +1149,7 @@ function buildCity() {
   };
 
   // Torre do heliponto: prédio alto do Centro, com rampa externa até a laje
-  const tower = addBuilding(TOWER_SPOT.x, TOWER_SPOT.z, 26, 26, 46, hex('#9aa3b5'));
+  const tower = addBuilding(TOWER_SPOT.x, TOWER_SPOT.z, 26, 26, 46, hex('#cfd5dc'), true);
   const helipad = { x: (tower.x0 + tower.x1) / 2, z: (tower.z0 + tower.z1) / 2, y: tower.top };
 
   const RESERVED = [
@@ -1177,30 +1204,115 @@ function buildCity() {
 }
 
 export function windowImages() {
-  const px = 16;
-  const size = px * TEX_WINDOWS;
+  const colPx = 64;
+  const rowPx = 32;
+  const size = colPx * TEX_WINDOWS; // 512 x 512 (8 colunas x 16 fileiras de pisos)
   const r = rng(77);
   const diffuse = image(size, size);
   const emissive = image(size, size);
   const gd = painter(diffuse);
   const ge = painter(emissive);
-  gd.fillStyle = '#ffffff'; // fachada (tingida pela cor do vértice)
+  // Base de reboco neutro (91%): deixa caixilhos claros (#ffffff) e faixas de laje (#f8f6f1) destacarem
+  gd.fillStyle = '#e7e4de';
   gd.fillRect(0, 0, size, size);
   ge.fillStyle = '#000000';
   ge.fillRect(0, 0, size, size);
-  for (let y = 0; y < TEX_WINDOWS; y++) {
-    for (let x = 0; x < TEX_WINDOWS; x++) {
-      // Célula (0,0) fica sem janela: usada pelos telhados
-      if (x === 0 && y === 0) continue;
-      const wx = x * px + 4;
-      const wy = y * px + 3;
-      gd.fillStyle = '#2b3550';
-      gd.fillRect(wx, wy, 8, 10);
-      const v = r();
-      if (v < 0.42) {
-        ge.fillStyle = v < 0.08 ? '#bfe3ff' : v < 0.3 ? '#ffd27a' : '#ff9f4a';
-        ge.fillRect(wx, wy, 8, 10);
+
+  // Faixas horizontais de laje entre todos os andares (simétricas: funcionam em PlayCanvas e glTF).
+  // A faixa em y=256 (v=0,5) tem 14 px livres de vidro ao redor e serve de concreto limpo para lajes e caixas d'água.
+  for (let row = 1; row < TEX_ROWS; row++) {
+    const sy = row * rowPx;
+    gd.fillStyle = '#b9b5ad';
+    gd.fillRect(0, sy - 4, size, 8);
+    gd.fillStyle = '#f8f6f1';
+    gd.fillRect(0, sy - 3, size, 6);
+  }
+
+  // Térreo comercial com vitrines, portas de entrada, rodapé de pedra e marquise discreta.
+  // Row 0 (glTF, v=0 no topo do PNG) e Row 15 espelhada (PlayCanvas flipY=true).
+  const awningPalette = ['#9e7660', '#637a8c', '#8e8068', '#a6876d'];
+  const drawGroundRow = (flipCanvas: boolean) => {
+    const gy = (fromBot: number, h: number) => (flipCanvas ? size - fromBot - h : fromBot);
+    gd.fillStyle = '#8b8882';
+    gd.fillRect(0, gy(0, 5), size, 5);
+    gd.fillStyle = '#6f6c67';
+    gd.fillRect(0, gy(5, 1), size, 1);
+    gd.fillStyle = '#b4ada0';
+    gd.fillRect(0, gy(25, 3), size, 3);
+    for (let col = 0; col < TEX_WINDOWS; col++) {
+      const bx = col * colPx;
+      const isEntrance = col === 1 || col === 5;
+      gd.fillStyle = '#f8f6f1';
+      gd.fillRect(bx + 4, gy(6, 19), 56, 19);
+      if (isEntrance) {
+        gd.fillStyle = '#5a4a3f';
+        gd.fillRect(bx + 12, gy(6, 17), 40, 17);
+        gd.fillStyle = '#3b536b';
+        gd.fillRect(bx + 16, gy(9, 11), 14, 11);
+        gd.fillRect(bx + 34, gy(9, 11), 14, 11);
+        gd.fillStyle = '#d8c59e';
+        gd.fillRect(bx + 16, gy(21, 2), 32, 2);
+      } else {
+        gd.fillStyle = '#2d4760';
+        gd.fillRect(bx + 7, gy(7, 17), 50, 17);
+        gd.fillStyle = '#6b94b6';
+        gd.fillRect(bx + 10, gy(8, 15), 11, 15);
+        if (col % 2 === 0) {
+          gd.fillStyle = '#b89f79';
+          gd.fillRect(bx + 26, gy(8, 11), 27, 11);
+        }
+        gd.fillStyle = '#f4f1ea';
+        gd.fillRect(bx + 31, gy(7, 17), 2, 17);
+        gd.fillStyle = awningPalette[col % awningPalette.length];
+        gd.fillRect(bx + 5, gy(23, 3), 54, 3);
       }
+    }
+  };
+  drawGroundRow(false);
+  drawGroundRow(true);
+
+  // Andares superiores (Rows 1..14): caixilho claro, vidro azulado com reflexo de céu, cortinas e variação aceso/apagado
+  const glassCool = ['#3f6180', '#375673', '#4b7091', '#324e68'];
+  for (let row = 1; row < TEX_ROWS - 1; row++) {
+    for (let col = 0; col < TEX_WINDOWS; col++) {
+      const wx = col * colPx + 11;
+      const wy = row * rowPx + 7;
+      const ww = 42;
+      const wh = 18;
+      const roll = r();
+      const glassPick = Math.floor(r() * glassCool.length);
+      const curtainSide = r() < 0.5;
+
+      // Caixilho claro (destaca sobre o reboco 91%)
+      gd.fillStyle = '#ffffff';
+      gd.fillRect(wx - 3, wy - 2, ww + 6, wh + 4);
+
+      // Vidro azulado com reflexo sutil do céu
+      gd.fillStyle = glassCool[glassPick];
+      gd.fillRect(wx, wy, ww, wh);
+      gd.fillStyle = '#7da8cb';
+      gd.fillRect(wx + 3, wy + 1, 11, wh - 2);
+
+      // Variação de cortina clara, reflexo de céu ou interior suavemente iluminado (harmonioso de dia)
+      if (roll < 0.13) {
+        gd.fillStyle = roll < 0.06 ? '#cfc0a2' : '#c0ae8e';
+        gd.fillRect(wx + 2, wy + 1, ww - 4, wh - 2);
+        gd.fillStyle = '#89acc9';
+        gd.fillRect(wx + 4, wy + 2, 9, wh - 4);
+        ge.fillStyle = roll < 0.07 ? '#ffd68a' : '#efb866';
+        ge.fillRect(wx + 2, wy + 1, ww - 4, wh - 2);
+      } else if (roll < 0.48) {
+        gd.fillStyle = '#ddd6c7';
+        gd.fillRect(curtainSide ? wx + 1 : wx + ww - 11, wy + 1, 10, wh - 2);
+      } else if (roll < 0.62) {
+        gd.fillStyle = '#6c95b8';
+        gd.fillRect(wx + 2, wy + 1, ww - 4, wh - 2);
+      }
+
+      // Montante vertical e travessa horizontal centrais do caixilho
+      gd.fillStyle = '#f8f6f1';
+      gd.fillRect(wx + 20, wy, 2, wh);
+      gd.fillRect(wx, wy + 8, ww, 2);
     }
   }
   return { diffuse, emissive };
@@ -1643,6 +1755,22 @@ export function cityDetails(city = cityData()) {
       const good: number[] = [];
       for (let t = 0; t < ri.length; t += 3) { const ia = ri[t], ib = ri[t + 1], ic = ri[t + 2], area = (rp[ib * 3 + 2] - rp[ia * 3 + 2]) * (rp[ic * 3] - rp[ia * 3]) - (rp[ib * 3] - rp[ia * 3]) * (rp[ic * 3 + 2] - rp[ia * 3 + 2]); if (area > 1e-6) good.push(ia, ib, ic); }
       shape('roads', rp, good, [255, 255, 255], ru);
+    }
+  }
+  // Faixa de pedestre zebrada na boca de cada rua dos cruzamentos do Centro (quadros brancos na mesma malha 'roads': 1 coluna branca da textura)
+  for (const j of net.junctions) {
+    if (!j.arms || j.patch || dcCentro(j.x, j.z) > ZEBRA_RADIUS) continue;
+    for (const A of j.arms) {
+      const w = net.base[A.way], d0 = A.m + 1, d1 = A.m + 3.6, room = A.dir === 1 ? w.st[w.st.length - 1].s - A.s : A.s - w.st[0].s;
+      if (d1 > room - .5) continue;
+      const p0 = stationAt(w.st, A.s + A.dir * d0), p1 = stationAt(w.st, A.s + A.dir * d1);
+      const at = (p: Station, f: number): [number, number, number] => [p.x + (p.lx - p.x) * f, 0.5 * (p.hl + p.hr) + 0.5 * (p.hl - p.hr) * f - (w.sw ? CURB * p.cf : 0) + .035, p.z + (p.lz - p.z) * f];
+      for (let o = -A.a + .5; o + .5 <= A.a - .3; o += 1) {
+        const f0 = o / w.half, f1 = (o + .5) / w.half;
+        const c = [at(p0, f0), at(p0, f1), at(p1, f1), at(p1, f0)], flat = c.flatMap(([x, y, z]) => [x, y, z]);
+        const up = (c[1][2] - c[0][2]) * (c[2][0] - c[0][0]) - (c[1][0] - c[0][0]) * (c[2][2] - c[0][2]);
+        shape('roads', flat, up > 0 ? [0, 1, 2, 0, 2, 3] : [0, 2, 1, 0, 3, 2], [255, 255, 255], [.195, .5, .195, .5, .195, .5, .195, .5]);
+      }
     }
   }
   for (const piece of jf.rio as number[][]) {
