@@ -78,7 +78,7 @@ it('does not mistake entering a building sideways for a heli landing',()=>{
 });
 
 it('flies the full A29 controller from a runway spawn without disabling the model',()=>{
-  const state=createFlightState(),pressed=new Set([KEY_W]);state.controlMode='keyboard';
+  const state=createFlightState(),pressed=new Set([KEY_SHIFT]);state.controlMode='keyboard';
   const app={keyboard:{isPressed:(key:number)=>pressed.has(key),wasPressed:()=>false}} as unknown as FlightContext['app'];
   const root=new Entity('plane',app);
   const ctx={app,state,world:createWorldPhysics([]),plane:{root,prop:new Entity('prop',app),hitbox:[[-5,0,0],[5,0,0],[0,-1.65,0]]}} as unknown as FlightContext;
@@ -138,7 +138,7 @@ it('heli ignores mouse mode/aim even with pointer lock and keeps full keyboard c
 
 it('taxies through the hangar opening below the roof',()=>{
   const state=createFlightState();state.controlMode='keyboard';
-  const app={keyboard:{isPressed:(key:number)=>key===KEY_W,wasPressed:()=>false}} as unknown as FlightContext['app'];
+  const app={keyboard:{isPressed:(key:number)=>key===KEY_SHIFT,wasPressed:()=>false}} as unknown as FlightContext['app'];
   const ctx={app,state,world:createWorldPhysics(),plane:{root:new Entity('plane',app),prop:new Entity('prop',app),hitbox:[[0,-1.65,0],[2,0,0],[-2,0,0]]}} as unknown as FlightContext;
   const module=createFlightController(ctx,{id:'hangar',kind:'a29',x:(HANGAR.x0+HANGAR.x1)/2,y:AIRPORT.y,z:HANGAR.z1-7,heading:0});
   for(let i=0;i<120;i++){module.update(1/60);expect(state.crashed).toBe(false);}

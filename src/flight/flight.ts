@@ -147,9 +147,7 @@ function createA29Controller({ app, world, plane, state }: FlightContext, spawn?
       const yawInput = Number(!!keyboard?.isPressed(KEY_E)) - Number(!!keyboard?.isPressed(KEY_Q));
       const canvas = app.graphicsDevice?.canvas;
       const pointerLocked = !!canvas && typeof document !== 'undefined' && document.pointerLockElement === canvas;
-      const throttleInput = ground.grounded
-        ? Number(!!keyboard?.isPressed(KEY_W)) - Number(!!keyboard?.isPressed(KEY_S))
-        : Number(!!keyboard?.isPressed(KEY_SHIFT)) - Number(!!keyboard?.isPressed(KEY_CONTROL));
+      const throttleInput = Number(!!keyboard?.isPressed(KEY_SHIFT)) - Number(!!keyboard?.isPressed(KEY_CONTROL));
       input.throttle = Math.max(0, Math.min(1, input.throttle + throttleInput * 0.5 * duration));
       accumulator += duration;
       while (accumulator >= FIXED_STEP) {
@@ -164,7 +162,7 @@ function createA29Controller({ app, world, plane, state }: FlightContext, spawn?
           input.roll = rollInput;
           input.yaw = yawInput;
         }
-        const onWheels = ground.step(fdm, input, !!keyboard?.isPressed(KEY_S));
+        const onWheels = ground.step(fdm, input, !!keyboard?.isPressed(KEY_CONTROL) && input.throttle === 0);
         if (!onWheels) {
           if (ground.takeoffAssist > 0) input.pitch = .05;
           fdm.step(input);

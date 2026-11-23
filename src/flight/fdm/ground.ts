@@ -31,7 +31,7 @@ export class AircraftGround {
     fdm.position.set(x,y+this.clearance,z);fdm.rotation.setFromEulerAngles(0,-heading,0);
     fdm.velocity.set(speed,0,0);fdm.worldVelocity.set(Math.sin(h)*speed,0,-Math.cos(h)*speed);
     fdm.controls.throttle=input.throttle;fdm.stalled=false;
-    if(speed>=38&&this.runway(x,z)) {
+    if(!brake&&input.throttle>0&&speed>=38&&this.runway(x,z)) {
       fdm.reset(x,fdm.position.y+.08,z,heading,speed,input.throttle);
       fdm.rotation.setFromEulerAngles(8,-heading,0);
       fdm.velocity.set(speed,0,0);this.grounded=false;this.takeoffAssist=1.5;

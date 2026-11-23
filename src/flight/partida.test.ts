@@ -356,7 +356,7 @@ it('completes Delivered by Noon on the real Juiz de Fora terrain at 120Hz',async
     state.controlMode='mouse';const h=AIRPORT.heading*Math.PI/180;
     Object.assign(state,{aimX:Math.sin(h),aimY:.25,aimZ:-Math.cos(h)});
     let takeoff=0;
-    while(state.heightAboveGround<50&&takeoff<30){tick(state.heightAboveGround<3?[KEY_W]:[]);takeoff+=dt;}
+    while(state.heightAboveGround<50&&takeoff<30){tick(state.heightAboveGround<3?[KEY_SHIFT]:[]);takeoff+=dt;}
     expect(state.heightAboveGround,'Decolagem real na Serrinha').toBeGreaterThanOrEqual(50);
     log.push(`Decolagem Serrinha: ${takeoff.toFixed(2)}s; velocidade ${state.speed.toFixed(2)}m/s.`);
     state.controlMode='keyboard';

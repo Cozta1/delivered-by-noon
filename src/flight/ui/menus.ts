@@ -81,7 +81,7 @@ const STAGE_UNLOCK_COPY: Record<Stage, { title: string; subtitle: string; accent
     subtitle: 'Reta final da GoPostal! Sobrevoe os alvos e aperte Espaço para soltar as caixas!',
     accent: 'a29',
     badge: 'ETAPA 4 · AVIÃO A-29',
-    perk: 'Lançamento aéreo (Espaço) · Fumaça (F)',
+    perk: 'Potência na pista e no ar (Shift/Ctrl) · Carga (Espaço) · Fumaça (F)',
   },
 };
 
@@ -95,8 +95,9 @@ const STAGE_LABEL: Record<Stage, string> = {
 const CONTROLS_LIST: ReadonlyArray<[readonly string[], string]> = [
   [['E'], 'Entrar ou sair do veículo próximo (Hatch, Esportivo, helicóptero ou A-29)'],
   [['W', 'A', 'S', 'D'], 'Andar (a pé), dirigir (carros) ou pilotar (helicóptero e A-29)'],
-  [['Shift'], 'Nitro no Esportivo · acelerador / coletivo (+) em aeronaves'],
-  [['Ctrl'], 'Reduzir acelerador / coletivo (−) em aeronaves'],
+  [['Shift'], 'Nitro no Esportivo · sobe no heli · aumenta potência do A-29 (pista e voo)'],
+  [['Ctrl'], 'Desce no heli · reduz potência do A-29 (pista e voo); freia na pista com potência zerada'],
+  [['W', 'S'], 'A-29: baixa / levanta o nariz; não controla o acelerador'],
   [['Espaço'], 'Freio de mão (carros), pular (a pé) ou soltar carga aérea (A-29)'],
   [['Mouse'], 'Gira a câmera (a pé, carros e helicóptero) ou move a mira de voo (A-29)'],
   [['Clique'], 'Trava o ponteiro para girar a câmera / mirar no A-29'],
