@@ -1408,9 +1408,9 @@ export function airportData(helipad = cityData().helipad, roof: Box = cityData()
   // Física = malha: cada trecho é uma caixa de rampa (altura interpolada) e cada patamar uma caixa plana.
   const HALF_W = 3, OFF = 7, SLOPE = .3, RAIL_H = 1.1, RAIL_T = .15, CHUNK = 6;
   const cxs = [roof.x1 + OFF, roof.x1 + OFF, roof.x0 - OFF, roof.x0 - OFF], czs = [roof.z1 + OFF, roof.z0 - OFF, roof.z0 - OFF, roof.z1 + OFF];
-  const deckColor = [155, 160, 165, 255], bcx = (roof.x0 + roof.x1) / 2, bcz = (roof.z0 + roof.z1) / 2;
+  const deckColor = [155, 160, 165, 255];
   const railPos: number[] = [], railIdx: number[] = [];
-  // Estrutura de concreto sob o piso: laje de 40 cm (laterais e face inferior fechadas, todas voltadas para fora) e pilares quadrados até o chão a cada ~8 m
+  // Estrutura de concreto sob o piso: laje de 40 cm (laterais e face inferior fechadas, todas voltadas para fora), sem pilares nem paredão
   const SLAB = .4, structPos: number[] = [], structIdx: number[] = [];
   const solid = (top: [number, number, number][], bottom: [number, number, number][]) => {
     const base = structPos.length / 3, all = [...top, ...bottom];
@@ -1426,18 +1426,6 @@ export function airportData(helipad = cityData().helipad, roof: Box = cityData()
   };
   /** laje sob um quadrilátero de piso [x, y, z] x4 (mesma ordem do piso) */
   const slab = (q: [number, number, number][]) => solid(q, q.map(([x, y, z]) => [x, y - SLAB, z] as [number, number, number]));
-  /** Parede cheia até o chão sob a borda externa da laje (dentro da largura do piso: nunca cruza piso nem guarda-corpo) */
-  const outerWall = (ax: number, az: number, ay: number, bx: number, bz: number, by: number, nx: number, nz: number) => {
-    const len = Math.hypot(bx - ax, bz - az), n = Math.max(1, Math.ceil(len / 4)), T = .35;
-    for (let i = 0; i < n; i++) {
-      const f0 = i / n, f1 = (i + 1) / n, p0 = [ax + (bx - ax) * f0, az + (bz - az) * f0], p1 = [ax + (bx - ax) * f1, az + (bz - az) * f1];
-      const y0 = ay + (by - ay) * f0 - SLAB, y1 = ay + (by - ay) * f1 - SLAB, g0 = terrainHeight(p0[0], p0[1]) - .5, g1 = terrainHeight(p1[0], p1[1]) - .5;
-      if (Math.min(y0 - g0, y1 - g1) < .3) continue;
-      const q = (p: number[], t: number) => [p[0] - nx * T * t, p[1] - nz * T * t];
-      const o0 = q(p0, 0), o1 = q(p1, 0), i0 = q(p0, 1), i1 = q(p1, 1);
-      solid([[o0[0], y0, o0[1]], [o1[0], y1, o1[1]], [i1[0], y1, i1[1]], [i0[0], y0, i0[1]]], [[o0[0], g0, o0[1]], [o1[0], g1, o1[1]], [i1[0], g1, i1[1]], [i0[0], g0, i0[1]]]);
-    }
-  };
   /** Guarda-corpo reto ao longo de um eixo, de (ax,az) a (bx,bz), acompanhando a altura do piso; vira caixa de colisão e prisma de 8 vértices. */
   const rail = (ax: number, az: number, ay: number, bx: number, bz: number, by: number) => {
     const len = Math.hypot(bx - ax, bz - az);
@@ -1462,10 +1450,6 @@ export function airportData(helipad = cityData().helipad, roof: Box = cityData()
   const landingAt = (x: number, z: number, ry: number, open: string[]) => {
     parts.push({ name: 'Patamar da rampa', mesh: geometry([x - HALF_W, ry, z + HALF_W, x + HALF_W, ry, z + HALF_W, x + HALF_W, ry, z - HALF_W, x - HALF_W, ry, z - HALF_W], [0, 1, 2, 0, 2, 3], Array.from({ length: 4 }, () => deckColor).flat()) });
     slab([[x - HALF_W, ry, z + HALF_W], [x + HALF_W, ry, z + HALF_W], [x + HALF_W, ry, z - HALF_W], [x - HALF_W, ry, z - HALF_W]]);
-    for (const sd of ['N', 'S', 'E', 'W']) if (open.length < 4 && !open.includes(sd)) {
-      const dxs = sd === 'E' ? 1 : sd === 'W' ? -1 : 0, dzs = sd === 'S' ? 1 : sd === 'N' ? -1 : 0, fx = x + dxs * HALF_W, fz = z + dzs * HALF_W, ex2 = Math.abs(dzs) * HALF_W, ez2 = Math.abs(dxs) * HALF_W;
-      if (Math.hypot(fx - bcx, fz - bcz) > Math.hypot(x - bcx, z - bcz)) outerWall(fx - ex2, fz - ez2, ry, fx + ex2, fz + ez2, ry, dxs, dzs);
-    }
     // sem caixa própria: o piso do patamar vem do prolongamento plano das caixas de rampa vizinhas (sem degrau de parede para o carro)
     const e = HALF_W - RAIL_T;
     if (!open.includes('N')) rail(x - HALF_W, z - e, ry, x + HALF_W, z - e, ry);
@@ -1485,10 +1469,6 @@ export function airportData(helipad = cityData().helipad, roof: Box = cityData()
     const sx = x0 + dx * HALF_W, sz = z0 + dz * HALF_W, ex = sx + dx * run, ez = sz + dz * run, px = dz * HALF_W, pz = -dx * HALF_W;
     parts.push({ name: 'Rampa do heliponto', mesh: geometry([sx + px, ry, sz + pz, sx - px, ry, sz - pz, ex - px, y1, ez - pz, ex + px, y1, ez + pz], [0, 1, 2, 0, 2, 3], Array.from({ length: 4 }, () => deckColor).flat()) });
     slab([[sx + px, ry, sz + pz], [sx - px, ry, sz - pz], [ex - px, y1, ez - pz], [ex + px, y1, ez + pz]]);
-    for (const s of [-1, 1]) {
-      const wx = sx + s * px, wz = sz + s * pz, nxo = s * px / HALF_W, nzo = s * pz / HALF_W;
-      if (Math.hypot(wx - bcx, wz - bcz) > Math.hypot(sx - bcx, sz - bcz)) outerWall(wx, wz, ry, ex + s * px, ez + s * pz, y1, nxo, nzo);
-    }
     // a caixa do trecho se prolonga 6 m (um patamar) além do fim, e 6 m antes do início no primeiro trecho: topo plano ali (t preso em 0 ou 1)
     const bx0 = sx - dx * (k === 0 ? 2 * HALF_W : 0), bz0 = sz - dz * (k === 0 ? 2 * HALF_W : 0), bx1 = ex + dx * 2 * HALF_W, bz1 = ez + dz * 2 * HALF_W;
     boxes.push({ x0: Math.min(bx0, bx1) - Math.abs(px), x1: Math.max(bx0, bx1) + Math.abs(px), z0: Math.min(bz0, bz1) - Math.abs(pz), z1: Math.max(bz0, bz1) + Math.abs(pz), top: y1, bottom: ry - .12, ramp: { x0: sx, z0: sz, x1: ex, z1: ez, y0: ry, y1 } });
@@ -1581,7 +1561,8 @@ export function createWorldPhysics(boxes?: Box[], flatGround?: number) {
       const x = Math.max(-2980, Math.min(2980, result.x + (axis === 'x' ? delta : 0))), z = Math.max(-2980, Math.min(2980, result.z + (axis === 'z' ? delta : 0)));
       const floor = surfaceAt(x, z, result.y + .35), old = surfaceAt(result.x, result.z, result.y + .35);
       const onRamp = [...nearby(x, z)].some((b) => b.ramp && x >= b.x0 && x <= b.x1 && z >= b.z0 && z <= b.z1 && Math.abs(boxTop(b, x, z) - floor) < .01);
-      const slopeLimit = onRamp ? Math.max(.35, Math.abs(delta) * maxSlope) : Math.abs(delta) * maxSlope + .001;
+      // degrau baixo (meio-fio, emenda de calçada/cruzamento) até 22 cm sobe direto: o carro não "agarra" na guia
+      const slopeLimit = onRamp ? Math.max(.35, Math.abs(delta) * maxSlope) : Math.max(.22, Math.abs(delta) * maxSlope + .001);
       if (!obstacleAt(x, z, Math.max(result.y, floor), radius, height) && floor - old <= slopeLimit) {
         result[axis] = axis === 'x' ? x : z;
         if (result.y <= old + .1) result.y = Math.max(result.y, floor);

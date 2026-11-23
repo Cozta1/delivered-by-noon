@@ -155,8 +155,11 @@ export class CarDynamics {
     if(Math.hypot(p.x-this.x-dx,p.z-this.z-dz)>.001) { this.chassis.stop();this.speed=0; }
     this.x=p.x;this.z=p.z;
     const floor=this.world.surfaceAt(this.x,this.z,this.y+.35),oldY=this.y;
-    if(this.tuned) {
-      if(!this.airborne&&oldY-floor>.18&&this.movementSpeed>8) {
+    // todos os carros caem com gravidade ao sair de uma laje/rampa (antes só o esportivo; os outros "teletransportavam" para o chão)
+    {
+      if(!this.airborne&&oldY-floor>.25) {
+        this.airborne=true;this.verticalSpeed=this.tuned&&this.movementSpeed>8?Math.max(2,this.movementSpeed*this.rampSlope):0;
+      } else if(this.tuned&&!this.airborne&&oldY-floor>.18&&this.movementSpeed>8) {
         this.airborne=true;this.verticalSpeed=Math.max(2,this.movementSpeed*this.rampSlope);
       }
       if(this.airborne) {
@@ -168,7 +171,7 @@ export class CarDynamics {
         this.y=floor;
         if(Math.hypot(dx,dz)>.001)this.rampSlope=clamp((floor-oldY)/Math.hypot(dx,dz),0,1);
       }
-    } else this.y=floor;
+    }
     const front=this.world.surfaceAt(this.x+Math.sin(h)*2,this.z-Math.cos(h)*2,this.y+.8);
     const back=this.world.surfaceAt(this.x-Math.sin(h)*2,this.z+Math.cos(h)*2,this.y+.8);
     this.pitch=clamp(Math.atan2(front-back,4)/radians,-25,25);
