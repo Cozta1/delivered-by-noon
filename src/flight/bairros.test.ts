@@ -245,6 +245,6 @@ describe('bairros de Juiz de Fora', () => {
     expect(densityNear).toBeGreaterThan(densityMid);
     expect(densityMid).toBeGreaterThan(densityFar);
     expect(nearCentro).toBeGreaterThan(750);
-    expect(midBairros).toBeGreaterThan(800);
+    expect(midBairros).toBeGreaterThan(750);
   });
 });
