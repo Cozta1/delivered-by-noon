@@ -24,6 +24,7 @@ import { createMarkers } from './markers';
 import { createMissionSystem, startMission } from './mission';
 import { applySave, clearSave, describeSave, loadSave, writeSave } from './save';
 import { createDevMode } from './devmode';
+import { createDropTarget } from './droptarget';
 import { enableFrustumCulling } from './models/glb';
 import { clearSmoke, createSmoke } from './smoke';
 import { createGpsRoute } from './rota';
@@ -567,6 +568,7 @@ export function startFlightSim(
   const dayNightModule = createDayNight(ctx, sun);
   const cameraRig = createCameraRig(ctx);
   const markersModule = createMarkers(ctx, uiRoot);
+  const dropTarget = createDropTarget(ctx);
   const cockpitModule = createCockpit(ctx, uiRoot);
   const hudModule = createHud(ctx, uiRoot);
   loadingScreen.setStage('minimap', 'Minimapa de Juiz de Fora pronto', true);
@@ -1371,6 +1373,7 @@ export function startFlightSim(
         if (modelComp && modelComp.enabled !== showExt) modelComp.enabled = showExt;
       }
       markersModule.update(dt);
+      dropTarget.update(dt);
       cockpitModule.update(dt);
       hudModule.update(dt);
       smokeModule.update(dt);
@@ -1467,6 +1470,7 @@ export function startFlightSim(
       dayNightModule.destroy?.();
       cameraRig.destroy?.();
       markersModule.destroy?.();
+      dropTarget.destroy?.();
       cockpitModule.destroy?.();
       hudModule.destroy?.();
       smokeModule.destroy?.();
