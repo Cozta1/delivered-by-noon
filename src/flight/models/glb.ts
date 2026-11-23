@@ -328,6 +328,8 @@ export function attachAsyncGlb({ app, root, procedural, model, filename, onMount
       app.assets.loadFromUrl(url, 'container', (err, asset) => {
         if (!err && asset?.resource) {
           applyResource(asset.resource as ContainerResource);
+        } else {
+          console.warn(`[Delivered by Noon] não carregou ${filename} (${url}):`, err);
         }
         finishLoad();
       });

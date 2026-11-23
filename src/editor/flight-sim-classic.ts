@@ -36,6 +36,12 @@ type ClassicScriptClass = {
 
 declare const pc: { createScript(name: string): ClassicScriptClass };
 
+
+// Uma única instância do jogo por página: a cena do Editor pode ter o script ligado mais de uma vez
+// (ex.: versão clássica e ESM), o que criava dois carros, dois HUDs e o menu preso na tela.
+const INSTANCE_KEY = '__deliveredByNoonInstance';
+const instanceSlot = globalThis as unknown as Record<string, unknown>;
+
 const SimuladorVoo = pc.createScript('simuladorVoo');
 
 SimuladorVoo.attributes.add('dayDurationMinutes', {
@@ -151,10 +157,16 @@ SimuladorVoo.prototype.initialize = function (this: ClassicScript) {
     uiEl = null;
     styleEl?.remove();
     styleEl = null;
+    if (instanceSlot[INSTANCE_KEY] === this) delete instanceSlot[INSTANCE_KEY];
   };
 
   const mount = () => {
     if (sim || uiEl || this.enabled === false) return;
+    if (instanceSlot[INSTANCE_KEY] && instanceSlot[INSTANCE_KEY] !== this) {
+      console.warn('[Delivered by Noon] script ligado mais de uma vez na cena; esta cópia não inicia.');
+      return;
+    }
+    instanceSlot[INSTANCE_KEY] = this;
 
     const style = document.createElement('style');
     style.dataset.flightSim = 'true';

@@ -21,6 +21,10 @@ const DifficultyMode = {
   Dificil: 'dificil',
 } as const;
 
+// Uma única instância do jogo por página (ver flight-sim-classic.ts).
+const INSTANCE_KEY = '__deliveredByNoonInstance';
+const instanceSlot = globalThis as unknown as Record<string, unknown>;
+
 export class FlightSim extends Script {
   static scriptName = 'flightSim';
 
@@ -125,6 +129,11 @@ export class FlightSim extends Script {
 
   private mountSim() {
     if (this.sim || this.uiEl || !this.enabled) return;
+    if (instanceSlot[INSTANCE_KEY] && instanceSlot[INSTANCE_KEY] !== this) {
+      console.warn('[Delivered by Noon] script ligado mais de uma vez na cena; esta cópia não inicia.');
+      return;
+    }
+    instanceSlot[INSTANCE_KEY] = this;
 
     const style = document.createElement('style');
     style.dataset.flightSim = 'true';
@@ -183,6 +192,7 @@ export class FlightSim extends Script {
     this.uiEl = null;
     this.styleEl?.remove();
     this.styleEl = null;
+    if (instanceSlot[INSTANCE_KEY] === this) delete instanceSlot[INSTANCE_KEY];
   }
 
   initialize() {
