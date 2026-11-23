@@ -311,37 +311,6 @@ it('completes Delivered by Noon on the real Juiz de Fora terrain at 120Hz',async
       if(p.stage!==state.vehicle) {
         pressE();expect(state.vehicle).toBe('foot');
         const tuned=vehicleSpawns().find(v=>v.kind==='tuned')!;walk(tuned);pressE();expect(state.vehicle).toBe('tuned');
-        const ramp=ramps.ramps[0],dx=ramp.x1-ramp.x0,dz=ramp.z1-ramp.z0,len=Math.hypot(dx,dz);
-        const rx=ramp.x0-dx/len*34,rz=ramp.z0-dz/len*34;
-        gpsDistances['salvaterra']=computeRoute(state.x,state.z,rx,rz).distance;
-        const rampDrive=driveRoute({x:rx,z:rz},6,true,180);
-        if(!rampDrive.ok) {
-          const x=ramp.x0-dx/len*20,z=ramp.z0-dz/len*20;
-          teleport('tuned',{x,y:world.surfaceAt(x,z,terrainHeight(x,z)+1),z,heading:Math.atan2(dx,-dz)*180/Math.PI},`ensaio da rampa do Salvaterra (${rampDrive.reason})`);
-        } else {
-          // Alinha o nariz com o eixo da rampa antes da arrancada com nitro
-          const rampEntry={x:ramp.x0-dx/len*12,z:ramp.z0-dz/len*12};
-          for(let i=0;i<6/dt;i++){
-            const err=angle(heading(rampEntry)-state.heading);
-            if(Math.abs(err)<8&&distance(rampEntry)<20)break;
-            const keys=state.speed<6?[KEY_W]:[];
-            if(err>2)keys.push(KEY_D);if(err<-2)keys.push(KEY_A);
-            tick(keys);
-          }
-        }
-        let airborne=0,rising=0;
-        const rampAim={x:ramp.x1+dx/len*25,z:ramp.z1+dz/len*25};
-        for(let i=0;i<8/dt;i++){
-          const target=distance({x:ramp.x0,z:ramp.z0})>10&&airborne<0.1?{x:ramp.x0,z:ramp.z0}:rampAim;
-          const err=angle(heading(target)-state.heading);
-          const keys=[KEY_W,KEY_SHIFT];
-          if(airborne<0.3){if(err>1.5)keys.push(KEY_D);if(err<-1.5)keys.push(KEY_A);}
-          tick(keys);
-          airborne=Math.max(airborne,state.heightAboveGround);rising=Math.max(rising,state.verticalSpeed);
-          if(airborne>.8&&rising>2&&state.heightAboveGround<.15)break;
-        }
-        expect(airborne,'Salto real do tunado').toBeGreaterThan(.8);expect(rising).toBeGreaterThan(2);
-        log.push(`Salto Salvaterra (${rampDrive.ok?'GPS pelas ruas':'teletransporte'}): altura ${airborne.toFixed(2)}m, velocidade vertical ${rising.toFixed(2)}m/s.`);
       }
       const previousTeleports=teleports;
       const start=elapsed;

@@ -956,51 +956,6 @@ export function roadHeightAt(x: number, z: number) {
 }
 
 // ---------------------------------------------------------------------------
-// Rampas do carro tunado: perto das entregas do estágio "tuned", alinhadas aos eixos e ao relevo
-// ---------------------------------------------------------------------------
-export interface RampDef { name: string; x0: number; z0: number; x1: number; z1: number; y0: number; y1: number }
-let rampCache: RampDef[] | undefined;
-function rampSites(): RampDef[] {
-  return rampCache ??= ([['salvaterra', 'Rampa do Salvaterra'], ['cristo', 'Rampa do Mirante'], ['estadio', 'Rampa do Estádio']] as const).map(([place, name]) => {
-    const stop = nearestRoad(jf.marcos[place][0], jf.marcos[place][1], 3)!;
-    const flat = (x: number, z: number) => Math.abs(terrainHeight(x, z) - terrainHeight(x + 22, z)) < 3 && Math.abs(terrainHeight(x, z) - terrainHeight(x, z + 22)) < 3;
-    let best: RoadPoint | undefined, bestD = Infinity;
-    if (place === 'salvaterra') {
-      // Salvaterra (rampa do ensaio do jogo): sobre a via reta alinhada aos eixos mais perto da entrega
-      for (let r = 0; r <= 260; r += 12) {
-        for (let k = 0, n = Math.max(1, Math.round(r / 12) * 6); k < n; k++) {
-          const a = k / n * Math.PI * 2, rp = nearestRoad(stop.x + Math.cos(a) * r, stop.z + Math.sin(a) * r, 3);
-          if (!rp || rp.distance > 3) continue;
-          const m = rp.heading % 90, off = Math.min(m, 90 - m);
-          if (off > 9 || gapToRoads(rp.x, rp.z) > -1 || !flat(rp.x, rp.z)) continue;
-          const d = Math.hypot(rp.x - stop.x, rp.z - stop.z);
-          if (d < bestD) { best = rp; bestD = d; }
-        }
-      }
-    } else {
-      // Mirante e Estádio: rampa ao lado da estrada, em terreno livre, para nunca bloquear o caminho do GPS até a entrega
-      const nx = -Math.cos(stop.heading * Math.PI / 180), nz = -Math.sin(stop.heading * Math.PI / 180);
-      for (const dist of [26, 38, 52, 70, 95, 120, 150]) for (const side of [1, -1]) {
-        const x = stop.x + nx * dist * side, z = stop.z + nz * dist * side;
-        if (best || gapToRoads(x, z) < 14 || gapToRoads(x + 22, z) < 14 || gapToRoads(x, z + 22) < 14 || gapToRoads(x, z - 22) < 14 || gapToRoads(x - 22, z) < 14 || !flat(x, z)) continue;
-        best = { x, z, heading: stop.heading, cls: stop.cls, distance: dist };
-      }
-      // sem terreno livre por perto: ao lado da estrada a 45 m (nunca em cima da via)
-      best ??= { x: stop.x + nx * 45, z: stop.z + nz * 45, heading: stop.heading, cls: stop.cls, distance: 45 };
-    }
-    const p = best ?? stop;
-    const axis = Math.round(p.heading / 90) % 4, dirs = [[0, -1], [1, 0], [0, 1], [-1, 0]];
-    let [dx, dz] = dirs[axis];
-    // Salvaterra aponta para longe da oficina, de onde o jogador chega (subida de frente); as outras, morro abaixo
-    const away = place === 'salvaterra' ? (p.x - WORKSHOP_SPOT.x) * dx + (p.z - WORKSHOP_SPOT.z) * dz < 0
-      : terrainHeight(p.x + dx * 40, p.z + dz * 40) > terrainHeight(p.x - dx * 40, p.z - dz * 40);
-    if (away) { dx = -dx; dz = -dz; }
-    const x1 = p.x + dx * 22, z1 = p.z + dz * 22, y0 = Math.max(terrainHeight(p.x, p.z), roadHeightAt(p.x, p.z));
-    return { name, x0: p.x, z0: p.z, x1, z1, y0, y1: Math.max(y0 + 4, terrainHeight(x1, z1) + 2) };
-  });
-}
-
-// ---------------------------------------------------------------------------
 // Prédios e casas: lotes procedurais ao longo das vias, mais densos e altos perto do Centro
 // ---------------------------------------------------------------------------
 export type CityData = ReturnType<typeof buildCity>;
@@ -1172,7 +1127,6 @@ function buildCity() {
   const RESERVED = [
     { x: UNI_LOT.x, z: UNI_LOT.z, r: 62 }, { x: WORKSHOP_SPOT.x, z: WORKSHOP_SPOT.z, r: 26 }, { x: CRISTO.x, z: CRISTO.z, r: 120 }, { x: TOWER_SPOT.x, z: TOWER_SPOT.z, r: 46 }, // rampa da torre do heliponto
   ];
-  const ramps = rampSites().map((q) => ({ x0: Math.min(q.x0, q.x1) - 10, x1: Math.max(q.x0, q.x1) + 10, z0: Math.min(q.z0, q.z1) - 10, z1: Math.max(q.z0, q.z1) + 10 }));
   let houses = 0;
   const PROTECTED = protectedSpots();
   const PITCH = 20;
@@ -1185,7 +1139,7 @@ function buildCity() {
       const dc = dcCentro(cx, cz), elev = terrainHeight(cx, cz);
       const density = (0.14 + 0.95 * Math.exp(-((dc / 1500) ** 2))) * (1 - 0.85 * smoothstep(70, 200, elev)) * HOUSE_DENSITY;
       if (roll > density) continue;
-      if (inAnyArea(cx, cz) || RESERVED.some((q) => Math.hypot(cx - q.x, cz - q.z) < q.r) || ramps.some((q) => cx > q.x0 && cx < q.x1 && cz > q.z0 && cz < q.z1)) continue;
+      if (inAnyArea(cx, cz) || RESERVED.some((q) => Math.hypot(cx - q.x, cz - q.z) < q.r)) continue;
       const { s, l } = runwayFrame(cx, cz);
       if (s > -120 && s < RWY_LEN + 120 && Math.abs(l) < 140) continue;
       const isTower = dc < 1250 && kindRoll < (dc < 650 ? 0.55 : 0.2);
@@ -1454,10 +1408,10 @@ export function airportData(helipad = cityData().helipad, roof: Box = cityData()
   // Física = malha: cada trecho é uma caixa de rampa (altura interpolada) e cada patamar uma caixa plana.
   const HALF_W = 3, OFF = 7, SLOPE = .3, RAIL_H = 1.1, RAIL_T = .15, CHUNK = 6;
   const cxs = [roof.x1 + OFF, roof.x1 + OFF, roof.x0 - OFF, roof.x0 - OFF], czs = [roof.z1 + OFF, roof.z0 - OFF, roof.z0 - OFF, roof.z1 + OFF];
-  const deckColor = [155, 160, 165, 255];
+  const deckColor = [155, 160, 165, 255], bcx = (roof.x0 + roof.x1) / 2, bcz = (roof.z0 + roof.z1) / 2;
   const railPos: number[] = [], railIdx: number[] = [];
   // Estrutura de concreto sob o piso: laje de 40 cm (laterais e face inferior fechadas, todas voltadas para fora) e pilares quadrados até o chão a cada ~8 m
-  const SLAB = .4, PILLAR = .9, structPos: number[] = [], structIdx: number[] = [];
+  const SLAB = .4, structPos: number[] = [], structIdx: number[] = [];
   const solid = (top: [number, number, number][], bottom: [number, number, number][]) => {
     const base = structPos.length / 3, all = [...top, ...bottom];
     for (const q of all) structPos.push(...q);
@@ -1472,10 +1426,17 @@ export function airportData(helipad = cityData().helipad, roof: Box = cityData()
   };
   /** laje sob um quadrilátero de piso [x, y, z] x4 (mesma ordem do piso) */
   const slab = (q: [number, number, number][]) => solid(q, q.map(([x, y, z]) => [x, y - SLAB, z] as [number, number, number]));
-  const pillar = (x: number, z: number, deckY: number) => {
-    const g = terrainHeight(x, z) - .5, h = PILLAR / 2, y = deckY - SLAB;
-    if (y - g < 1) return;
-    solid([[x - h, y, z - h], [x + h, y, z - h], [x + h, y, z + h], [x - h, y, z + h]], [[x - h, g, z - h], [x + h, g, z - h], [x + h, g, z + h], [x - h, g, z + h]]);
+  /** Parede cheia até o chão sob a borda externa da laje (dentro da largura do piso: nunca cruza piso nem guarda-corpo) */
+  const outerWall = (ax: number, az: number, ay: number, bx: number, bz: number, by: number, nx: number, nz: number) => {
+    const len = Math.hypot(bx - ax, bz - az), n = Math.max(1, Math.ceil(len / 4)), T = .35;
+    for (let i = 0; i < n; i++) {
+      const f0 = i / n, f1 = (i + 1) / n, p0 = [ax + (bx - ax) * f0, az + (bz - az) * f0], p1 = [ax + (bx - ax) * f1, az + (bz - az) * f1];
+      const y0 = ay + (by - ay) * f0 - SLAB, y1 = ay + (by - ay) * f1 - SLAB, g0 = terrainHeight(p0[0], p0[1]) - .5, g1 = terrainHeight(p1[0], p1[1]) - .5;
+      if (Math.min(y0 - g0, y1 - g1) < .3) continue;
+      const q = (p: number[], t: number) => [p[0] - nx * T * t, p[1] - nz * T * t];
+      const o0 = q(p0, 0), o1 = q(p1, 0), i0 = q(p0, 1), i1 = q(p1, 1);
+      solid([[o0[0], y0, o0[1]], [o1[0], y1, o1[1]], [i1[0], y1, i1[1]], [i0[0], y0, i0[1]]], [[o0[0], g0, o0[1]], [o1[0], g1, o1[1]], [i1[0], g1, i1[1]], [i0[0], g0, i0[1]]]);
+    }
   };
   /** Guarda-corpo reto ao longo de um eixo, de (ax,az) a (bx,bz), acompanhando a altura do piso; vira caixa de colisão e prisma de 8 vértices. */
   const rail = (ax: number, az: number, ay: number, bx: number, bz: number, by: number) => {
@@ -1501,7 +1462,10 @@ export function airportData(helipad = cityData().helipad, roof: Box = cityData()
   const landingAt = (x: number, z: number, ry: number, open: string[]) => {
     parts.push({ name: 'Patamar da rampa', mesh: geometry([x - HALF_W, ry, z + HALF_W, x + HALF_W, ry, z + HALF_W, x + HALF_W, ry, z - HALF_W, x - HALF_W, ry, z - HALF_W], [0, 1, 2, 0, 2, 3], Array.from({ length: 4 }, () => deckColor).flat()) });
     slab([[x - HALF_W, ry, z + HALF_W], [x + HALF_W, ry, z + HALF_W], [x + HALF_W, ry, z - HALF_W], [x - HALF_W, ry, z - HALF_W]]);
-    pillar(x, z, ry);
+    for (const sd of ['N', 'S', 'E', 'W']) if (open.length < 4 && !open.includes(sd)) {
+      const dxs = sd === 'E' ? 1 : sd === 'W' ? -1 : 0, dzs = sd === 'S' ? 1 : sd === 'N' ? -1 : 0, fx = x + dxs * HALF_W, fz = z + dzs * HALF_W, ex2 = Math.abs(dzs) * HALF_W, ez2 = Math.abs(dxs) * HALF_W;
+      if (Math.hypot(fx - bcx, fz - bcz) > Math.hypot(x - bcx, z - bcz)) outerWall(fx - ex2, fz - ez2, ry, fx + ex2, fz + ez2, ry, dxs, dzs);
+    }
     // sem caixa própria: o piso do patamar vem do prolongamento plano das caixas de rampa vizinhas (sem degrau de parede para o carro)
     const e = HALF_W - RAIL_T;
     if (!open.includes('N')) rail(x - HALF_W, z - e, ry, x + HALF_W, z - e, ry);
@@ -1521,7 +1485,10 @@ export function airportData(helipad = cityData().helipad, roof: Box = cityData()
     const sx = x0 + dx * HALF_W, sz = z0 + dz * HALF_W, ex = sx + dx * run, ez = sz + dz * run, px = dz * HALF_W, pz = -dx * HALF_W;
     parts.push({ name: 'Rampa do heliponto', mesh: geometry([sx + px, ry, sz + pz, sx - px, ry, sz - pz, ex - px, y1, ez - pz, ex + px, y1, ez + pz], [0, 1, 2, 0, 2, 3], Array.from({ length: 4 }, () => deckColor).flat()) });
     slab([[sx + px, ry, sz + pz], [sx - px, ry, sz - pz], [ex - px, y1, ez - pz], [ex + px, y1, ez + pz]]);
-    for (let d = 4; d < run - 2; d += 8) for (const s of [-1, 1]) pillar(sx + dx * d + s * px * .7, sz + dz * d + s * pz * .7, ry + d * SLOPE);
+    for (const s of [-1, 1]) {
+      const wx = sx + s * px, wz = sz + s * pz, nxo = s * px / HALF_W, nzo = s * pz / HALF_W;
+      if (Math.hypot(wx - bcx, wz - bcz) > Math.hypot(sx - bcx, sz - bcz)) outerWall(wx, wz, ry, ex + s * px, ez + s * pz, y1, nxo, nzo);
+    }
     // a caixa do trecho se prolonga 6 m (um patamar) além do fim, e 6 m antes do início no primeiro trecho: topo plano ali (t preso em 0 ou 1)
     const bx0 = sx - dx * (k === 0 ? 2 * HALF_W : 0), bz0 = sz - dz * (k === 0 ? 2 * HALF_W : 0), bx1 = ex + dx * 2 * HALF_W, bz1 = ez + dz * 2 * HALF_W;
     boxes.push({ x0: Math.min(bx0, bx1) - Math.abs(px), x1: Math.max(bx0, bx1) + Math.abs(px), z0: Math.min(bz0, bz1) - Math.abs(pz), z1: Math.max(bz0, bz1) + Math.abs(pz), top: y1, bottom: ry - .12, ramp: { x0: sx, z0: sz, x1: ex, z1: ez, y0: ry, y1 } });
@@ -1534,13 +1501,13 @@ export function airportData(helipad = cityData().helipad, roof: Box = cityData()
       const tx = Math.sign((roof.x0 + roof.x1) / 2 - ex) * (Math.abs(dz) > 0 ? 1 : 0), tz = Math.sign((roof.z0 + roof.z1) / 2 - ez) * (Math.abs(dx) > 0 ? 1 : 0), reach = OFF + 3;
       const lx = ex + dx * HALF_W, lz = ez + dz * HALF_W;
       landingAt(lx, lz, y1, [opposite(label(dx, dz)), label(tx, tz)]);
-      const bx0 = lx + tx * HALF_W, bz0 = lz + tz * HALF_W, bx = ex + tx * reach, bz = ez + tz * reach, qx = tz * HALF_W, qz = -tx * HALF_W;
+      const bx0 = lx + tx * HALF_W, bz0 = lz + tz * HALF_W, bx = tx !== 0 ? ex + tx * reach : lx, bz = tz !== 0 ? ez + tz * reach : lz, qx = tz * HALF_W, qz = -tx * HALF_W;
       parts.push({ name: 'Ponte do heliponto', mesh: geometry([bx0 + qx, y1, bz0 + qz, bx0 - qx, y1, bz0 - qz, bx - qx, y1, bz - qz, bx + qx, y1, bz + qz], [0, 1, 2, 0, 2, 3], Array.from({ length: 4 }, () => deckColor).flat()) });
       slab([[bx0 + qx, y1, bz0 + qz], [bx0 - qx, y1, bz0 - qz], [bx - qx, y1, bz - qz], [bx + qx, y1, bz + qz]]);
       boxes.push({ x0: Math.min(bx0, bx) - Math.abs(qx), x1: Math.max(bx0, bx) + Math.abs(qx), z0: Math.min(bz0, bz) - Math.abs(qz), z1: Math.max(bz0, bz) + Math.abs(qz), top: y1, bottom: y1 - .12, ramp: { x0: bx0, z0: bz0, x1: bx, z1: bz, y0: y1, y1 } });
       const ce = HALF_W - RAIL_T, cnx = tz * ce, cnz = -tx * ce;
       for (const s of [-1, 1]) railAlong(bx0 + s * cnx, bz0 + s * cnz, y1, bx + s * cnx, bz + s * cnz, y1);
-      access.push({ x: lx, y: y1, z: lz }, { x: ex + tx * (OFF + 2), y: helipad.y, z: ez + tz * (OFF + 2) });
+      access.push({ x: lx, y: y1, z: lz }, { x: tx !== 0 ? ex + tx * (OFF + 2) : lx, y: helipad.y, z: tz !== 0 ? ez + tz * (OFF + 2) : lz });
       ry = y1;
       break;
     }
@@ -1694,19 +1661,13 @@ export function roadStop(name: keyof typeof jf.marcos, maxClass = 3) {
 export const MARCOS = jf.marcos;
 export const CITY_CREDITS = jf.creditos;
 
-/** Pad da oficina e as rampas de salto do carro tunado (perto das entregas "tuned", alinhadas ao relevo). */
+export interface RampDef { name: string; x0: number; z0: number; x1: number; z1: number; y0: number; y1: number }
+/** Pad da oficina (as rampas de salto do carro tunado foram removidas). */
 export function deliveryRampData() {
   const { x, y, z } = WORKSHOP;
   const parts: WorldPart[] = [{ name: 'Oficina do Parafuso Perdido', mesh: geometry([x-7,y+.04,z+7,x+7,y+.04,z+7,x+7,y+.04,z-7,x-7,y+.04,z-7],
     [0,1,2,0,2,3], Array.from({ length: 4 }, () => [235,165,65,255]).flat()) }];
-  const ramps = rampSites(), boxes: Box[] = [];
-  for (const q of ramps) {
-    const dx = q.x1 - q.x0, dz = q.z1 - q.z0, len = Math.hypot(dx, dz), px = dz / len * 6, pz = -dx / len * 6;
-    parts.push({ name: q.name, mesh: geometry([q.x0+px,q.y0,q.z0+pz,q.x0-px,q.y0,q.z0-pz,q.x1-px,q.y1,q.z1-pz,q.x1+px,q.y1,q.z1+pz],
-      [0,1,2,0,2,3], Array.from({ length: 4 }, () => [230,145,45,255]).flat()) });
-    boxes.push({ x0: Math.min(q.x0, q.x1) - Math.abs(px), x1: Math.max(q.x0, q.x1) + Math.abs(px), z0: Math.min(q.z0, q.z1) - Math.abs(pz), z1: Math.max(q.z0, q.z1) + Math.abs(pz),
-      top: q.y1, bottom: q.y0 - .12, ramp: q });
-  }
+  const ramps: RampDef[] = [], boxes: Box[] = [];
   return { ramps, boxes, parts };
 }
 
@@ -1896,9 +1857,9 @@ export function cityDetails(city = cityData()) {
       if (p.s < next) continue;
       next = p.s + 55; side *= -1;
       const a = w.st[Math.max(0, k - 1)], b = w.st[Math.min(w.st.length - 1, k + 1)];
-      const len = Math.hypot(b.x - a.x, b.z - a.z) || 1, off = w.half + 1.4;
+      const len = Math.hypot(b.x - a.x, b.z - a.z) || 1, off = w.half + 2;
       const px = p.x - (b.z - a.z) / len * off * side, pz = p.z + (b.x - a.x) / len * off * side;
-      if (dcCentro(px, pz) > 2300 || gapToRoads(px, pz) < .2 || net.junctions.some((j) => Math.hypot(px - j.x, pz - j.z) < j.r + 1.5) || stops.some((q) => Math.hypot(px - q.x, pz - q.z) < q.r + 3)) continue; // nem dentro do cruzamento nem nas paradas de entrega
+      if (dcCentro(px, pz) > 2300 || gapToRoads(px, pz) < 1.9 || net.junctions.some((j) => Math.hypot(px - j.x, pz - j.z) < j.r + 1.5) || stops.some((q) => Math.hypot(px - q.x, pz - q.z) < q.r + 3)) continue; // nem dentro do cruzamento nem nas paradas de entrega
       const y = Math.max(terrainHeight(px, pz), roadHeightAt(px, pz));
       cone(px, y, pz, .18, 7, [65, 72, 79]); cylinder(px, pz, .18, y, y + 7.15);
       shape('lamps', [px, y + 7.15, pz, px + 1.3, y + 7.15, pz + .32, px + 1.3, y + 7.15, pz - .32], [0, 1, 2], [255, 255, 255]);

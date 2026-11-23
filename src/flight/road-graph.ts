@@ -152,14 +152,14 @@ export function buildNodeGraph(input: GraphLine[], opts: GraphOptions = {}): Roa
     let any = false;
     const inc = new Map<number, E[]>();
     for (const e of edges) { if (!e.alive) continue; const ra = find(e.a), rb = find(e.b); for (const n of ra === rb ? [ra] : [ra, rb]) { let l = inc.get(n); if (!l) inc.set(n, l = []); l.push(e); } }
-    const alongside = (s: E, l: E) => {
+    const alongside = (s: E, l: E, thr: number) => {
       const ps = fullPts(s), pl = fullPts(l); let hit = 0, tot = 0;
       for (let i = 0; i + 3 < ps.length; i += 2) {
         const dx = ps[i + 2] - ps[i], dz = ps[i + 3] - ps[i + 1], n = Math.max(1, Math.round(Math.hypot(dx, dz) / 4));
         for (let k = 0; k <= n; k++) {
           const x = ps[i] + dx * k / n, z = ps[i + 1] + dz * k / n; let best = Infinity;
           for (let j = 0; j + 3 < pl.length; j += 2) { const ex = pl[j + 2] - pl[j], ez = pl[j + 3] - pl[j + 1], l2 = ex * ex + ez * ez, t = l2 ? Math.max(0, Math.min(1, ((x - pl[j]) * ex + (z - pl[j + 1]) * ez) / l2)) : 0; best = Math.min(best, Math.hypot(x - pl[j] - ex * t, z - pl[j + 1] - ez * t)); }
-          tot++; if (best < 7) hit++;
+          tot++; if (best < thr) hit++;
         }
       }
       return tot > 0 && hit / tot >= .8;
@@ -172,8 +172,10 @@ export function buildNodeGraph(input: GraphLine[], opts: GraphOptions = {}): Roa
         let d = Math.abs(dirFrom(A, n) - dirFrom(B, n)) % (Math.PI * 2); if (d > Math.PI) d = Math.PI * 2 - d;
         if (d > .45) continue;
         const lenA = eLen(A), lenB = eLen(B), keep = A.cls !== B.cls ? (A.cls < B.cls ? A : B) : (lenA >= lenB ? A : B), gone = keep === A ? B : A;
-        if (!alongside(gone, keep) && !alongside(keep, gone)) continue;
         const fk = find(keep.a) === n ? find(keep.b) : find(keep.a), fg = find(gone.a) === n ? find(gone.b) : find(gone.a), rn = n;
+        // ponta solta (grau 1) paralela a outra via: duplicata OSM mais afastada (até 16 m) também some
+        const thr = deg[fg] <= 1 ? 16 : 7;
+        if (!alongside(gone, keep, thr) && !alongside(keep, gone, thr)) continue;
         gone.alive = false; deg[rn]--; deg[fg]--; any = true;
         if (fg !== fk && Math.hypot(nx[fg] - nx[fk], nz[fg] - nz[fk]) < 45) { parent[fg] = fk; deg[fk] += deg[fg]; }
       }
@@ -191,10 +193,40 @@ export function buildNodeGraph(input: GraphLine[], opts: GraphOptions = {}): Roa
     for (const e of edges) { const k = e.a < e.b ? `${e.a}-${e.b}` : `${e.b}-${e.a}`; let l = byPair.get(k); if (!l) byPair.set(k, l = []); l.push(e); }
     for (const l of byPair.values()) for (let i = 0; i < l.length; i++) for (let j = i + 1; j < l.length; j++) {
       if (drop.has(l[i]) || drop.has(l[j]) || l[i].a === l[i].b) continue;
-      const mid = (e: E) => { const n = e.pts.length / 4 | 0; return [e.pts[n * 2], e.pts[n * 2 + 1]]; };
-      const m1 = mid(l[i]), m2 = mid(l[j]);
-      if (Math.hypot(m1[0] - m2[0], m1[1] - m2[1]) < 14) drop.add(polyLen(l[i].pts) >= polyLen(l[j].pts) ? l[j] : l[i]);
+      // mesmas pontas: some se a mais curta nunca se afasta mais de 20 m da outra (lente / volta duplicada)
+      const dist = (a: number[], b: number[]) => {
+        let worst = 0;
+        for (let i = 0; i + 1 < a.length; i += 2) {
+          let best = Infinity;
+          for (let j = 0; j + 3 < b.length; j += 2) { const ex = b[j + 2] - b[j], ez = b[j + 3] - b[j + 1], l2 = ex * ex + ez * ez, t = l2 ? Math.max(0, Math.min(1, ((a[i] - b[j]) * ex + (a[i + 1] - b[j + 1]) * ez) / l2)) : 0; best = Math.min(best, Math.hypot(a[i] - b[j] - ex * t, a[i + 1] - b[j + 1] - ez * t)); }
+          worst = Math.max(worst, best);
+        }
+        return worst;
+      };
+      const short = polyLen(l[i].pts) >= polyLen(l[j].pts) ? l[j] : l[i], long = short === l[i] ? l[j] : l[i];
+      if (dist(short.pts, long.pts) < 20) drop.add(short);
     }
+    edges = edges.filter((e) => !drop.has(e));
+  }
+  // pontas soltas (grau 1) coladas a outra via (<= 16 m em 80% do comprimento): sobras de pistas paralelas do OSM
+  for (let round = 0; round < 3; round++) {
+    const dg = new Map<number, number>();
+    for (const e of edges) { dg.set(e.a, (dg.get(e.a) ?? 0) + 1); dg.set(e.b, (dg.get(e.b) ?? 0) + 1); }
+    const drop = new Set<E>();
+    for (const e of edges) {
+      if (e.a === e.b || (dg.get(e.a)! > 1 && dg.get(e.b)! > 1) || polyLen(e.pts) > 220) continue;
+      let hit = 0, tot = 0;
+      for (let i = 0; i + 1 < e.pts.length; i += 2) {
+        let best = Infinity;
+        for (const o of edges) {
+          if (o === e || drop.has(o) || o.cls > e.cls) continue;
+          for (let j = 0; j + 3 < o.pts.length; j += 2) { const ex = o.pts[j + 2] - o.pts[j], ez = o.pts[j + 3] - o.pts[j + 1], l2 = ex * ex + ez * ez, t = l2 ? Math.max(0, Math.min(1, ((e.pts[i] - o.pts[j]) * ex + (e.pts[i + 1] - o.pts[j + 1]) * ez) / l2)) : 0; best = Math.min(best, Math.hypot(e.pts[i] - o.pts[j] - ex * t, e.pts[i + 1] - o.pts[j + 1] - ez * t)); }
+        }
+        tot++; if (best < 16) hit++;
+      }
+      if (tot > 0 && hit / tot >= .8) drop.add(e);
+    }
+    if (!drop.size) break;
     edges = edges.filter((e) => !drop.has(e));
   }
   // coordenadas finais dos nós nas pontas

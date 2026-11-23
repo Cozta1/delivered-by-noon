@@ -102,7 +102,7 @@ it('lays roads at the shared physics height and aligns the three tuned ramps wit
   expect(roadHeightAt(road.x,road.z)).toBeGreaterThanOrEqual(terrainHeight(road.x,road.z));
   expect(world.groundAt(road.x,road.z)).toBeCloseTo(roadHeightAt(road.x,road.z),8);
   for(const w of cityDetails().meshes.roads.pos.slice(0,300).filter((_,i)=>i%3===0)) expect(Number.isFinite(w)).toBe(true);
-  const ramps=deliveryRampData();expect(ramps.ramps).toHaveLength(3);expect(ramps.boxes.every(b=>b.ramp&&b.top>b.bottom!)).toBe(true);
+  const ramps=deliveryRampData();expect(ramps.ramps).toHaveLength(0);expect(ramps.boxes).toHaveLength(0);
   for(const r of ramps.ramps){expect(r.x0===r.x1||r.z0===r.z1).toBe(true);expect(r.y1).toBeGreaterThan(r.y0+3.9);}
 });
 
