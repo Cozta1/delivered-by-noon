@@ -346,13 +346,20 @@ function freeSpot(x: number, z: number, clearance: number, maxSlope: number, sta
 
 const UNI_LOT = freeSpot(jf.marcos.uniacademia[0], jf.marcos.uniacademia[1], 44, .22);
 const UNI_ROAD = nearestRoad(UNI_LOT.x, UNI_LOT.z, 4)!;
+/** Centro da UniAcademia: de frente para a rua, recuada ~5 m da calçada (a praça do modelo não encosta na pista). */
+const UNI_W = 47, UNI_D = 42, UNI_RECUO = UNI_D / 2 + 5;
+const UNI_CENTER = (() => {
+  const dx = UNI_ROAD.x - UNI_LOT.x, dz = UNI_ROAD.z - UNI_LOT.z, dist = Math.hypot(dx, dz) || 1;
+  const ux = dx / dist, uz = dz / dist;
+  return { x: UNI_ROAD.x - ux * UNI_RECUO, z: UNI_ROAD.z - uz * UNI_RECUO, heading: (Math.atan2(ux, -uz) * 180 / Math.PI + 360) % 360 };
+})();
 const WORKSHOP_SPOT = freeSpot(jf.marcos.pocoRico[0], jf.marcos.pocoRico[1], 22, .2, 20);
 const CRISTO = { x: jf.marcos.cristo[0], z: jf.marcos.cristo[1] };
 const TOWER_SPOT = freeSpot(jf.marcos.centro[0] + 40, jf.marcos.centro[1] + 40, 26, .12);
 
 interface Flat { x: number; z: number; inner: number; outer: number; y?: number }
 const flats: Flat[] = [
-  { x: UNI_LOT.x, z: UNI_LOT.z, inner: 38, outer: 80 },
+  { x: UNI_CENTER.x, z: UNI_CENTER.z, inner: 36, outer: 70 }, // terreno plano sob todo o prédio e a praça
   { x: WORKSHOP_SPOT.x, z: WORKSHOP_SPOT.z, inner: 14, outer: 40 },
   // Include the landing site and its 30 m grid-cell corners, so the loaded heli rests level.
   { x: CRISTO.x, z: CRISTO.z, inner: 60, outer: 90 },
@@ -1125,7 +1132,7 @@ function buildCity() {
   const helipad = { x: (tower.x0 + tower.x1) / 2, z: (tower.z0 + tower.z1) / 2, y: tower.top };
 
   const RESERVED = [
-    { x: UNI_LOT.x, z: UNI_LOT.z, r: 62 }, { x: WORKSHOP_SPOT.x, z: WORKSHOP_SPOT.z, r: 26 }, { x: CRISTO.x, z: CRISTO.z, r: 120 }, { x: TOWER_SPOT.x, z: TOWER_SPOT.z, r: 46 }, // rampa da torre do heliponto
+    { x: UNI_CENTER.x, z: UNI_CENTER.z, r: 62 }, { x: WORKSHOP_SPOT.x, z: WORKSHOP_SPOT.z, r: 26 }, { x: CRISTO.x, z: CRISTO.z, r: 120 }, { x: TOWER_SPOT.x, z: TOWER_SPOT.z, r: 46 }, // rampa da torre do heliponto
   ];
   let houses = 0;
   const PROTECTED = protectedSpots();
@@ -1583,15 +1590,9 @@ export const WORKSHOP = { x: WORKSHOP_SPOT.x, y: WORKSHOP_Y, z: WORKSHOP_SPOT.z 
 
 /** Lote livre e plano da UniAcademia (Academia de Comércio, Centro): o modelo do Gemini fica aqui, frente para -Z local. */
 export const UNIACADEMIA = (() => {
-  // Como nas fotos: a entrada (pórtico + praça + calçada do modelo) dá de frente para a rua mais próxima.
-  // A fachada olha para o ponto da via perpendicular ao lote e o prédio recua até a praça encostar na calçada.
-  const width = 47, depth = 42;
-  const dx = UNI_ROAD.x - UNI_LOT.x, dz = UNI_ROAD.z - UNI_LOT.z, dist = Math.hypot(dx, dz) || 1;
-  const ux = dx / dist, uz = dz / dist;
-  const heading = (Math.atan2(ux, -uz) * 180 / Math.PI + 360) % 360;
-  const back = depth / 2 + 1; // a faixa de rua do próprio modelo (na frente da praça) encosta na pista real
-  const x = UNI_ROAD.x - ux * back, z = UNI_ROAD.z - uz * back;
-  return { x, y: terrainHeight(x, z), z, heading, width, depth, radius: 38 };
+  // Como nas fotos: a entrada (pórtico + praça) dá de frente para a rua mais próxima (UNI_CENTER, acima).
+  const { x, z, heading } = UNI_CENTER;
+  return { x, y: terrainHeight(x, z), z, heading, width: UNI_W, depth: UNI_D, radius: 38 };
 })();
 
 /** Cristo do Imperador, no topo do Morro do Imperador. */
