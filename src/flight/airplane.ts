@@ -170,7 +170,8 @@ function buildHitboxFromAabb(aabb: BoundingBox): {
 
   const propZ = min.z + length * 0.055;
   const propY = min.y + height * 0.23;
-  const propR = Math.min(halfSpan * 0.23, height * 0.32);
+  // Keep the estimated disc inside the mesh bounds when the GLB origin is at its wheels.
+  const propR = Math.min(halfSpan * 0.23, height * 0.32, propY - min.y);
 
   const bellyY = min.y;
   const canopyY = min.y + height * 0.6;
@@ -201,7 +202,7 @@ function buildHitboxFromAabb(aabb: BoundingBox): {
     [cx, bellyY, min.z + length * 0.125],
     [cx - halfSpan * 0.11, min.y + height * 0.06, wingTipZ],
     [cx + halfSpan * 0.11, min.y + height * 0.06, wingTipZ],
-    [cx, min.y + height * 0.04, max.z - length * 0.115],
+    [cx, hStabYLow, max.z - length * 0.115],
     // Topo do canopy (voo invertido)
     [cx, canopyY, min.z + length * 0.44],
     [cx, canopyY, min.z + length * 0.55],
