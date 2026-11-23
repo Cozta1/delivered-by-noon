@@ -139,7 +139,6 @@ npm test           # roda testes (vitest)
 - `public/models/` — Assets GLB exportados do Blender
 - `scripts/` — Scripts de automação (publicar no Editor, montar cena, exportar mundo)
 - `docs/editor.md` — Guia de publicação no PlayCanvas Editor
-- `brain/` — Decisões, visão, roadmap, orquestração do projeto
 
 ---
 
