@@ -303,7 +303,10 @@ export function attachAsyncGlb({ app, root, procedural, model, filename, onMount
     procedural.destroy();
   }
 
-  const editorAsset = findGlbContainerAsset(app, filename);
+  // No Editor o container importado fica velho (o Editor não reimporta o GLB); a cópia binária
+  // `<arquivo>.glb.bin` enviada pelo publicador é sempre a versão atual, igual à local.
+  const hasFreshBinary = !!app.assets.find?.(`${filename}.bin`, 'binary');
+  const editorAsset = hasFreshBinary ? null : findGlbContainerAsset(app, filename);
   if (editorAsset) {
     if (editorAsset.resource) {
       applyResource(editorAsset.resource as ContainerResource);

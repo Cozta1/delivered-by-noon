@@ -224,6 +224,7 @@ function buildHitboxFromAabb(aabb: BoundingBox): {
 function findGlbAsset(app: AppBase): Asset | null {
   const assets = app.assets;
   if (!assets) return null;
+  if (assets.find?.('a29.glb.bin', 'binary')) return null; // cópia binária atual vence o container velho do Editor
   const direct = assets.find?.('a29.glb', 'container');
   if (direct) return direct;
   const matches = assets.filter?.((a) => {

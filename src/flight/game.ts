@@ -949,6 +949,7 @@ export function startFlightSim(
     cockpitModule.update(0);
   }
 
+  let destroyed = false;
   let isLoading = true;
   const menus = createGameMenus(uiRoot, settings, {
     onStartFlight: () => beginMissionPlay(false),
@@ -1323,7 +1324,6 @@ export function startFlightSim(
   // Depuração pelo console do navegador
   Object.assign(window, { app, flight: ctx.state, mission: ctx.mission });
 
-  let destroyed = false;
   return {
     applyOptions(next: FlightSimOptions) {
       if (destroyed) return;
