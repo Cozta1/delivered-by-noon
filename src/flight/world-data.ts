@@ -1070,8 +1070,26 @@ function buildCity() {
     const roof = [Math.min(255, Math.round(cr * 0.76 + 18)), Math.min(255, Math.round(cg * 0.76 + 18)), Math.min(255, Math.round(cb * 0.76 + 20))];
     const u0 = Math.floor(r() * TEX_WINDOWS) / TEX_WINDOWS;
     const br = rng(Math.imul(Math.round(x * 10), 73856093) ^ Math.imul(Math.round(z * 10), 19349663) ^ 0x51a7);
+    const dcB = dcCentro(x, z);
     const faces: [number, number, number, number][] = [[x0, z1, x1, z1], [x1, z1, x1, z0], [x1, z0, x0, z0], [x0, z0, x0, z1]];
     const pushBand = (ya: number, yb: number, va: number, vb: number, uOff: number) => {
+      // Torres fora do miolo do Centro usam anel compartilhado (8 vértices por faixa) para manter o mundo < 5,1 MB
+      if (!isHelipad && dcB >= 650) {
+        const cols = Math.min(4, Math.max(2, Math.round(Math.max(w, d) / WINDOW_M)));
+        const uA = uOff < 0.5 ? 0 : 0.5;
+        const uB = uA + cols / TEX_WINDOWS;
+        const base = pos.length / 3;
+        const ring: [number, number, number][] = [
+          [x0, z1, uA], [x1, z1, uB], [x1, z0, uA], [x0, z0, uB],
+        ];
+        for (const [px, pz, pu] of ring) { pos.push(px, ya, pz); uv.push(pu, va); col.push(cr, cg, cb, 255); }
+        for (const [px, pz, pu] of ring) { pos.push(px, yb, pz); uv.push(pu, vb); col.push(cr, cg, cb, 255); }
+        for (let i = 0; i < 4; i++) {
+          const j = (i + 1) % 4;
+          idx.push(base + i, base + j, base + 4 + j, base + i, base + 4 + j, base + 4 + i);
+        }
+        return;
+      }
       for (const [ax, az, bx, bz] of faces) {
         const base = pos.length / 3, len = Math.hypot(bx - ax, bz - az);
         const cols = Math.max(2, Math.round(len / WINDOW_M));
@@ -1108,7 +1126,6 @@ function buildCity() {
 
     // Casa de máquinas e caixa d'água deslocadas para um canto (mantém centro da laje livre e preserva o heliponto)
     if (!isHelipad) {
-      const dcB = dcCentro(x, z);
       const sx = br() < 0.5 ? -1 : 1, sz = br() < 0.5 ? -1 : 1;
       const wallCol = [Math.min(255, Math.round(cr * 0.84 + 14)), Math.min(255, Math.round(cg * 0.84 + 14)), Math.min(255, Math.round(cb * 0.84 + 14))];
       const capCol = [Math.min(255, Math.round(cr * 0.92 + 12)), Math.min(255, Math.round(cg * 0.92 + 12)), Math.min(255, Math.round(cb * 0.92 + 12))];
@@ -1228,43 +1245,78 @@ export function windowImages() {
     gd.fillRect(0, sy - 3, size, 6);
   }
 
-  // Térreo comercial com vitrines, portas de entrada, rodapé de pedra e marquise discreta.
-  // Row 0 (glTF, v=0 no topo do PNG) e Row 15 espelhada (PlayCanvas flipY=true).
+  // Térreo em duas metades horizontais no mesmo atlas (Row 0 para glTF e Row 15 espelhada para PlayCanvas):
+  // - Colunas 0..3 (u = 0..0,5): térreo comercial (vitrines, porta de loja/prédio e marquise discreta)
+  // - Colunas 4..7 (u = 0,5..1): térreo residencial (porta de madeira c/ batente claro e janelas residenciais c/ caixilho)
   const awningPalette = ['#9e7660', '#637a8c', '#8e8068', '#a6876d'];
   const drawGroundRow = (flipCanvas: boolean) => {
     const gy = (fromBot: number, h: number) => (flipCanvas ? size - fromBot - h : fromBot);
+    // Rodapé de pedra/concreto contínuo na base
     gd.fillStyle = '#8b8882';
     gd.fillRect(0, gy(0, 5), size, 5);
     gd.fillStyle = '#6f6c67';
     gd.fillRect(0, gy(5, 1), size, 1);
+    // Marquise contínua apenas na metade comercial (cols 0..3)
     gd.fillStyle = '#b4ada0';
-    gd.fillRect(0, gy(25, 3), size, 3);
+    gd.fillRect(0, gy(25, 3), 4 * colPx, 3);
     for (let col = 0; col < TEX_WINDOWS; col++) {
       const bx = col * colPx;
-      const isEntrance = col === 1 || col === 5;
-      gd.fillStyle = '#f8f6f1';
-      gd.fillRect(bx + 4, gy(6, 19), 56, 19);
-      if (isEntrance) {
-        gd.fillStyle = '#5a4a3f';
-        gd.fillRect(bx + 12, gy(6, 17), 40, 17);
-        gd.fillStyle = '#3b536b';
-        gd.fillRect(bx + 16, gy(9, 11), 14, 11);
-        gd.fillRect(bx + 34, gy(9, 11), 14, 11);
-        gd.fillStyle = '#d8c59e';
-        gd.fillRect(bx + 16, gy(21, 2), 32, 2);
-      } else {
-        gd.fillStyle = '#2d4760';
-        gd.fillRect(bx + 7, gy(7, 17), 50, 17);
-        gd.fillStyle = '#6b94b6';
-        gd.fillRect(bx + 10, gy(8, 15), 11, 15);
-        if (col % 2 === 0) {
-          gd.fillStyle = '#b89f79';
-          gd.fillRect(bx + 26, gy(8, 11), 27, 11);
+      if (col < 4) {
+        // Metade comercial (cols 0..3): porta em col 1, vitrines amplas em cols 0, 2, 3
+        gd.fillStyle = '#f8f6f1';
+        gd.fillRect(bx + 4, gy(6, 19), 56, 19);
+        if (col === 1) {
+          gd.fillStyle = '#5a4a3f';
+          gd.fillRect(bx + 12, gy(6, 17), 40, 17);
+          gd.fillStyle = '#3b536b';
+          gd.fillRect(bx + 16, gy(9, 11), 14, 11);
+          gd.fillRect(bx + 34, gy(9, 11), 14, 11);
+          gd.fillStyle = '#d8c59e';
+          gd.fillRect(bx + 16, gy(21, 2), 32, 2);
+        } else {
+          gd.fillStyle = '#2d4760';
+          gd.fillRect(bx + 7, gy(7, 17), 50, 17);
+          gd.fillStyle = '#6b94b6';
+          gd.fillRect(bx + 10, gy(8, 15), 11, 15);
+          if (col % 2 === 0) {
+            gd.fillStyle = '#b89f79';
+            gd.fillRect(bx + 26, gy(8, 11), 27, 11);
+          }
+          gd.fillStyle = '#f4f1ea';
+          gd.fillRect(bx + 31, gy(7, 17), 2, 17);
+          gd.fillStyle = awningPalette[col % awningPalette.length];
+          gd.fillRect(bx + 5, gy(23, 3), 54, 3);
         }
-        gd.fillStyle = '#f4f1ea';
-        gd.fillRect(bx + 31, gy(7, 17), 2, 17);
-        gd.fillStyle = awningPalette[col % awningPalette.length];
-        gd.fillRect(bx + 5, gy(23, 3), 54, 3);
+      } else if (col === 5) {
+        // Metade residencial (col 5): porta residencial de madeira com batente claro e bandeira de vidro
+        gd.fillStyle = '#f8f6f1';
+        gd.fillRect(bx + 14, gy(5, 22), 36, 22);
+        gd.fillStyle = '#6d4d3a';
+        gd.fillRect(bx + 18, gy(5, 19), 28, 19);
+        gd.fillStyle = '#523829';
+        gd.fillRect(bx + 21, gy(7, 8), 22, 8);
+        gd.fillStyle = '#6f96b6';
+        gd.fillRect(bx + 21, gy(17, 5), 22, 5);
+        gd.fillStyle = '#d8d2c6';
+        gd.fillRect(bx + 12, gy(25, 2), 40, 2);
+      } else {
+        // Metade residencial (cols 4, 6, 7): janela residencial com caixilho claro, peitoril, vidro azulado e cortina
+        const wx = bx + 11;
+        gd.fillStyle = '#ffffff';
+        gd.fillRect(wx - 3, gy(8, 19), 48, 19);
+        gd.fillStyle = col === 6 ? '#3a5a78' : '#466a8b';
+        gd.fillRect(wx, gy(10, 15), 42, 15);
+        gd.fillStyle = '#7ea9cc';
+        gd.fillRect(wx + 3, gy(11, 13), 11, 13);
+        if (col === 4) {
+          gd.fillStyle = '#ddd6c7';
+          gd.fillRect(wx + 31, gy(11, 13), 10, 13);
+        }
+        gd.fillStyle = '#f8f6f1';
+        gd.fillRect(wx + 20, gy(10, 15), 2, 15);
+        gd.fillRect(wx, gy(17, 2), 42, 2);
+        gd.fillStyle = '#c5c0b6';
+        gd.fillRect(wx - 4, gy(7, 2), 50, 2);
       }
     }
   };
@@ -1693,16 +1745,14 @@ export function cityLayout() {
   };
 }
 
-/** Textura da faixa da via: calçadas nas bordas (14%), linhas brancas laterais e uma seta de sentido (via de mão única). */
+/** Textura da faixa da via: calçadas nas bordas (14%) e linhas brancas laterais. */
 export function cityStreetImages() {
   const road = image(64, 64);
   road.rectangles.push({ color: '#a3a6aa', x: 0, y: 0, width: 64, height: 64 });
   road.rectangles.push({ color: '#555560', x: 9, y: 0, width: 46, height: 64 });
   road.rectangles.push({ color: '#d6d3c4', x: 8, y: 0, width: 1, height: 64 }, { color: '#d6d3c4', x: 55, y: 0, width: 1, height: 64 });
   for (const x of [12, 51]) road.rectangles.push({ color: '#eee9d5', x, y: 0, width: 1, height: 64 });
-  // seta de sentido no meio da faixa (aponta para a frente da via = v crescente = y crescente na imagem); sem tracejado central
-  road.rectangles.push({ color: '#eee9d5', x: 30, y: 12, width: 4, height: 26 });
-  for (let k = 0; k < 7; k++) road.rectangles.push({ color: '#eee9d5', x: 32 - (14 - k * 2) / 2, y: 38 + k * 2, width: 14 - k * 2, height: 2 });
+  // sem seta de sentido nem tracejado central: só as bordas brancas (e as faixas de pedestre nos cruzamentos)
   return { road };
 }
 

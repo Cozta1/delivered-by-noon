@@ -75,11 +75,14 @@ interface OBB {
 const HASH = 64;
 const OBB_CELL = 40;
 const RIVER_CLS = 9;
-const MAX_VERTS = 56_000; // mantém índices Uint16 (<= 65535) e mundo inteiro < 5,1 MB
+const MAX_VERTS = 42_600; // mantém índices Uint16 (<= 65535) e mundo inteiro < 5,1 MB com TEXCOORD_0
 const MAX_SLOPE = 0.42; // Juiz de Fora tem muitos bairros em encosta (Granbery, Santa Helena, Bairu, São Pedro)
 const MAX_FOOTPRINT_DROP = 7.2; // base estendida acompanha o declive (muro de arrimo)
 const ROAD_MARGIN = 0.85; // folga além da calçada desenhada (asfalto / 0,72)
 const FLOOR_H = 3.1;
+const TEX_WINDOWS = 8;
+const TEX_ROWS = 16;
+const ROOF_UV = 0.5;
 
 const hex = (h: string): [number, number, number] => [
   parseInt(h.slice(1, 3), 16),
@@ -89,10 +92,10 @@ const hex = (h: string): [number, number, number] => [
 
 // Paleta realista de Juiz de Fora: bege, creme, areia, terracota suave, cinza claro e azul-acinzentado
 const WALL_COLORS = [
-  '#e2d7c4', '#d9cab3', '#d1bf9f', '#e5ded0',
-  '#ccb696', '#c5b59f', '#d3bca3', '#c49d87',
-  '#bfa892', '#cdd0d2', '#bfc6cc', '#aebbc7',
-  '#dcd4c4', '#c9c0b1',
+  '#e7ded0', '#dfd2bd', '#d8c7ab', '#ebe5d8',
+  '#d3bf9f', '#ccbfa9', '#dac5ad', '#cba58f',
+  '#c7b09b', '#d4d7d9', '#c7ced4', '#b7c3ce',
+  '#e2dbcc', '#d0c8b9',
 ].map(hex);
 
 // Telhas cerâmicas variadas (terracota, barro envelhecido, siena, ocre-marrom — sem laranja uniforme)
@@ -101,10 +104,8 @@ const TILE_COLORS = [
   '#723f32', '#a66243', '#844b36', '#984430', '#683d33',
 ].map(hex);
 
-const SLAB_COLORS = ['#ada9a1', '#9e9b94', '#bab5ac', '#91908b'].map(hex);
-const MURO_COLORS = ['#d4ccbd', '#c8c1b4', '#dcd5c7', '#bfb9ad'].map(hex);
-const GLASS_DARK = ['#42617e', '#36526d', '#4f708e', '#304962'].map(hex);
-const GLASS_WARM = ['#c9ae7d', '#ba9d6b'].map(hex);
+const SLAB_COLORS = ['#b3afa7', '#a4a19a', '#bfbab1', '#979691'].map(hex);
+const MURO_COLORS = ['#dad2c4', '#cec7ba', '#e2dbce', '#c5bfb3'].map(hex);
 
 const hashKey = (gx: number, gz: number) => gx * 4096 + gz;
 
@@ -505,13 +506,15 @@ function buildBairros(): { mesh: MeshData; lots: BairroLot[]; blocks: UrbanBlock
   // 5. Buffers da malha única
   const pos: number[] = [];
   const col: number[] = [];
+  const uv: number[] = [];
   const idx: number[] = [];
   const lots: BairroLot[] = [];
 
-  const pushVert = (x: number, y: number, z: number, c: [number, number, number]): number => {
+  const pushVert = (x: number, y: number, z: number, c: [number, number, number], u = ROOF_UV, v = ROOF_UV): number => {
     const id = pos.length / 3;
     pos.push(x, y, z);
     col.push(c[0], c[1], c[2], 255);
+    uv.push(u, v);
     return id;
   };
 
@@ -610,16 +613,13 @@ function buildBairros(): { mesh: MeshData; lots: BairroLot[]; blocks: UrbanBlock
     const yTop = yEave + ridgeH;
 
     // Cores realistas de Juiz de Fora: paredes claras/médias, telhas cerâmicas variadas e lajes discretas
-    const shade = 0.89 + shadeR * 0.12;
+    const shade = 0.91 + shadeR * 0.12;
     const wallTop = scaleRgb(WALL_COLORS[Math.floor(wallR * WALL_COLORS.length)], shade);
-    const wallBot = scaleRgb(wallTop, 0.83);
+    const wallBot = scaleRgb(wallTop, 0.94);
     const roofBase = roof === 'slab'
       ? scaleRgb(SLAB_COLORS[Math.floor(tileR * SLAB_COLORS.length)], shade)
-      : scaleRgb(TILE_COLORS[Math.floor(tileR * TILE_COLORS.length)], 0.88 + shadeR * 0.18);
+      : scaleRgb(TILE_COLORS[Math.floor(tileR * TILE_COLORS.length)], 0.90 + shadeR * 0.16);
     const roofPeak = scaleRgb(roofBase, 1.12);
-    const winColor = winR < 0.18
-      ? GLASS_WARM[Math.floor(winR * 100) % GLASS_WARM.length]
-      : GLASS_DARK[Math.floor(winR * 100) % GLASS_DARK.length];
 
     const toW = (u: number, y: number, v: number): [number, number, number] => [
       cx + u * rx + v * fx,
@@ -649,22 +649,32 @@ function buildBairros(): { mesh: MeshData; lots: BairroLot[]; blocks: UrbanBlock
     };
 
     // Recuo frontal + muro baixo nas casas (1-2 andares com telhado cerâmico, sempre dentro do lote validado)
-    const hasFrontWall = floors <= 2 && roof !== 'slab' && d >= 8.8 && (winR < 0.62);
+    const hasFrontWall = floors <= 2 && roof !== 'slab' && d >= 8.5 && (winR < 0.72);
     const setback = hasFrontWall ? 1.55 : 0;
     const vFront = hd - setback;
     const vBack = -hd;
     const vMid = (vFront + vBack) / 2;
     const dHouse = vFront - vBack;
 
-    // Paredes (8 vértices, 8 triângulos)
-    const wb0 = pushVert(...toW(-hw, yBase, vFront), wallBot);
-    const wb1 = pushVert(...toW(+hw, yBase, vFront), wallBot);
-    const wb2 = pushVert(...toW(+hw, yBase, vBack), wallBot);
-    const wb3 = pushVert(...toW(-hw, yBase, vBack), wallBot);
-    const wt0 = pushVert(...toW(-hw, yEave, vFront), wallTop);
-    const wt1 = pushVert(...toW(+hw, yEave, vFront), wallTop);
-    const wt2 = pushVert(...toW(+hw, yEave, vBack), wallTop);
-    const wt3 = pushVert(...toW(-hw, yEave, vBack), wallTop);
+    // Fachadas texturizadas pelo mesmo atlas dos prédios do Centro (8 vértices com U ping-pong):
+    // - Térreo comercial (cols 0..3) em parte dos sobrados/prédios baixos do Centro e avenidas
+    // - Térreo residencial com porta e janelas com caixilho (cols 4..7) nas casas e demais sobrados
+    const isCommercial = (dc < 950 && winR < 0.60) || (floors >= 3 && dc < 1450 && winR < 0.35);
+    const cols = Math.min(4, Math.max(2, Math.round(Math.max(w, dHouse) / 3.4)));
+    const uA = isCommercial ? 0 : 0.5;
+    const uB = uA + cols / TEX_WINDOWS;
+    const vBot = Math.max(-0.012, ((yBase - yGround) / FLOOR_H) / TEX_ROWS);
+    const vTop = floors / TEX_ROWS;
+
+    // Paredes (8 vértices, 8 triângulos — janelas com caixilho e portas nas 4 faces)
+    const wb0 = pushVert(...toW(-hw, yBase, vFront), wallBot, uA, vBot);
+    const wb1 = pushVert(...toW(+hw, yBase, vFront), wallBot, uB, vBot);
+    const wb2 = pushVert(...toW(+hw, yBase, vBack), wallBot, uA, vBot);
+    const wb3 = pushVert(...toW(-hw, yBase, vBack), wallBot, uB, vBot);
+    const wt0 = pushVert(...toW(-hw, yEave, vFront), wallTop, uA, vTop);
+    const wt1 = pushVert(...toW(+hw, yEave, vFront), wallTop, uB, vTop);
+    const wt2 = pushVert(...toW(+hw, yEave, vBack), wallTop, uA, vTop);
+    const wt3 = pushVert(...toW(-hw, yEave, vBack), wallTop, uB, vTop);
     const wb = [wb0, wb1, wb2, wb3];
     const wt = [wt0, wt1, wt2, wt3];
     for (let i = 0; i < 4; i++) {
@@ -675,13 +685,13 @@ function buildBairros(): { mesh: MeshData; lots: BairroLot[]; blocks: UrbanBlock
     // Muro baixo na frente do lote (com vão lateral de portão/garagem)
     if (hasFrontWall) {
       const muroTop = scaleRgb(MURO_COLORS[Math.floor(shadeR * MURO_COLORS.length)], shade);
-      const muroBot = scaleRgb(muroTop, 0.84);
+      const muroBot = scaleRgb(muroTop, 0.86);
       const yMuro = yGround + 1.22;
       const uEnd = hw * 0.44;
       pushBox(-hw, uEnd, hd - 0.36, hd, yBase, yMuro, muroBot, muroTop);
     }
 
-    // Telhado (beiral de 0,32 m nas telhas para volume claro de cima)
+    // Telhado (beiral de 0,32 m nas telhas; usa ROOF_UV liso sem janelas)
     const ov = 0.32;
     const ohw = hw + ov;
     const ovFront = vFront + ov;
@@ -705,9 +715,14 @@ function buildBairros(): { mesh: MeshData; lots: BairroLot[]; blocks: UrbanBlock
       }
     } else if (roof === 'gable') {
       if (w >= dHouse) {
+        // Oitões de reboco liso (UV separado das paredes para não esticar janelas no triângulo)
+        const g1 = pushVert(...toW(+hw, yEave, vFront), wallTop);
+        const g2 = pushVert(...toW(+hw, yEave, vBack), wallTop);
+        const g3 = pushVert(...toW(-hw, yEave, vBack), wallTop);
+        const g0 = pushVert(...toW(-hw, yEave, vFront), wallTop);
         const gL = pushVert(...toW(-hw, yTop, vMid), wallTop);
         const gR = pushVert(...toW(+hw, yTop, vMid), wallTop);
-        idx.push(wt1, wt2, gR, wt3, wt0, gL);
+        idx.push(g1, g2, gR, g3, g0, gL);
         const r0 = pushVert(...toW(-ohw, yOver, ovFront), roofBase);
         const r1 = pushVert(...toW(+ohw, yOver, ovFront), roofBase);
         const r2 = pushVert(...toW(+ohw, yOver, ovBack), roofBase);
@@ -716,9 +731,13 @@ function buildBairros(): { mesh: MeshData; lots: BairroLot[]; blocks: UrbanBlock
         const rR = pushVert(...toW(+ohw, yTop, vMid), roofPeak);
         idx.push(r0, r1, rR, r0, rR, rL, r2, r3, rL, r2, rL, rR);
       } else {
+        const g0 = pushVert(...toW(-hw, yEave, vFront), wallTop);
+        const g1 = pushVert(...toW(+hw, yEave, vFront), wallTop);
+        const g2 = pushVert(...toW(+hw, yEave, vBack), wallTop);
+        const g3 = pushVert(...toW(-hw, yEave, vBack), wallTop);
         const gF = pushVert(...toW(0, yTop, vFront), wallTop);
         const gB = pushVert(...toW(0, yTop, vBack), wallTop);
-        idx.push(wt0, wt1, gF, wt2, wt3, gB);
+        idx.push(g0, g1, gF, g2, g3, gB);
         const r0 = pushVert(...toW(-ohw, yOver, ovFront), roofBase);
         const r1 = pushVert(...toW(+ohw, yOver, ovFront), roofBase);
         const r2 = pushVert(...toW(+ohw, yOver, ovBack), roofBase);
@@ -749,44 +768,6 @@ function buildBairros(): { mesh: MeshData; lots: BairroLot[]; blocks: UrbanBlock
       }
     }
 
-    // Janelas azuladas nas fachadas: frente das casas e frente + lateral dos prédios de 3+ andares
-    const eps = 0.06;
-    if (floors >= 3) {
-      const bandCount = 2;
-      const sideSign = wallR < 0.5 ? 1 : -1;
-      for (let k = 0; k < bandCount; k++) {
-        const f = Math.round(((k + 1) * floors) / (bandCount + 1));
-        const y0 = yGround + f * FLOOR_H - 0.55;
-        const y1 = y0 + 1.3;
-        // Fachada frontal (+vFront)
-        const a = pushVert(...toW(-hw * 0.72, y0, vFront + eps), winColor);
-        const b = pushVert(...toW(+hw * 0.72, y0, vFront + eps), winColor);
-        const c = pushVert(...toW(+hw * 0.72, y1, vFront + eps), winColor);
-        const e = pushVert(...toW(-hw * 0.72, y1, vFront + eps), winColor);
-        idx.push(a, b, c, a, c, e);
-        // Fachada lateral (evita paredes totalmente lisas em vistas oblíquas)
-        if (k === 0) {
-          const su = sideSign * (hw + eps);
-          const vA = sideSign > 0 ? vFront - dHouse * 0.16 : vBack + dHouse * 0.16;
-          const vB = sideSign > 0 ? vBack + dHouse * 0.16 : vFront - dHouse * 0.16;
-          const sa = pushVert(...toW(su, y0, vA), winColor);
-          const sb = pushVert(...toW(su, y0, vB), winColor);
-          const sc = pushVert(...toW(su, y1, vB), winColor);
-          const se = pushVert(...toW(su, y1, vA), winColor);
-          idx.push(sa, sb, sc, sa, sc, se);
-        }
-      }
-    } else if (shadeR < 0.58) {
-      // Janela frontal discreta em casas de 1-2 andares
-      const y0 = yGround + (floors === 2 ? FLOOR_H + 1.05 : 1.15);
-      const y1 = y0 + 1.15;
-      const a = pushVert(...toW(-hw * 0.56, y0, vFront + eps), winColor);
-      const b = pushVert(...toW(+hw * 0.56, y0, vFront + eps), winColor);
-      const c = pushVert(...toW(+hw * 0.56, y1, vFront + eps), winColor);
-      const e = pushVert(...toW(-hw * 0.56, y1, vFront + eps), winColor);
-      idx.push(a, b, c, a, c, e);
-    }
-
     registerObb(obb);
     lots.push({ cx, cz, w, d, angle, floors, roof, yBase, yGround, yTop });
     return { placed: true, w, d };
@@ -803,7 +784,7 @@ function buildBairros(): { mesh: MeshData; lots: BairroLot[]; blocks: UrbanBlock
   };
 
   // 6. Passo 1: preenchimento denso dos quarteirões fechados formados pelas vias (mais próximos do Centro primeiro)
-  const CAP_BLOCKS = 27_500;
+  const CAP_BLOCKS = 19_500;
   for (const blk of blocks) {
     if (pos.length / 3 >= CAP_BLOCKS) break;
     const poly = toPoly(blk.pts);
@@ -903,9 +884,9 @@ function buildBairros(): { mesh: MeshData; lots: BairroLot[]; blocks: UrbanBlock
     }
   };
 
-  walkRoads(centroRoads, 3, 2.2, 33_500);
-  walkRoads(midRoads, 2, 1.55, 49_000);
-  walkRoads(outerRoads, 2, 1.15, 54_500);
+  walkRoads(centroRoads, 3, 2.2, 23_800);
+  walkRoads(midRoads, 2, 1.55, 39_500);
+  walkRoads(outerRoads, 2, 1.15, 42_000);
 
   // 8. Passo 3: preenchimento do miolo restante nos bairros próximos às vias ou núcleos
   const PITCH = 20;
@@ -927,7 +908,7 @@ function buildBairros(): { mesh: MeshData; lots: BairroLot[]; blocks: UrbanBlock
   }
 
   return {
-    mesh: { pos, idx, col, normals: calculateNormals(pos, idx) },
+    mesh: { pos, idx, col, uv, normals: calculateNormals(pos, idx) },
     lots,
     blocks,
   };

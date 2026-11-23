@@ -129,9 +129,9 @@ function buildCity(
   houseMaterial.update();
   materials.push(houseMaterial);
   if (houses.pos.length) meshEntity(parent, 'Casas', buildMesh(app, houses), houseMaterial);
-  // Edificação dos bairros (módulo opcional bairros.ts): uma malha com cores de vértice
+  // Edificação dos bairros (módulo opcional bairros.ts): compartilha o mesmo atlas/material dos prédios (sem draw call extra)
   const bairros = Object.values(import.meta.glob<{ bairrosData: () => MeshData }>('./bairros.ts', { eager: true }))[0];
-  if (bairros) meshEntity(parent, 'Bairros', buildMesh(app, bairros.bairrosData()), houseMaterial);
+  if (bairros) meshEntity(parent, 'Bairros', buildMesh(app, bairros.bairrosData()), m);
 
   const images=cityStreetImages();
   const makeTexture=(data:ImageData)=>{

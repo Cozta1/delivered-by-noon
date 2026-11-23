@@ -173,11 +173,15 @@ assert.deepEqual(data.windowImages(), data.windowImages(), 'Windows must be dete
   }
   await s.output('mundo-cidade.glb', [['Fachadas', { KHR_materials_emissive_strength: { emissiveStrength: 1.6 } }],['Lampadas dos postes',{KHR_materials_emissive_strength:{emissiveStrength:1.8}}]]);
 }
-// Módulo opcional dos bairros (Gemini): exporta bairrosData() como mundo-bairros.glb (pelo mesmo bundle de world-data)
+// Módulo opcional dos bairros (Gemini): exporta bairrosData() como mundo-bairros.glb usando o mesmo atlas de fachadas
 if (data.BAIRROS_MOD) {
   const s = scene('Bairros');
-  s.node(s.rootNode, 'Bairros', s.mesh('Bairros', { ...data.BAIRROS_MOD.bairrosData(), normals: null }, s.material('Bairros', [1, 1, 1], 0.15)));
-  await s.output('mundo-bairros.glb');
+  const images = data.windowImages();
+  const bairrosMat = s.material('Fachadas bairros', [1, 1, 1], 0.25, [1, 1, 1])
+    .setBaseColorTexture(s.texture('Janelas bairros - difuso', images.diffuse))
+    .setEmissiveTexture(s.texture('Janelas bairros - emissivo', images.emissive));
+  s.node(s.rootNode, 'Bairros', s.mesh('Bairros', { ...data.BAIRROS_MOD.bairrosData(), normals: null }, bairrosMat));
+  await s.output('mundo-bairros.glb', [['Fachadas bairros', { KHR_materials_emissive_strength: { emissiveStrength: 1.6 } }]]);
 }
 {
   const s = scene('Mar');
