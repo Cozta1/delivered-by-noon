@@ -44,7 +44,10 @@ const FOOT_TOP_HEIGHT = 55;
 
 const TOP_HEIGHT = 180;
 const CHASE_SMOOTH = 14;
-const CAR_SMOOTH = 18;
+const CAR_SMOOTH_XZ = 14;
+const CAR_SMOOTH_Y = 6.5;
+const CAR_ROT_SMOOTH = 12;
+const CAR_LOOK_SMOOTH_XZ = 20;
 const FOOT_SMOOTH = 18;
 const TOP_SMOOTH = 12;
 const HEAD_SMOOTH = 16;
@@ -99,17 +102,17 @@ export function createCameraRig({ app, world, plane, camera, state }: FlightCont
   let headYaw = 0;
   let headPitch = 0;
   let carOrbitIdle = 99;
-  // Sensação ("game feel"): tremor suave de baixa frequência (só nitro/impacto), inclinação leve e FOV suave
+  // Sensação ("game feel"): tremor reduzido em aeronaves, quase zero em carros, e amortecimento da suspensão
   let feelTime = 0;
   let impactShake = 0;
   let nitroShake = 0;
-  let carRollDeg = 0;
-  let prevHeading = state.heading;
+  let carFocusY = state.y;
+  const carLookTarget = new Vec3(state.x, state.y + 1.45, state.z);
+  const carSmoothRot = new Quat();
   let prevHeightAboveGround = state.heightAboveGround;
   let prevVerticalSpeed = state.verticalSpeed;
   const shakeRight = new Vec3();
   const shakeUp = new Vec3();
-  const tiltQuat = new Quat();
 
   const canvas = (app.graphicsDevice as { canvas?: HTMLCanvasElement } | undefined)?.canvas ?? null;
 
@@ -390,16 +393,30 @@ export function createCameraRig({ app, world, plane, camera, state }: FlightCont
   }
 
   function updateCarChase(dt: number, snap: boolean) {
-    // Chase baixa automotiva: segue o rumo do carro ou órbita do mouse sem atraso borrado
+    // Chase automotiva estável: amortecimento vertical e rotação suavizada para não repassar vibração da suspensão
     const safeDt = clamp(dt, 0, 0.1);
     const yawRad = aimYaw * DEG_TO_RAD;
     const pitchRad = aimPitch * DEG_TO_RAD;
     const backX = -Math.sin(yawRad) * Math.cos(pitchRad);
     const backZ = Math.cos(yawRad) * Math.cos(pitchRad);
 
+    if (snap) {
+      carFocusY = planePos.y;
+      carLookTarget.set(planePos.x, carFocusY + 1.45, planePos.z);
+    } else {
+      const alphaFocusY = 1 - Math.exp(-CAR_SMOOTH_Y * safeDt);
+      carFocusY += (planePos.y - carFocusY) * alphaFocusY;
+      // Limita defasagem vertical em rampas íngremes sem deixar passar trepidação de malha
+      carFocusY = clamp(carFocusY, planePos.y - 0.45, planePos.y + 0.45);
+      const alphaLookXZ = 1 - Math.exp(-CAR_LOOK_SMOOTH_XZ * safeDt);
+      carLookTarget.x += (planePos.x - carLookTarget.x) * alphaLookXZ;
+      carLookTarget.z += (planePos.z - carLookTarget.z) * alphaLookXZ;
+      carLookTarget.y = carFocusY + 1.45;
+    }
+
     desiredPos.set(
       planePos.x + backX * CAR_CHASE_DISTANCE,
-      planePos.y + CAR_CHASE_HEIGHT - Math.sin(pitchRad) * CAR_CHASE_DISTANCE * 0.55,
+      carFocusY + CAR_CHASE_HEIGHT - Math.sin(pitchRad) * CAR_CHASE_DISTANCE * 0.55,
       planePos.z + backZ * CAR_CHASE_DISTANCE,
     );
     const ceiling = Math.max(planePos.y + 3.5, desiredPos.y + 0.8);
@@ -409,36 +426,36 @@ export function createCameraRig({ app, world, plane, camera, state }: FlightCont
     if (snap) {
       smoothPos.copy(desiredPos);
     } else {
-      const alpha = 1 - Math.exp(-CAR_SMOOTH * safeDt);
-      smoothPos.lerp(smoothPos, desiredPos, alpha);
+      const alphaXZ = 1 - Math.exp(-CAR_SMOOTH_XZ * safeDt);
+      const alphaY = 1 - Math.exp(-CAR_SMOOTH_Y * safeDt);
+      smoothPos.x += (desiredPos.x - smoothPos.x) * alphaXZ;
+      smoothPos.z += (desiredPos.z - smoothPos.z) * alphaXZ;
+      smoothPos.y += (desiredPos.y - smoothPos.y) * alphaY;
       const minCamY = surfaceFloorAt(smoothPos.x, smoothPos.z, Math.max(planePos.y + 3.5, smoothPos.y + 0.8)) + 0.9;
       if (smoothPos.y < minCamY) smoothPos.y = minCamY;
     }
     camera.setPosition(smoothPos);
-    lookTarget.set(planePos.x, planePos.y + 1.45, planePos.z);
-    safeLookAt(lookTarget, aimYaw);
-    // Leve inclinação da câmera nas curvas do carro (respeita "reduzir movimento")
-    const reduceMotion = getRuntime(state).settings.reduceMotion;
-    const targetRoll =
-      !reduceMotion && Math.abs(state.speed) > 5 && safeDt > 0.0005
-        ? clamp((shortestAngleDiff(prevHeading, state.heading) / safeDt) * 0.04, -2.6, 2.6)
-        : 0;
-    carRollDeg = snap ? 0 : carRollDeg + (targetRoll - carRollDeg) * (1 - Math.exp(-8 * safeDt));
-    if (Math.abs(carRollDeg) > 0.03) {
-      tiltQuat.setFromAxisAngle(Vec3.FORWARD, carRollDeg);
-      camRot.copy(camera.getRotation()).mul(tiltQuat);
-      camera.setRotation(camRot);
+    safeLookAt(carLookTarget, aimYaw);
+    if (snap) {
+      carSmoothRot.copy(camera.getRotation());
+    } else {
+      targetRot.copy(camera.getRotation());
+      const alphaRot = 1 - Math.exp(-CAR_ROT_SMOOTH * safeDt);
+      carSmoothRot.slerp(carSmoothRot, targetRot, alphaRot);
+      camera.setRotation(carSmoothRot);
     }
+
     if (camera.camera) {
+      const reduceMotion = getRuntime(state).settings.reduceMotion;
       const nitroOn = isTunedNitroActive(state);
       const speedAbs = Math.abs(state.speed);
-      const maxAdd = reduceMotion ? 2.0 : state.vehicle === 'tuned' ? 8.5 : 4.5;
+      const maxAdd = reduceMotion ? 1.5 : state.vehicle === 'tuned' ? 6.5 : 4.0;
       const baseAdd =
         state.vehicle === 'tuned'
-          ? clamp((speedAbs - 18) / 42, 0, 1) * 5.5 + (nitroOn ? 3.0 : 0)
-          : clamp((speedAbs - 16) / 34, 0, 1) * 4.5;
+          ? clamp((speedAbs - 18) / 42, 0, 1) * 4.2 + (nitroOn ? 2.3 : 0)
+          : clamp((speedAbs - 16) / 34, 0, 1) * 4.0;
       const targetFov = FOV.chase + Math.min(maxAdd, baseAdd);
-      camera.camera.fov = snap ? targetFov : camera.camera.fov + (targetFov - camera.camera.fov) * (1 - Math.exp(-4.2 * safeDt));
+      camera.camera.fov = snap ? targetFov : camera.camera.fov + (targetFov - camera.camera.fov) * (1 - Math.exp(-3.6 * safeDt));
     }
   }
 
@@ -574,18 +591,33 @@ export function createCameraRig({ app, world, plane, camera, state }: FlightCont
 
     const safeDt = clamp(dt, 0, 0.1);
     feelTime = (feelTime + safeDt) % 1000;
-    impactShake *= Math.exp(-7.0 * safeDt);
+    impactShake *= Math.exp(-8.5 * safeDt);
     if (impactShake < 0.004) impactShake = 0;
 
-    // ZERO tremor em velocidade normal: vibração suave e baixa frequência apenas no nitro ou em impacto/pouso
-    const targetNitro = state.vehicle === 'tuned' && !state.crashed && isTunedNitroActive(state) ? 0.022 : 0;
-    nitroShake += (targetNitro - nitroShake) * (1 - Math.exp(-8.0 * safeDt));
-    if (nitroShake < 0.0008) nitroShake = 0;
+    // Veículos de chão (carro, tunado, a pé): sem sacudida por velocidade ou nitro; impacto quase zero
+    const isGround = isCar(state.vehicle) || state.vehicle === 'foot';
+    if (isGround) {
+      nitroShake = 0;
+      const groundAmp = Math.min(0.012, impactShake * 0.012);
+      if (groundAmp <= 0.0005) return;
+      const sx = Math.sin(feelTime * 9.5) * groundAmp;
+      const sy = Math.cos(feelTime * 11.2) * groundAmp * 0.65;
+      camRot.copy(camera.getRotation());
+      camRot.transformVector(Vec3.RIGHT, shakeRight);
+      camRot.transformVector(Vec3.UP, shakeUp);
+      camPos.set(
+        smoothPos.x + shakeRight.x * sx + shakeUp.x * sy,
+        smoothPos.y + shakeRight.y * sx + shakeUp.y * sy,
+        smoothPos.z + shakeRight.z * sx + shakeUp.z * sy,
+      );
+      camera.setPosition(camPos);
+      return;
+    }
 
-    const amp = Math.min(0.24, nitroShake + impactShake * 0.24);
+    nitroShake = 0;
+    const amp = Math.min(0.22, impactShake * 0.22);
     if (amp <= 0.001) return;
 
-    // Ondas contínuas de baixa frequência (~1.8–3.2 Hz) sem ruído quadro-a-quadro que pareça motion blur
     const freqScale = impactShake > 0.05 ? 1.25 : 1.0;
     const sx = (Math.sin(feelTime * 11.5 * freqScale) * 0.65 + Math.cos(feelTime * 16.2 * freqScale) * 0.35) * amp;
     const sy = (Math.cos(feelTime * 13.7 * freqScale) * 0.7 + Math.sin(feelTime * 18.4 * freqScale) * 0.3) * amp * 0.72;
@@ -698,7 +730,6 @@ export function createCameraRig({ app, world, plane, camera, state }: FlightCont
         }
         snapNext = false;
         lastPlanePos.copy(planePos);
-        prevHeading = state.heading;
         prevHeightAboveGround = state.heightAboveGround;
         prevVerticalSpeed = state.verticalSpeed;
         return;
@@ -727,7 +758,6 @@ export function createCameraRig({ app, world, plane, camera, state }: FlightCont
       updateAimState(dt);
       applyActiveMode(dt, snapNext);
       snapNext = false;
-      prevHeading = state.heading;
       prevHeightAboveGround = state.heightAboveGround;
       prevVerticalSpeed = state.verticalSpeed;
     },

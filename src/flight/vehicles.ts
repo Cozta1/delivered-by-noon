@@ -1,8 +1,10 @@
 ﻿import { Entity, KEY_E } from 'playcanvas';
 import { buildVehicleModel, type VehicleModel } from './models';
-import { createCarController } from './car';
+import { extractHitboxFootprint, type HitboxFootprint } from './models/glb';
+import { type CarCollider, createCarController } from './car';
 import { createFootController } from './foot';
 import { createFlightController } from './flight';
+import { getTrafficObstacles } from './trafego';
 import { AIRPORT, WORKSHOP, carSpots, cityData, createWorldPhysics, terrainHeight } from './world-data';
 import { canEnterVehicle, onMissionRestart } from './mission';
 import type { FlightContext, FlightModule, Stage, VehicleKind, VehicleSpawn } from './types';
@@ -46,6 +48,40 @@ export function createVehicleSystem(ctx:FlightContext):FlightModule & {enterStag
   person.root.enabled=false;original.root.enabled=false;
   let current:VehicleSpawn|undefined,controller:FlightModule;
   let destroyed=false;
+  const carColliders: CarCollider[] = [];
+  const parkedFp: HitboxFootprint = { halfWidth: 0, halfLength: 0, height: 0, centerX: 0, centerZ: 0 };
+  function collectOtherCars(): ReadonlyArray<CarCollider> {
+    carColliders.length = 0;
+    const traffic = getTrafficObstacles();
+    for (let i = 0; i < traffic.length; i++) {
+      const t = traffic[i];
+      carColliders.push({
+        x: t.x,
+        y: t.y,
+        z: t.z,
+        heading: t.heading ?? 0,
+        halfWidth: t.halfWidth ?? t.radius,
+        halfLength: t.halfLength ?? t.radius,
+        height: t.height ?? 1.5,
+      });
+    }
+    for (let i = 0; i < spawns.length; i++) {
+      const sp = spawns[i];
+      if (sp === current || (sp.kind !== 'car' && sp.kind !== 'tuned')) continue;
+      const m = models.get(sp.id);
+      const fp = extractHitboxFootprint(m?.hitbox, parkedFp);
+      carColliders.push({
+        x: sp.x,
+        y: sp.y,
+        z: sp.z,
+        heading: sp.heading,
+        halfWidth: fp && fp.halfWidth > 0.3 ? fp.halfWidth : 0.88,
+        halfLength: fp && fp.halfLength > 0.5 ? fp.halfLength : 2.1,
+        height: fp ? fp.height : 1.45,
+      });
+    }
+    return carColliders;
+  }
   function select(kind:VehicleKind,model:VehicleModel,pose:{x:number;y:number;z:number;heading:number},spawn?:VehicleSpawn & {speed?:number}) {
     controller?.destroy?.();
     state.vehicle=kind;
@@ -54,7 +90,7 @@ export function createVehicleSystem(ctx:FlightContext):FlightModule & {enterStag
     model.root.enabled=true;
     model.root.setPosition(pose.x,pose.y,pose.z);model.root.setLocalEulerAngles(0,-pose.heading,0);
     const activeContext={...ctx,world:physics,plane:model};
-    controller=kind==='car'||kind==='tuned'?createCarController(activeContext,physics):kind==='foot'?createFootController(activeContext,physics):createFlightController(activeContext,spawn,spawn?homes.get(spawn.id):undefined);
+    controller=kind==='car'||kind==='tuned'?createCarController(activeContext,physics,collectOtherCars):kind==='foot'?createFootController(activeContext,physics):createFlightController(activeContext,spawn,spawn?homes.get(spawn.id):undefined);
     state.altitude=state.y;state.heightAboveGround=Math.max(0,state.y-physics.surfaceAt(state.x,state.z,state.y+.1));
   }
   function enter(spawn:VehicleSpawn,pose?:StagePose) {

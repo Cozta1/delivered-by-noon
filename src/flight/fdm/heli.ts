@@ -62,8 +62,21 @@ export class HeliDynamics {
     if(this.position.y>2500){this.position.y=2500;this.velocity.y=Math.min(0,this.velocity.y);}
     const floor=groundAt(this.position.x,this.position.z)+clearance;this.grounded=false;
     if(this.position.y<=floor) {
-      if(floor-this.position.y>.3||Math.abs(this.velocity.y)>=3||Math.abs(this.pitch)>18||Math.abs(this.roll)>18||Math.hypot(this.velocity.x,this.velocity.z)>20)this.crashed=true;
-      else {this.position.y=floor;this.velocity.set(0,0,0);this.grounded=true;}
+      const penetration=floor-this.position.y;
+      const hardDrop=this.velocity.y<-6;
+      const hardHorizontal=Math.hypot(this.velocity.x,this.velocity.z)>22;
+      const extremeTilt=Math.abs(this.pitch)>60||Math.abs(this.roll)>60;
+      const wallImpact=penetration>1.5;
+      if(wallImpact||hardDrop||extremeTilt||hardHorizontal) {
+        this.crashed=true;
+      } else {
+        this.position.y=floor;
+        if(this.velocity.y<0)this.velocity.y=0;
+        const slide=Math.exp(-dt*6);
+        this.velocity.x*=slide;this.velocity.z*=slide;
+        if(this.velocity.lengthSq()<1e-4)this.velocity.set(0,0,0);
+        if(collective<=0&&this.velocity.y<=.05)this.grounded=true;
+      }
     }
     this.rotation.setFromEulerAngles(this.pitch,-this.heading,-this.roll);
   }

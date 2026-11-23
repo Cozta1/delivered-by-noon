@@ -63,7 +63,8 @@ const QUANTUM_HEADROOM = 1.02;
 const MAX_FEEDBACK = 0.92;
 const F_MIN = 10;
 const F_MAX = 20000;
-const TC = 0.02;
+const TC = 0.025;
+const TC_GAIN = 0.045;
 const TC_DELAY = 0.09;
 const LOOKAHEAD = 0.004;
 
@@ -504,8 +505,7 @@ class CombustionProcessor extends AudioWorkletProcessor {
   _fire(e, load, rough, low, ripple) {
     const cov = this.ccv * (0.7 + 2.3 * (1 - load) * (1 - load)) * (1 + 2.5 * rough) * (1 + low);
     const trim = 1 + (e.ampTrim - 1) * (1 + 1.5 * low);
-    let A = trim * Math.max(0.15, 1 + this.gauss() * cov);
-    if (rough > 0 && this.rand() < 0.06 * rough * rough) A *= 0.12;
+    const A = trim * Math.max(0.25, 1 + this.gauss() * cov);
     const h = this.hardness * load;
     const a = this.attack * (0.55 + 0.85 * h);
     const b = this.decay * (1.25 - 0.35 * h) * e.decayTrim * (1 + 0.5 * cov * this.gauss());
@@ -1745,12 +1745,12 @@ export class CarEngineVoice {
     this.sub = new SubBassLayer(ctx, this.profile);
     this.sub.output.connect(mixBus);
 
-    // Banco de estouros (corte de giro, troca de marcha, nitro, overrun)
-    this.pops = new ExhaustPopBank(ctx, this.profile, this.isTuned ? 8 : 4);
+    // Banco de estouros desativado (motor contínuo sem estalos/pipocos/backfire no escapamento)
+    this.pops = new ExhaustPopBank(ctx, this.profile, 1);
     const popSend = keep(ctx.createGain());
-    popSend.gain.value = this.isTuned ? 1.1 : 0.55;
+    popSend.gain.value = 0;
     const popDirect = keep(ctx.createGain());
-    popDirect.gain.value = this.isTuned ? 0.72 : 0.35;
+    popDirect.gain.value = 0;
     this.pops.combustionOutput.connect(popSend);
     for (let i = 0; i < this.exhaust.inputs.length; i++) {
       popSend.connect(this.exhaust.inputs[i]);
@@ -1865,21 +1865,19 @@ export class CarEngineVoice {
   }
 
   private fireBov(now: number, strength: number): void {
-    if (!this.isTuned || now - this.lastBov < 0.28) return;
+    if (!this.isTuned || now - this.lastBov < 0.36) return;
     this.lastBov = now;
     const t = now + LOOKAHEAD;
-    const amp = clamp(0.42 * strength, 0.04, 0.55);
-    const dur = 0.16 + 0.16 * clamp(strength, 0, 1);
+    const amp = clamp(0.18 * strength, 0.02, 0.24);
+    const dur = 0.18 + 0.14 * clamp(strength, 0, 1);
 
     this.bovBP.frequency.cancelScheduledValues(t);
-    this.bovBP.frequency.setValueAtTime(2800 + 1200 * strength, t);
-    this.bovBP.frequency.exponentialRampToValueAtTime(620, t + dur * 0.85);
+    this.bovBP.frequency.setTargetAtTime(2400 + 800 * strength, t, 0.015);
+    this.bovBP.frequency.setTargetAtTime(680, t + 0.03, dur * 0.38);
 
     this.bovGain.gain.cancelScheduledValues(t);
-    this.bovGain.gain.setValueAtTime(0.0004, t);
-    this.bovGain.gain.linearRampToValueAtTime(amp, t + 0.012);
-    this.bovGain.gain.exponentialRampToValueAtTime(0.0004, t + dur);
-    this.bovGain.gain.setValueAtTime(0, t + dur + 0.005);
+    this.bovGain.gain.setTargetAtTime(amp, t, 0.022);
+    this.bovGain.gain.setTargetAtTime(0.0001, t + 0.055, dur * 0.32);
   }
 
   update(p: EngineFrameParams, activeLevel: number): void {
@@ -1900,28 +1898,27 @@ export class CarEngineVoice {
 
     if (p.dt > 0) {
       const rise = (p.load - this.prevLoad) / p.dt;
-      this.bark = Math.max(this.bark * Math.exp(-p.dt / 0.16), clamp(rise / 10, 0, 1));
+      this.bark = Math.max(this.bark * Math.exp(-p.dt / 0.18), clamp(rise / 14, 0, 0.6));
     }
     this.prevLoad = p.load;
 
     const f0 = clamp(p.f0, 4, 400);
-    const x = clamp(p.load + 0.3 * this.bark, 0, 1);
-    const cutDuck = 1 - 0.78 * p.limiterCut;
+    const x = clamp(p.load + 0.18 * this.bark, 0, 1);
+    // Sem cortes secos de ignição: ganho contínuo com rampa curta nas trocas de marcha
     const ampl =
-      cutDuck *
-      (1 + 0.35 * this.bark) *
-      (0.32 + 0.68 * Math.pow(x, 0.7)) *
+      (1 + 0.16 * this.bark) *
+      (0.34 + 0.66 * Math.pow(x, 0.7)) *
       (0.45 + 0.55 * p.rpmNorm) *
-      (1 - 0.42 * p.overrun) *
-      (1 + 0.22 * p.boost) *
+      (1 - 0.34 * p.overrun) *
+      (1 + 0.2 * p.boost) *
       this.profile.voice;
 
     if (this.workletNode) {
       const P = this.workletNode.parameters;
       setT(P.get('f0'), f0, now, TC);
-      setT(P.get('load'), x, now, TC);
-      setT(P.get('amp'), ampl, now, TC);
-      setT(P.get('rough'), p.rough, now, 0.05);
+      setT(P.get('load'), x, now, TC_GAIN);
+      setT(P.get('amp'), ampl, now, TC_GAIN);
+      setT(P.get('rough'), p.rough, now, 0.06);
       setT(P.get('ripple'), crankRipple(this.profile, p.rpm, x), now, TC);
       setT(P.get('low'), 1 - p.rpmNorm, now, TC);
     } else {
@@ -1931,8 +1928,8 @@ export class CarEngineVoice {
         const pair = this.wavePairs[i];
         setT(pair.softOsc.frequency, f0, now, TC);
         setT(pair.hardOsc.frequency, f0, now, TC);
-        setT(pair.softGain.gain, gSoft, now, TC);
-        setT(pair.hardGain.gain, gHard, now, TC);
+        setT(pair.softGain.gain, gSoft, now, TC_GAIN);
+        setT(pair.hardGain.gain, gHard, now, TC_GAIN);
       }
     }
 
@@ -1947,9 +1944,8 @@ export class CarEngineVoice {
     this.intake.update(p);
     this.exhaustNoise.update(p);
     this.sub.update(p);
-    this.pops.update(p, this.isTuned);
 
-    if (p.evBov > 0.15) {
+    if (p.evBov > 0.2) {
       this.fireBov(now, p.evBov);
     }
   }
@@ -2013,9 +2009,9 @@ export class CarDrivetrainTelemetry {
   rpm: number;
   boost = 0;
   private shiftCooldown = 0;
-  private shiftCutTimer = 0;
-  private limiterPhase = 0;
-  private limiterPopCooldown = 0;
+  private shiftBlend = 0;
+  private smoothLoad = 0.1;
+  private smoothOverrun = 0;
   private prevThrottle = 0;
   private prevNitro = false;
   private prevBoost = 0;
@@ -2057,9 +2053,9 @@ export class CarDrivetrainTelemetry {
     this.rpm = this.profile.idleRpm;
     this.boost = 0;
     this.shiftCooldown = 0;
-    this.shiftCutTimer = 0;
-    this.limiterPhase = 0;
-    this.limiterPopCooldown = 0;
+    this.shiftBlend = 0;
+    this.smoothLoad = 0.1;
+    this.smoothOverrun = 0;
     this.prevThrottle = 0;
     this.prevNitro = false;
     this.prevBoost = 0;
@@ -2080,15 +2076,13 @@ export class CarDrivetrainTelemetry {
     const redline = this.profile.redlineRpm;
     const span = redline - idle;
 
-    let evCut = 0;
-    let evPop = 0;
     let evBov = 0;
 
     if (this.shiftCooldown > 0) this.shiftCooldown = Math.max(0, this.shiftCooldown - safeDt);
-    if (this.shiftCutTimer > 0) this.shiftCutTimer = Math.max(0, this.shiftCutTimer - safeDt);
-    if (this.limiterPopCooldown > 0) this.limiterPopCooldown = Math.max(0, this.limiterPopCooldown - safeDt);
+    this.shiftBlend *= Math.exp(-safeDt / 0.065);
+    if (this.shiftBlend < 0.002) this.shiftBlend = 0;
 
-    // Seleção de marcha com histerese
+    // Seleção de marcha com histerese (rampa curta de carga, sem corte seco de ignição nem estalo)
     const maxGear = this.gearTopSpeeds.length;
     const gearTop = this.gearTopSpeeds[this.gear - 1];
     const upshiftSpeed = gearTop * (nitroActive ? 0.96 : 0.91);
@@ -2098,74 +2092,52 @@ export class CarDrivetrainTelemetry {
       if (this.gear < maxGear && speed > upshiftSpeed && throttle > 0.15) {
         this.gear++;
         this.shiftCooldown = 0.24;
-        this.shiftCutTimer = this.isTuned ? 0.095 : 0.065;
-        evCut = this.isTuned ? 0.9 : 0.22;
-        if (this.isTuned && this.boost > 0.35) evBov = Math.max(evBov, this.boost * 0.75);
+        this.shiftBlend = 1;
+        if (this.isTuned && this.boost > 0.4) evBov = Math.max(evBov, this.boost * 0.55);
       } else if (this.gear > 1 && speed < downshiftSpeed) {
         this.gear--;
         this.shiftCooldown = 0.22;
-        if (this.isTuned && speed > 10) evPop = Math.max(evPop, 0.45);
       }
     }
 
-    // RPM alvo pela relação da marcha atual + giro livre na arrancada
+    // RPM alvo pela relação da marcha atual + giro livre na arrancada (sem corte serrilhado no redline)
     const curTop = this.gearTopSpeeds[this.gear - 1];
     const prevTop = this.gear > 1 ? this.gearTopSpeeds[this.gear - 2] * 0.56 : 0;
-    const wheelNorm = clamp((speed - prevTop * 0.45) / Math.max(4, curTop - prevTop * 0.45), 0, 1.06);
+    const wheelNorm = clamp((speed - prevTop * 0.45) / Math.max(4, curTop - prevTop * 0.45), 0, 1.0);
     const launchSlip = speed < 5 ? throttle * (1 - speed / 5) * (this.isTuned ? 0.38 : 0.28) : 0;
-    const nitroLift = this.isTuned && nitroActive ? 0.12 : 0;
-    const targetRpm = clamp(idle + span * (wheelNorm * 0.96 + launchSlip + nitroLift), idle, redline + 140);
+    const nitroLift = this.isTuned && nitroActive ? 0.1 : 0;
+    const targetRpm = clamp(idle + span * (wheelNorm * 0.96 + launchSlip + nitroLift), idle, redline);
 
-    const tau = targetRpm > this.rpm ? (this.isTuned ? 0.065 : 0.085) : 0.13;
+    const tau = targetRpm > this.rpm ? (this.isTuned ? 0.075 : 0.085) : 0.13;
     this.rpm += (targetRpm - this.rpm) * (1 - Math.exp(-safeDt / tau));
     const rpmNorm = clamp((this.rpm - idle) / span, 0, 1);
 
-    // Pressão de turbo / nitro no tunado
+    // Pressão de turbo / nitro suave no tunado
     const boostTarget = this.isTuned
-      ? clamp((nitroActive ? 1.0 : throttle * (0.25 + 0.75 * rpmNorm)) * (this.shiftCutTimer > 0 ? 0.4 : 1), 0, 1)
+      ? clamp((nitroActive ? 1.0 : throttle * (0.25 + 0.75 * rpmNorm)) * (1 - 0.35 * this.shiftBlend), 0, 1)
       : 0;
     const boostTau = boostTarget > this.boost ? 0.18 : 0.32;
     this.boost += (boostTarget - this.boost) * (1 - Math.exp(-safeDt / boostTau));
 
-    // Estouro ao acionar ou soltar o nitro no carro tunado
-    if (this.isTuned) {
-      if (nitroActive && !this.prevNitro) {
-        evPop = Math.max(evPop, 0.95);
-      } else if (!nitroActive && this.prevNitro && rpmNorm > 0.35) {
-        evPop = Math.max(evPop, 0.85);
-        evBov = Math.max(evBov, 0.9);
-      }
+    // Sopro suave de válvula BOV ao aliviar nitro/acelerador com boost (sem estouro/backfire)
+    if (this.isTuned && !nitroActive && this.prevNitro && rpmNorm > 0.35) {
+      evBov = Math.max(evBov, 0.7);
     }
-
-    // Lift-off em alta rotação → pop + BOV no tunado
     const lifted = this.prevThrottle > 0.55 && throttle < 0.12;
-    if (this.isTuned && lifted && rpmNorm > 0.46) {
-      evPop = Math.max(evPop, clamp(0.45 + 0.5 * rpmNorm, 0.45, 0.95));
-      if (this.prevBoost > 0.35) evBov = Math.max(evBov, clamp(this.prevBoost, 0.35, 1));
+    if (this.isTuned && lifted && rpmNorm > 0.46 && this.prevBoost > 0.35) {
+      evBov = Math.max(evBov, clamp(this.prevBoost * 0.75, 0.25, 0.8));
     }
 
-    // Corte de giro (rev limiter) perto do redline
-    const atLimiter = this.rpm >= redline - 160 && (throttle > 0.5 || nitroActive);
-    let limiterCut = this.shiftCutTimer > 0 ? 0.85 : 0;
-    if (atLimiter) {
-      this.limiterPhase = (this.limiterPhase + safeDt * (this.isTuned ? 13.5 : 10.5)) % 1;
-      if (this.limiterPhase < 0.42) {
-        limiterCut = Math.max(limiterCut, 0.95);
-        if (this.isTuned && this.limiterPopCooldown <= 0) {
-          evCut = Math.max(evCut, 0.85);
-          this.limiterPopCooldown = 0.13;
-        }
-      }
-    } else {
-      this.limiterPhase = 0;
-    }
+    // Rampas curtas de carga e overrun evitam cliques ao soltar o acelerador ou trocar de marcha
+    const overrunTarget = throttle < 0.08 && speed > 4 ? clamp((rpmNorm - 0.15) / 0.65, 0, 1) : 0;
+    const rampAlpha = 1 - Math.exp(-safeDt / 0.05);
+    this.smoothOverrun += (overrunTarget - this.smoothOverrun) * rampAlpha;
 
-    const overrun = throttle < 0.08 && speed > 4 ? clamp((rpmNorm - 0.15) / 0.65, 0, 1) : 0;
-    const load = clamp(
-      throttle * (0.35 + 0.65 * (0.4 + 0.6 * rpmNorm)) + (nitroActive ? 0.32 : 0),
-      0.06,
-      1,
-    ) * (1 - 0.65 * overrun);
+    const rawLoad =
+      clamp(throttle * (0.35 + 0.65 * (0.4 + 0.6 * rpmNorm)) + (nitroActive ? 0.28 : 0), 0.08, 1) *
+      (1 - 0.55 * this.smoothOverrun) *
+      (1 - 0.22 * this.shiftBlend);
+    this.smoothLoad += (rawLoad - this.smoothLoad) * rampAlpha;
 
     this.prevThrottle = throttle;
     this.prevNitro = nitroActive;
@@ -2177,15 +2149,15 @@ export class CarDrivetrainTelemetry {
     out.rpm = this.rpm;
     out.rpmNorm = rpmNorm;
     out.f0 = this.rpm / 120;
-    out.load = clamp(load, 0, 1);
+    out.load = clamp(this.smoothLoad, 0, 1);
     out.throttle = throttle;
-    out.overrun = overrun;
+    out.overrun = clamp(this.smoothOverrun, 0, 1);
     out.boost = this.boost;
     out.valve = this.isTuned ? clamp(0.45 + 0.55 * (nitroActive ? 1 : throttle), 0, 1) : 0.12;
-    out.rough = this.isTuned ? (nitroActive ? 0.18 : 0.08) : 0.03;
-    out.limiterCut = limiterCut;
-    out.evPop = evPop;
-    out.evCut = evCut;
+    out.rough = 0.02;
+    out.limiterCut = 0;
+    out.evPop = 0;
+    out.evCut = 0;
     out.evBov = evBov;
     out.cabinPos = clamp(cabinPos, 0, 1);
     return out;

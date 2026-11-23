@@ -258,24 +258,24 @@ export function createFlightAudio(initialSettings: GameSettings): FlightAudio {
     nitroGain.connect(worldBus);
     nitroSrc.start();
 
-    // 3) Rotor do helicóptero ("whup-whup-whup" com LFO em 11..18 Hz)
+    // 3) Rotor do helicóptero ("whup-whup-whup" grave e suave, sem assobio agudo)
     heliNoiseSrc = ctx.createBufferSource();
     heliNoiseSrc.buffer = noiseBuffer;
     heliNoiseSrc.loop = true;
     heliFilter = ctx.createBiquadFilter();
     heliFilter.type = 'lowpass';
-    heliFilter.frequency.value = 260;
-    heliFilter.Q.value = 2.0;
+    heliFilter.frequency.value = 155;
+    heliFilter.Q.value = 1.4;
     heliPulseGain = ctx.createGain();
-    heliPulseGain.gain.value = 0.55;
+    heliPulseGain.gain.value = 0.58;
     heliMasterGain = ctx.createGain();
     heliMasterGain.gain.value = 0.0001;
 
     heliLfo = ctx.createOscillator();
     heliLfo.type = 'sine';
-    heliLfo.frequency.value = 12;
+    heliLfo.frequency.value = 10.5;
     heliLfoDepth = ctx.createGain();
-    heliLfoDepth.gain.value = 0.42;
+    heliLfoDepth.gain.value = 0.38;
     heliLfo.connect(heliLfoDepth);
     heliLfoDepth.connect(heliPulseGain.gain);
 
@@ -613,13 +613,12 @@ export function createFlightAudio(initialSettings: GameSettings): FlightAudio {
         engineGain.gain.setTargetAtTime(a29On ? 0.055 + throttle * 0.115 : 0.0001, now, 0.07);
 
         const tunedTurbo = alive && vehicle === 'tuned' && (nitroActive || speedAbs > 18);
-        const turbineOn = alive && (vehicle === 'a29' || vehicle === 'heli' || tunedTurbo);
+        // Helicóptero usa apenas o batido grave do rotor (sem assobio agudo de turbina)
+        const turbineOn = alive && (vehicle === 'a29' || tunedTurbo);
         const turbHz =
           vehicle === 'tuned'
             ? 680 + clamp(speedAbs / 65, 0, 1.2) * 580 + (nitroActive ? 360 : 0)
-            : vehicle === 'heli'
-              ? 840 + throttle * 380
-              : 720 + throttle * 520 + a29Speed * 140;
+            : 720 + throttle * 520 + a29Speed * 140;
         const turbLevel =
           vehicle === 'tuned'
             ? nitroActive
@@ -630,7 +629,7 @@ export function createFlightAudio(initialSettings: GameSettings): FlightAudio {
         turbineGain.gain.setTargetAtTime(turbineOn ? turbLevel : 0.0001, now, 0.08);
       }
 
-      // 2) Motor de carro / carro tunado (Engine Sim: I4 no Hatch, V8 cross-plane + corte de giro + nitro no Tunado)
+      // 2) Motor de carro / carro tunado (Engine Sim contínuo: I4 no Hatch, V8 cross-plane suave + nitro no Tunado)
       const cabinPos = state.camera === 'cockpit' ? 1 : 0;
       const hatchOn = alive && vehicle === 'car';
       const tunedOn = alive && vehicle === 'tuned';
@@ -668,13 +667,13 @@ export function createFlightAudio(initialSettings: GameSettings): FlightAudio {
         nitroGain.gain.setTargetAtTime(nitroOn ? 0.24 : 0.0001, now, 0.05);
       }
 
-      // 3) Rotor do helicóptero ("whup-whup-whup")
+      // 3) Rotor do helicóptero (batido grave e agradável, sem assobio agudo)
       const heliOn = alive && vehicle === 'heli';
       if (heliLfo && heliFilter && heliMasterGain) {
-        const rotorRate = 11.5 + throttle * 6.5 + clamp(speedAbs / 80, 0, 1) * 2.0;
+        const rotorRate = 9.5 + throttle * 5.0 + clamp(speedAbs / 80, 0, 1) * 1.5;
         heliLfo.frequency.setTargetAtTime(rotorRate, now, 0.08);
-        heliFilter.frequency.setTargetAtTime(210 + throttle * 200, now, 0.08);
-        heliMasterGain.gain.setTargetAtTime(heliOn ? 0.24 + throttle * 0.14 : 0.0001, now, 0.08);
+        heliFilter.frequency.setTargetAtTime(130 + throttle * 95, now, 0.08);
+        heliMasterGain.gain.setTargetAtTime(heliOn ? 0.17 + throttle * 0.1 : 0.0001, now, 0.08);
       }
 
       // 4) Passos a pé

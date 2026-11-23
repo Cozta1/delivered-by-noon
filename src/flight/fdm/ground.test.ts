@@ -3,7 +3,7 @@ import { Vec3, Entity, KEY_W, KEY_R, KEY_SHIFT, KEY_D, KEY_Q } from 'playcanvas'
 import { HeliDynamics } from './heli';
 import { AircraftGround, RUNWAY_SPAWN, safeTouchdown } from './ground';
 import { FlightDynamics, FIXED_STEP } from './model';
-import { createWorldPhysics } from '../world-data';
+import { AIRPORT, HANGAR, createWorldPhysics } from '../world-data';
 import { createFlightController } from '../flight';
 import { createFlightState, type FlightContext } from '../types';
 const controls={forward:0,right:0,yaw:0,collective:0};
@@ -20,8 +20,37 @@ it('hovers 30 seconds with <2m drift, moves forward >20m/s in 3s and turns 180 d
 it('heli soft landing survives and hard or tilted impact crashes',()=>{
   const h=new HeliDynamics();h.reset(0,1.21,0,0);h.velocity.y=-2;
   h.step(controls,()=>0,1.2);expect(h.grounded).toBe(true);expect(h.crashed).toBe(false);
+  // Toque leve inclinado durante decolagem/pouso (até ~60°) apenas apoia/escorrega, sem explodir
+  h.reset(0,1.21,0,0);h.roll=22;h.pitch=-18;h.velocity.y=-3.5;
+  h.step(controls,()=>0,1.2);expect(h.crashed).toBe(false);
+  // Queda forte a 10 m/s explode
   h.reset(0,1.21,0,0);h.velocity.y=-10;h.step(controls,()=>0,1.2);expect(h.crashed).toBe(true);
-  h.reset(0,1.21,0,0);h.roll=30;h.velocity.y=-2;h.step(controls,()=>0,1.2);expect(h.crashed).toBe(true);
+  // Inclinação extrema (> 60°) explode
+  h.reset(0,1.21,0,0);h.roll=65;h.velocity.y=-2;h.step(controls,()=>0,1.2);expect(h.crashed).toBe(true);
+});
+
+it('heli controller takes off with forward tilt and lands gently without exploding, but crashes on a 10 m/s drop',()=>{
+  const pressed=new Set<number>();
+  const state=createFlightState();state.vehicle='heli';state.controlMode='keyboard';
+  const app={keyboard:{isPressed:(k:number)=>pressed.has(k),wasPressed:()=>false}} as unknown as FlightContext['app'];
+  const hitbox:[number,number,number][]=[[-1.3,0,-1.8],[1.3,0,-1.8],[-1.3,0,1.3],[1.3,0,1.3],[0,2.6,0]];
+  const ctx={app,state,world:createWorldPhysics([],10),plane:{root:new Entity('heli',app),prop:new Entity('prop',app),hitbox}} as unknown as FlightContext;
+  const module=createFlightController(ctx,{id:'heli-pad',kind:'heli',x:0,y:10.1,z:0,heading:0});
+
+  // Decola inclinando para frente (W + Shift): esquis raspam na laje sem explodir
+  pressed.add(KEY_SHIFT);pressed.add(KEY_W);
+  for(let i=0;i<90;i++){module.update(1/60);expect(state.crashed).toBe(false);}
+  expect(state.y).toBeGreaterThan(12);
+
+  // Pousa devagar soltando o coletivo e descendo suavemente
+  pressed.clear();
+  for(let i=0;i<30;i++){module.update(1/60);expect(state.crashed).toBe(false);}
+
+  // Queda brusca a ~10 m/s explode ao atingir o chão
+  const fall=new HeliDynamics();
+  fall.reset(0,12,0,0);fall.velocity.y=-10;
+  for(let i=0;i<30&&!fall.crashed;i++)fall.step(controls,()=>10,0.1);
+  expect(fall.crashed).toBe(true);
 });
 
 it('A29 taxis, takes off naturally and touches down softly on runway but crashes on hard/off-runway impact',()=>{
@@ -111,9 +140,9 @@ it('taxies through the hangar opening below the roof',()=>{
   const state=createFlightState();state.controlMode='keyboard';
   const app={keyboard:{isPressed:(key:number)=>key===KEY_W,wasPressed:()=>false}} as unknown as FlightContext['app'];
   const ctx={app,state,world:createWorldPhysics(),plane:{root:new Entity('plane',app),prop:new Entity('prop',app),hitbox:[[0,-1.65,0],[2,0,0],[-2,0,0]]}} as unknown as FlightContext;
-  const module=createFlightController(ctx,{id:'hangar',kind:'a29',x:1470,y:4.05,z:278,heading:0});
+  const module=createFlightController(ctx,{id:'hangar',kind:'a29',x:(HANGAR.x0+HANGAR.x1)/2,y:AIRPORT.y,z:HANGAR.z1-7,heading:0});
   for(let i=0;i<120;i++){module.update(1/60);expect(state.crashed).toBe(false);}
-  expect(state.z).toBeLessThan(275);expect(state.y).toBeLessThan(7);
+  expect(state.z).toBeLessThan(HANGAR.z1-10);expect(state.y).toBeLessThan(AIRPORT.y+3);
 });
 
 

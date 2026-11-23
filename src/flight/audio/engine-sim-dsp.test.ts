@@ -144,7 +144,7 @@ describe('Engine Sim DSP port (MIT)', () => {
     expect(after).toBeLessThanOrEqual(before + 1e-12);
   });
 
-  it('telemetria troca marchas, sobe RPM, corta giro e dispara estouro no nitro do tunado sem realocar params', () => {
+  it('telemetria troca marchas e sobe RPM sem estalos, backfire, cortes secos ou realocação de params', () => {
     const hatch = new CarDrivetrainTelemetry('i4');
     const firstRef = hatch.params;
     for (let i = 0; i < 120; i++) {
@@ -152,27 +152,34 @@ describe('Engine Sim DSP port (MIT)', () => {
       const p = hatch.step(i * 0.016, 0.016, speed, 1, false, 0);
       expect(p).toBe(firstRef);
       expect(Number.isFinite(p.rpm)).toBe(true);
+      expect(p.evPop).toBe(0);
+      expect(p.evCut).toBe(0);
+      expect(p.limiterCut).toBe(0);
     }
     expect(hatch.gear).toBeGreaterThanOrEqual(4);
 
     const tuned = new CarDrivetrainTelemetry('v8cross');
-    let sawNitroPop = false;
-    let sawLimiterCut = false;
+    let maxLoadStepOnLift = 0;
+    let prevLoad = tuned.params.load;
     let sawBov = false;
 
-    for (let i = 0; i < 160; i++) {
-      const speed = Math.min(66, 20 + i * 0.4);
+    for (let i = 0; i < 180; i++) {
+      const speed = i < 140 ? Math.min(66, 20 + i * 0.4) : Math.max(8, 66 - (i - 140) * 1.4);
       const nitro = i >= 40 && i < 110;
       const throttle = i < 130 ? 1 : 0;
       const p = tuned.step(i * 0.016, 0.016, speed, throttle, nitro, 0);
-      if (i === 40 && p.evPop > 0.5) sawNitroPop = true;
-      if (p.limiterCut > 0.5 && p.evCut > 0.5) sawLimiterCut = true;
-      if (p.evBov > 0.3) sawBov = true;
+      expect(p.evPop).toBe(0);
+      expect(p.evCut).toBe(0);
+      expect(p.limiterCut).toBe(0);
+      if (i >= 130 && i <= 140) {
+        maxLoadStepOnLift = Math.max(maxLoadStepOnLift, Math.abs(p.load - prevLoad));
+      }
+      prevLoad = p.load;
+      if (p.evBov > 0.2) sawBov = true;
     }
 
-    expect(tuned.gear).toBe(6);
-    expect(sawNitroPop).toBe(true);
-    expect(sawLimiterCut).toBe(true);
+    expect(tuned.gear).toBeLessThan(6);
+    expect(maxLoadStepOnLift).toBeLessThan(0.35);
     expect(sawBov).toBe(true);
   });
 

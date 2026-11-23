@@ -10,6 +10,7 @@ import {
   Mat4,
   type MeshInstance,
   StandardMaterial,
+  Vec3,
 } from 'playcanvas';
 import type { AirplaneModel } from '../airplane';
 
@@ -70,20 +71,178 @@ export function collectNodesByPrefix(rootNode: Entity, prefixLower: string, out:
   return out;
 }
 
-export function computeLocalAabb(rootNode: Entity): BoundingBox | null {
+export interface HitboxFootprint {
+  halfWidth: number;
+  halfLength: number;
+  height: number;
+  centerX: number;
+  centerZ: number;
+}
+
+export interface CarWheelBounds {
+  minX: number;
+  maxX: number;
+  minY: number;
+  maxY: number;
+  minZ: number;
+  maxZ: number;
+}
+
+export interface ComputeAabbOptions {
+  /** Recorta outliers finos de carroceria (retrovisores/antena) mantendo rodas e para-choques com folga <= 5 cm. */
+  trimCarOutliers?: boolean;
+}
+
+function quantileSorted(sorted: readonly number[], q: number): number {
+  const idx = Math.max(0, Math.min(sorted.length - 1, Math.floor((sorted.length - 1) * q)));
+  return sorted[idx];
+}
+
+/**
+ * Calcula o AABB justo da carroceria de um carro a partir dos vértices locais (já transformados
+ * para o espaço do modelo), descartando retrovisores laterais e antena de teto enquanto preserva
+ * integralmente para-lamas, para-choques e rodas, com folga máxima de 2 cm (<= 5 cm).
+ */
+export function computeCarBodyAabbFromPoints(
+  bodyXs: number[],
+  bodyYs: number[],
+  bodyZs: number[],
+  wheelBounds?: CarWheelBounds | null,
+  margin = 0.02,
+): BoundingBox | null {
+  if (bodyXs.length === 0 || bodyYs.length === 0 || bodyZs.length === 0) return null;
+  const xs = bodyXs.slice().sort((a, b) => a - b);
+  const ys = bodyYs.slice().sort((a, b) => a - b);
+  const zs = bodyZs.slice().sort((a, b) => a - b);
+
+  const safeMargin = Math.max(0, Math.min(0.05, margin));
+  let minX = quantileSorted(xs, 0.015);
+  let maxX = quantileSorted(xs, 0.985);
+  let minY = quantileSorted(ys, 0.002);
+  let maxY = quantileSorted(ys, 0.995);
+  let minZ = quantileSorted(zs, 0.002);
+  let maxZ = quantileSorted(zs, 0.998);
+
+  if (wheelBounds) {
+    if (wheelBounds.minX < minX) minX = wheelBounds.minX;
+    if (wheelBounds.maxX > maxX) maxX = wheelBounds.maxX;
+    if (wheelBounds.minY < minY) minY = wheelBounds.minY;
+    if (wheelBounds.maxY > maxY) maxY = wheelBounds.maxY;
+    if (wheelBounds.minZ < minZ) minZ = wheelBounds.minZ;
+    if (wheelBounds.maxZ > maxZ) maxZ = wheelBounds.maxZ;
+  }
+
+  minX -= safeMargin;
+  maxX += safeMargin;
+  minY = Math.max(0, minY);
+  maxY += safeMargin;
+  minZ -= safeMargin;
+  maxZ += safeMargin;
+
+  if (!(maxX > minX && maxY > minY && maxZ > minZ)) return null;
+  return new BoundingBox(
+    new Vec3((minX + maxX) * 0.5, (minY + maxY) * 0.5, (minZ + maxZ) * 0.5),
+    new Vec3((maxX - minX) * 0.5, (maxY - minY) * 0.5, (maxZ - minZ) * 0.5),
+  );
+}
+
+/** Extrai largura, comprimento e altura da hitbox local sem alocar quando `out` é fornecido. */
+export function extractHitboxFootprint(
+  hitbox: ReadonlyArray<[number, number, number]> | null | undefined,
+  out?: HitboxFootprint,
+): HitboxFootprint | null {
+  if (!hitbox || hitbox.length === 0) return null;
+  let minX = Infinity;
+  let maxX = -Infinity;
+  let minY = Infinity;
+  let maxY = -Infinity;
+  let minZ = Infinity;
+  let maxZ = -Infinity;
+  for (let i = 0; i < hitbox.length; i++) {
+    const p = hitbox[i];
+    if (p[0] < minX) minX = p[0];
+    if (p[0] > maxX) maxX = p[0];
+    if (p[1] < minY) minY = p[1];
+    if (p[1] > maxY) maxY = p[1];
+    if (p[2] < minZ) minZ = p[2];
+    if (p[2] > maxZ) maxZ = p[2];
+  }
+  const halfWidth = (maxX - minX) * 0.5;
+  const halfLength = (maxZ - minZ) * 0.5;
+  const height = Math.max(0.5, maxY - Math.max(0, minY));
+  if (!(halfWidth > 0.05 && halfLength > 0.05)) return null;
+  const target = out ?? { halfWidth: 0, halfLength: 0, height: 0, centerX: 0, centerZ: 0 };
+  target.halfWidth = halfWidth;
+  target.halfLength = halfLength;
+  target.height = height;
+  target.centerX = (minX + maxX) * 0.5;
+  target.centerZ = (minZ + maxZ) * 0.5;
+  return target;
+}
+
+export function computeLocalAabb(rootNode: Entity, options?: ComputeAabbOptions): BoundingBox | null {
   const visualEntities = collectVisualEntities(rootNode);
   const relMat = new Mat4();
   const tmpBox = new BoundingBox();
+  const trimCar = Boolean(options?.trimCarOutliers);
   let total: BoundingBox | null = null;
+
+  const bodyXs: number[] = [];
+  const bodyYs: number[] = [];
+  const bodyZs: number[] = [];
+  let wheelBounds: CarWheelBounds | null = null;
+  const posBuf: number[] = [];
+  const vIn = new Vec3();
+  const vOut = new Vec3();
 
   const accumulate = (entity: Entity, meshInstances: ReadonlyArray<MeshInstance> | null | undefined) => {
     if (!meshInstances || meshInstances.length === 0) return;
     for (let j = 0; j < meshInstances.length; j++) {
       const mi = meshInstances[j];
-      const meshAabb = mi?.mesh?.aabb;
-      if (!meshAabb) continue;
+      const mesh = mi?.mesh;
+      if (!mesh) continue;
       const refNode: GraphNode = mi.node && isDescendantOrSelf(mi.node, rootNode) ? mi.node : entity;
       relativeLocalMatrix(refNode, rootNode, relMat);
+
+      if (trimCar && typeof (mesh as { getPositions?: (out: number[]) => number }).getPositions === 'function') {
+        posBuf.length = 0;
+        const count = (mesh as { getPositions: (out: number[]) => number }).getPositions(posBuf);
+        const floats = Math.min(posBuf.length, count > 0 ? count * 3 : posBuf.length);
+        if (floats >= 9) {
+          const isWheel = /^roda_/i.test(refNode.name || '') || /^roda_/i.test(entity.name || '');
+          for (let k = 0; k + 2 < floats; k += 3) {
+            vIn.set(posBuf[k], posBuf[k + 1], posBuf[k + 2]);
+            relMat.transformPoint(vIn, vOut);
+            if (!Number.isFinite(vOut.x) || !Number.isFinite(vOut.y) || !Number.isFinite(vOut.z)) continue;
+            if (isWheel) {
+              if (!wheelBounds) {
+                wheelBounds = {
+                  minX: vOut.x,
+                  maxX: vOut.x,
+                  minY: vOut.y,
+                  maxY: vOut.y,
+                  minZ: vOut.z,
+                  maxZ: vOut.z,
+                };
+              } else {
+                if (vOut.x < wheelBounds.minX) wheelBounds.minX = vOut.x;
+                if (vOut.x > wheelBounds.maxX) wheelBounds.maxX = vOut.x;
+                if (vOut.y < wheelBounds.minY) wheelBounds.minY = vOut.y;
+                if (vOut.y > wheelBounds.maxY) wheelBounds.maxY = vOut.y;
+                if (vOut.z < wheelBounds.minZ) wheelBounds.minZ = vOut.z;
+                if (vOut.z > wheelBounds.maxZ) wheelBounds.maxZ = vOut.z;
+              }
+            } else {
+              bodyXs.push(vOut.x);
+              bodyYs.push(vOut.y);
+              bodyZs.push(vOut.z);
+            }
+          }
+        }
+      }
+
+      const meshAabb = mesh.aabb;
+      if (!meshAabb) continue;
       tmpBox.setFromTransformedAabb(meshAabb, relMat);
       if (!total) {
         total = new BoundingBox(tmpBox.center.clone(), tmpBox.halfExtents.clone());
@@ -97,6 +256,23 @@ export function computeLocalAabb(rootNode: Entity): BoundingBox | null {
     const entity = visualEntities[i];
     accumulate(entity, entity.render?.meshInstances);
     accumulate(entity, entity.model?.meshInstances);
+  }
+
+  if (trimCar) {
+    const trimmed = computeCarBodyAabbFromPoints(bodyXs, bodyYs, bodyZs, wheelBounds);
+    if (trimmed) return trimmed;
+    if (total) {
+      const box = total as BoundingBox;
+      const min = box.getMin();
+      const max = box.getMax();
+      if (min.y < 0 && max.y > 0) {
+        const clampedMinY = 0;
+        return new BoundingBox(
+          new Vec3((min.x + max.x) * 0.5, (clampedMinY + max.y) * 0.5, (min.z + max.z) * 0.5),
+          new Vec3((max.x - min.x) * 0.5, (max.y - clampedMinY) * 0.5, (max.z - min.z) * 0.5),
+        );
+      }
+    }
   }
   return total;
 }
@@ -238,6 +414,7 @@ export interface AttachGlbOptions {
   procedural: Entity;
   model: AirplaneModel;
   filename: string;
+  trimCarOutliers?: boolean;
   onMounted?: (glbRoot: Entity, aabb: BoundingBox | null) => void;
 }
 
@@ -245,7 +422,15 @@ export interface AttachGlbOptions {
  * Carrega um GLB (asset container no Editor ou `${BASE_URL}models/${filename}` local)
  * e substitui o modelo procedural in-place, mantendo o contrato `AirplaneModel`.
  */
-export function attachAsyncGlb({ app, root, procedural, model, filename, onMounted }: AttachGlbOptions): void {
+export function attachAsyncGlb({
+  app,
+  root,
+  procedural,
+  model,
+  filename,
+  trimCarOutliers,
+  onMounted,
+}: AttachGlbOptions): void {
   if (!app.assets) return;
 
   let destroyed = false;
@@ -275,7 +460,7 @@ export function attachAsyncGlb({ app, root, procedural, model, filename, onMount
       if (m) m.enabled = showExterior;
     }
 
-    const aabb = computeLocalAabb(glbRoot);
+    const aabb = computeLocalAabb(glbRoot, trimCarOutliers ? { trimCarOutliers: true } : undefined);
     if (aabb && aabb.halfExtents.x > 0.05 && aabb.halfExtents.y > 0.05 && aabb.halfExtents.z > 0.05) {
       const nextHitbox = cornersHitboxFromAabb(aabb);
       model.hitbox.length = 0;

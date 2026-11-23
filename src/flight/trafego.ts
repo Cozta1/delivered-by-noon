@@ -1,5 +1,6 @@
 import { Entity, StandardMaterial } from 'playcanvas';
 import { buildVehicleModel, type VehicleModel } from './models';
+import { extractHitboxFootprint, type HitboxFootprint } from './models/glb';
 import { rng } from './noise';
 import type { FlightContext, FlightModule } from './types';
 import { getRuntime, type TrafficLevel } from './ui/settings';
@@ -14,6 +15,11 @@ export interface TrafficObstacle {
   x: number;
   z: number;
   radius: number;
+  y?: number;
+  heading?: number;
+  halfWidth?: number;
+  halfLength?: number;
+  height?: number;
 }
 
 export interface RoadGraphNode {
@@ -61,6 +67,8 @@ export interface BuildRoadGraphOptions {
   snap?: number;
   /** Ponte opcional (m) para ligar componentes desconexos próximos (ex.: faixas duplas no OSM). */
   bridgeGaps?: number;
+  /** Vias de mão única: só a aresta no sentido da polilinha entra em `outEdges` (a inversa existe, mas ninguém a toma); faixa no centro. */
+  oneWay?: boolean;
 }
 
 export const MAIN_ROAD_CATEGORIES: ReadonlySet<string> = new Set<RoadClass>([
@@ -85,7 +93,10 @@ export const MAX_TRAFFIC_CARS = 40;
 const SPAWN_MIN_DIST = 150;
 const SPAWN_MAX_DIST = 600;
 const DESPAWN_DIST = 800;
-const CAR_RADIUS = 2.1;
+const DEFAULT_CAR_HALF_WIDTH = 0.88;
+const DEFAULT_CAR_HALF_LENGTH = 2.08;
+const DEFAULT_CAR_HEIGHT = 1.45;
+const TRAFFIC_VARIANTS = [3, 1, 2] as const;
 const PLAYER_BRAKE_DIST = 12.5;
 const FOLLOW_SAFE_DIST = 7.5;
 const FOLLOW_DETECT_DIST = 18.0;
@@ -127,6 +138,7 @@ export function buildRoadGraph(
 ): RoadGraph {
   const filter = options?.filter;
   const SNAP = options?.snap ?? 7.5;
+  const oneWay = options?.oneWay ?? false;
   const SEG_CELL = 64;
 
   // 1. Coleta todos os segmentos elegíveis e divide nos cruzamentos internos
@@ -263,7 +275,7 @@ export function buildRoadGraph(
     if (len < minLen) return;
     seenUndirected.add(pairKey);
 
-    const laneOffset = width * 0.24;
+    const laneOffset = oneWay ? 0 : width * 0.24;
     const baseSpeed = CLASS_SPEED[category] ?? 8.0;
     const midX = (nA.x + nB.x) * 0.5;
     const midZ = (nA.z + nB.z) * 0.5;
@@ -308,9 +320,8 @@ export function buildRoadGraph(
     };
     edges.push(fwd, rev);
     nodes[u].outEdges.push(idFwd);
-    nodes[v].outEdges.push(idRev);
+    if (!oneWay) { nodes[v].outEdges.push(idRev); indexEdge(rev); } // mão única: a aresta inversa existe só para manter os pares, ninguém a toma
     indexEdge(fwd);
-    indexEdge(rev);
   };
 
   for (const s of rawSegs) {
@@ -393,6 +404,7 @@ export function getRoadGraph(): RoadGraph {
   cachedGraph = buildRoadGraph(cityLayout().roadLines, {
     filter: (cat) => MAIN_ROAD_CATEGORIES.has(cat),
     snap: 7.5,
+    oneWay: true,
   });
   return cachedGraph;
 }
@@ -471,6 +483,9 @@ interface TrafficSlot {
   prevX: number;
   prevZ: number;
   stuckTimer: number;
+  halfWidth: number;
+  halfLength: number;
+  height: number;
 }
 
 let activeObstacleProvider: (() => TrafficObstacle[]) | null = null;
@@ -491,7 +506,7 @@ export function createTraffic(ctx: FlightContext): FlightModule {
 
   const slots: TrafficSlot[] = Array.from({ length: MAX_TRAFFIC_CARS }, (_, i) => ({
     active: false,
-    variant: i % 3,
+    variant: TRAFFIC_VARIANTS[i % TRAFFIC_VARIANTS.length],
     color: TRAFFIC_COLORS[i % TRAFFIC_COLORS.length],
     model: null,
     glbTinted: false,
@@ -513,7 +528,21 @@ export function createTraffic(ctx: FlightContext): FlightModule {
     prevX: 0,
     prevZ: 0,
     stuckTimer: 0,
+    halfWidth: DEFAULT_CAR_HALF_WIDTH,
+    halfLength: DEFAULT_CAR_HALF_LENGTH,
+    height: DEFAULT_CAR_HEIGHT,
   }));
+
+  const footprintScratch: HitboxFootprint = { halfWidth: 0, halfLength: 0, height: 0, centerX: 0, centerZ: 0 };
+
+  function syncSlotFootprint(slot: TrafficSlot) {
+    const fp = extractHitboxFootprint(slot.model?.hitbox, footprintScratch);
+    if (fp && fp.halfWidth > 0.3 && fp.halfLength > 0.5) {
+      slot.halfWidth = fp.halfWidth;
+      slot.halfLength = fp.halfLength;
+      slot.height = fp.height;
+    }
+  }
 
   function syncCarLights(model: VehicleModel) {
     // Delivered by Noon: sempre de dia — faróis desligados
@@ -576,6 +605,7 @@ export function createTraffic(ctx: FlightContext): FlightModule {
     syncCarLights(model);
     model.root.enabled = false;
     slot.model = model;
+    syncSlotFootprint(slot);
     return model;
   }
 
@@ -829,6 +859,7 @@ export function createTraffic(ctx: FlightContext): FlightModule {
 
     if (slot.model) {
       tryTintLoadedGlb(slot);
+      syncSlotFootprint(slot);
       slot.model.root.setPosition(slot.x, slot.y, slot.z);
       slot.model.root.setLocalEulerAngles(slot.pitch, -slot.heading, 0);
       if (slot.model.wheels && slot.speed > 0.1) {
@@ -847,8 +878,18 @@ export function createTraffic(ctx: FlightContext): FlightModule {
     obstaclesBuffer.length = 0;
     if (destroyed) return obstaclesBuffer;
     for (let i = 0; i < slots.length; i++) {
-      if (slots[i].active) {
-        obstaclesBuffer.push({ x: slots[i].x, z: slots[i].z, radius: CAR_RADIUS });
+      const slot = slots[i];
+      if (slot.active) {
+        obstaclesBuffer.push({
+          x: slot.x,
+          y: slot.y,
+          z: slot.z,
+          radius: slot.halfWidth,
+          heading: slot.heading,
+          halfWidth: slot.halfWidth,
+          halfLength: slot.halfLength,
+          height: slot.height,
+        });
       }
     }
     return obstaclesBuffer;

@@ -90,17 +90,11 @@ describe('ground world and bodies',()=>{
     tick(2,()=>foot.step({...input,forward:0,jump:true},1/120));expect(foot.y).toBeCloseTo(3,8);
     tick(5,()=>foot.step({...input,heading:90},1/120));expect(foot.x).toBeLessThan(3.66);
   });
-  it('rejects actual uphill terrain steeper than the car limit',()=>{
-    const world=createWorldPhysics([]);
-    let steep: {x:number;z:number}|undefined;
-    for(let x=-2600;x<2600&&!steep;x+=10)for(let z=-2600;z<2600;z+=10) {
-      // relevo suavizado: procura qualquer trecho acima do limite do carro (0,55) com folga de 9%
-      if(world.groundAt(x+.2,z)-world.groundAt(x,z)>.2*.6) {steep={x,z};break;}
-    }
-    expect(steep).toBeDefined();
-    const {x,z}=steep!;
-    const moved=world.moveCapsule({x,y:world.groundAt(x,z),z},.2,0,2.2,1.5,.55);
-    expect(moved.x).toBe(x);
+  it('rejects uphill ground steeper than the car limit (0.55) but climbs a 0.30 ramp',()=>{
+    const ramp=(slope:number)=>({x0:-10,x1:10,z0:-3,z1:3,top:slope*20,bottom:-1,ramp:{x0:-10,z0:0,x1:10,z1:0,y0:0,y1:slope*20}});
+    const steep=createWorldPhysics([ramp(.8)],0),easy=createWorldPhysics([ramp(.3)],0);
+    expect(steep.moveCapsule({x:-12,y:0,z:0},4,0,2.2,1.5,.55).x).toBeLessThan(-7);
+    expect(easy.moveCapsule({x:-12,y:0,z:0},12,0,2.2,1.5,.55).x).toBeGreaterThan(-2);
   });
 });
 

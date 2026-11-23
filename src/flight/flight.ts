@@ -242,8 +242,19 @@ function createHeliController({app,world,plane,state}:FlightContext,spawn?:Vehic
         const floor=obstacle?.top??world.surfaceAt?.(point.x,point.z,point.y+.02)??world.groundAt(point.x,point.z);
         if(point.y<floor-.01) {
           const centerFloor=support(body.position.x,body.position.z);
-          if(floor-centerFloor>.3||floor-point.y>.3||Math.abs(body.velocity.y)>=3||Math.abs(body.pitch)>18||Math.abs(body.roll)>18||Math.hypot(body.velocity.x,body.velocity.z)>20) body.crashed=true;
-          else {body.position.y+=floor-point.y;body.velocity.set(0,0,0);body.grounded=true;}
+          const wallHit=floor-centerFloor>1.5||floor-point.y>1.5;
+          const hardDrop=body.velocity.y<-6;
+          const hardHorizontal=Math.hypot(body.velocity.x,body.velocity.z)>22;
+          const extremeTilt=Math.abs(body.pitch)>60||Math.abs(body.roll)>60;
+          if(wallHit||hardDrop||extremeTilt||hardHorizontal) {
+            body.crashed=true;
+          } else {
+            body.position.y+=floor-point.y;
+            if(body.velocity.y<0)body.velocity.y=0;
+            const slide=Math.exp(-FIXED_STEP*6);
+            body.velocity.x*=slide;body.velocity.z*=slide;
+            if(input.collective<=0&&body.velocity.y<=.05)body.grounded=true;
+          }
         }
       }
       if(body.crashed){state.crashed=true;plane.root.enabled=false;accumulator=0;break;}

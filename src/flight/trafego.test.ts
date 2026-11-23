@@ -63,7 +63,11 @@ describe('tráfego urbano de Juiz de Fora', () => {
     expect(graph.nodes.length).toBeGreaterThan(500);
     expect(graph.edges.length).toBeGreaterThan(1000);
 
-    const junctions = graph.nodes.filter((n) => n.outEdges.length >= 3);
+    // mão única: só as arestas no sentido da via (ids pares) saem dos nós; cruzamento = nó com 3+ vias incidentes (entram ou saem)
+    for (const n of graph.nodes) for (const id of n.outEdges) expect(id % 2).toBe(0);
+    const degree = new Map<number, number>();
+    for (const e of graph.edges) if (e.id % 2 === 0) { degree.set(e.from, (degree.get(e.from) ?? 0) + 1); degree.set(e.to, (degree.get(e.to) ?? 0) + 1); }
+    const junctions = [...degree.values()].filter((d) => d >= 3);
     expect(junctions.length).toBeGreaterThan(100);
 
     // Cada aresta tem seu par inverso válido (mão dupla)
