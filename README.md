@@ -160,10 +160,10 @@ A física de voo (FDM) foi portada e adaptada do **JSBSim** (LGPL-2.1, *JSBSim-T
 - **Blender** — Modelagem e adaptação 3D
 
 ### Modelos 3D de terceiros (adaptados pelo grupo: escala real, rodas/rotores separados, sem interior e sem logos)
-- **2014 Ford Fiesta ST** — *Ddiaz Design* (Sketchfab), licença **CC BY-NC-SA 4.0**; versão modificada distribuída sob a mesma licença (`public/models/carro.glb`). Rodas de 5 raios geradas no Meshy.
-- **Porsche 911 GT3** — Sketchfab (`public/models/carro-tunado.glb`). Autor e licença conforme a página do modelo no Sketchfab (link a adicionar).
-- **Animated Civilian Helicopter** — Sketchfab (`public/models/helicoptero.glb`). Autor e licença conforme a página do modelo no Sketchfab (link a adicionar).
-- **EMB-314 Super Tucano A-29B** — Sketchfab (`public/models/a29.glb`). Autor e licença conforme a página do modelo no Sketchfab (link a adicionar).
+- **2014 Ford Fiesta ST** — *Ddiaz Design* (https://sketchfab.com/3d-models/2014-ford-fiesta-st-44a06a21f2714c31b25a51c6a4ecd9df), licença **CC BY-NC-SA 4.0**; versão modificada distribuída sob a mesma licença (`public/models/carro.glb`). Rodas de 5 raios geradas no Meshy.
+- **Porsche 911 GT3** — *ChevroletSS* (https://sketchfab.com/3d-models/porsche-911-gt3-78d5c47ab2554c2592b7e499179a0792), licença **CC BY 4.0** (`public/models/carro-tunado.glb`).
+- **Animated civilian Helicopter** — *assetfactory* (https://sketchfab.com/3d-models/animated-civilian-helicopter-f25c041a8d004eb092e4aa41d1dc33f4), licença **Sketchfab Free Standard** (`public/models/helicoptero.glb`).
+- **EMB-314 Super Tucano A29B** — *Gilberto (Gilhhjm)* (https://sketchfab.com/3d-models/emb-314-super-tucano-a29b-ad14e4e33ac4482998784249bb11d7f8), licença **Sketchfab Free Standard** (`public/models/a29.glb`).
 - **Carros do trânsito** (hatch, picape, sedan) — gerados pelo grupo no **Meshy** e ajustados no Blender.
 - **UniAcademia, personagem e cenário** — modelados pelo grupo (Blender e geração procedural).
 
