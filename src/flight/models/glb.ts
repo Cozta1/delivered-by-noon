@@ -132,7 +132,9 @@ export function cornersHitboxFromAabb(aabb: BoundingBox): [number, number, numbe
 export function glbUrl(app: AppBase, filename: string): string {
   const bin = app.assets?.find?.(`${filename}.bin`, 'binary') as Asset | null | undefined;
   const fileUrl = bin?.getFileUrl?.();
-  if (fileUrl) return fileUrl;
+  // A URL precisa ser diferente da do asset binário: loadFromUrl reaproveita o asset já registrado
+  // com a mesma URL (getByUrl) e devolveria o ArrayBuffer cru em vez do container (carro antigo no Launch).
+  if (fileUrl) return `${fileUrl}${fileUrl.includes('?') ? '&' : '?'}as=container`;
   const rawBase = (import.meta as { env?: { BASE_URL?: string } }).env?.BASE_URL ?? '/';
   const base = rawBase.endsWith('/') ? rawBase : `${rawBase}/`;
   return `${base}models/${filename}`;
