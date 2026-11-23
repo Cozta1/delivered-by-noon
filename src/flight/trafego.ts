@@ -552,6 +552,8 @@ export function createTraffic(ctx: FlightContext): FlightModule {
         if (/(tire|pneu|wheel|roda|glass|vidro|window|light|farol|lanterna|chrome|cromo|black|preto|dark)/i.test(nameLower)) {
           continue;
         }
+        // Modelos do Meshy têm uma textura só para o carro todo (vidro e pneu inclusos): tingir escurece tudo
+        if (mat.diffuseMap) continue;
         const lum = mat.diffuse.r * 0.3 + mat.diffuse.g * 0.59 + mat.diffuse.b * 0.11;
         if (lum < 0.22) continue;
         let cloned = clonedMap.get(mat);
