@@ -31,7 +31,7 @@ const CAR_VARIANTS: ReadonlyArray<{
     body: [0.94, 0.95, 0.97],
     accent: [0.06, 0.065, 0.08],
     rim: [0.18, 0.19, 0.22],
-    size: [1.73, 1.43, 3.97],
+    size: [1.73, 1.25, 4.07], // hatch branco em alta qualidade (Meshy)
     wheelRadius: 0.3,
     wheelX: 0.72,
     wheelZ: 1.2,

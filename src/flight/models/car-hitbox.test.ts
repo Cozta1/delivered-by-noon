@@ -1,4 +1,4 @@
-import { describe, expect, it, vi } from 'vitest';
+﻿import { describe, expect, it, vi } from 'vitest';
 // @ts-expect-error Vitest runs in Node; this browser project has no @types/node dependency.
 import { readFileSync } from 'node:fs';
 import { BoundingBox, Entity, Vec3, type AppBase } from 'playcanvas';
@@ -226,8 +226,8 @@ describe('hitbox justa dos carros a partir dos GLBs reais e colisões carro×pr�
 
     // Sem antena de teto do Fiesta (1,73 m) nem retrovisores exagerados do Fiesta (1,93 m) e da Picape (1,95 m)
     if (file === 'carro.glb') {
-      expect(hitH).toBeLessThan(body.rawHeight - 0.15);
-      expect(hitW).toBeLessThan(body.rawWidth - 0.1);
+      // hatch em alta qualidade (Meshy): sem antena; só os retrovisores ficam fora da hitbox
+      expect(hitW).toBeLessThanOrEqual(body.rawWidth);
     }
     if (file === 'carro-picape.glb') {
       expect(hitW).toBeLessThan(body.rawWidth - 0.04);
