@@ -76,8 +76,10 @@ function gaussianBlur(src: Float32Array, sigma: number) {
   };
   return pass(pass(src, true), false);
 }
-export const DEM_SMOOTH_SIGMA = 1.6;
-const rawGrid = gaussianBlur(decodeGrid(jf.relevo.dm), DEM_SMOOTH_SIGMA);
+export const DEM_SMOOTH_SIGMA = 2.6;
+/** Amplitude do relevo em torno do Centro (8 m): 0,85 arredonda os morros sem achatá-los. */
+export const DEM_AMPLITUDE = .85;
+const rawGrid = gaussianBlur(decodeGrid(jf.relevo.dm), DEM_SMOOTH_SIGMA).map((v) => Math.max(2, 8 + (v - 8) * DEM_AMPLITUDE));
 const rawHeight = (x: number, z: number) => sampleGrid(rawGrid, x, z);
 
 // ---------------------------------------------------------------------------
@@ -86,7 +88,7 @@ const rawHeight = (x: number, z: number) => sampleGrid(rawGrid, x, z);
 export const ROAD_CLASSES = ['motorway', 'trunk', 'primary', 'secondary', 'tertiary'] as const;
 export type RoadClass = typeof ROAD_CLASSES[number];
 /** Largura do asfalto por categoria (m). A faixa desenhada inclui as calçadas (14% de cada lado). */
-const ASPHALT = [15, 13, 11, 9, 7.5];
+const ASPHALT = [7, 7, 7, 7, 7]; // via única de mão única: largura única de 7 m
 const stripWidth = (cls: number) => ASPHALT[cls] / 0.72;
 const LIFT = [.44, .41, .38, .35, .32];
 const RIVER_WIDTH = 12;
@@ -123,9 +125,94 @@ function smoothLine(way: number[], step: number): number[] {
   }
   return out;
 }
+// ---------------------------------------------------------------------------
+// Simplificação viária (jogo arcade): uma faixa só, mão única, sem pistas duplas paralelas nem cotos
+// ---------------------------------------------------------------------------
+interface NetLine { cls: number; pts: number[] }
+const polyLength = (p: number[]) => { let s = 0; for (let i = 0; i + 3 < p.length; i += 2) s += Math.hypot(p[i + 2] - p[i], p[i + 3] - p[i + 1]); return s; };
+function nearestOnPoly(p: number[], x: number, z: number) {
+  let best = { d: Infinity, x: p[0], z: p[1], tx: 1, tz: 0 };
+  for (let i = 0; i + 3 < p.length; i += 2) {
+    const dx = p[i + 2] - p[i], dz = p[i + 3] - p[i + 1], len2 = dx * dx + dz * dz, t = len2 ? Math.max(0, Math.min(1, ((x - p[i]) * dx + (z - p[i + 1]) * dz) / len2)) : 0;
+    const qx = p[i] + dx * t, qz = p[i + 1] + dz * t, d = Math.hypot(x - qx, z - qz);
+    if (d < best.d) { const l = Math.sqrt(len2) || 1; best = { d, x: qx, z: qz, tx: dx / l, tz: dz / l }; }
+  }
+  return best;
+}
+function simplifyNetwork(input: NetLine[]): NetLine[] {
+  let lines = input.filter((l) => l.pts.length >= 4).map((l) => ({ cls: l.cls, pts: l.pts.slice() }));
+  // 1. pistas duplas (dual carriageway do OSM): duas vias paralelas em sentidos opostos viram uma só, no meio
+  const CELL = 128, bbox = lines.map((l) => { const xs = l.pts.filter((_, i) => i % 2 === 0), zs = l.pts.filter((_, i) => i % 2 === 1); return [Math.min(...xs), Math.max(...xs), Math.min(...zs), Math.max(...zs)]; });
+  const cells = new Map<number, number[]>();
+  bbox.forEach((b, i) => { for (let gx = Math.floor((b[0] - 36) / CELL); gx <= Math.floor((b[1] + 36) / CELL); gx++) for (let gz = Math.floor((b[2] - 36) / CELL); gz <= Math.floor((b[3] + 36) / CELL); gz++) { const k = hashKey(gx, gz); let l = cells.get(k); if (!l) cells.set(k, l = []); l.push(i); } });
+  const ratio = (a: number[], b: number[]) => {
+    let hits = 0, total = 0;
+    for (let i = 0; i + 3 < a.length; i += 2) {
+      const dx = a[i + 2] - a[i], dz = a[i + 3] - a[i + 1], len = Math.hypot(dx, dz) || 1, n = Math.max(1, Math.round(len / 8));
+      for (let k = 0; k < n; k++) {
+        const x = a[i] + dx * (k + .5) / n, z = a[i + 1] + dz * (k + .5) / n, nb = nearestOnPoly(b, x, z);
+        total++;
+        if (nb.d >= 2 && nb.d <= 34 && (dx * nb.tx + dz * nb.tz) / len < -.8) hits++;
+      }
+    }
+    return total ? hits / total : 0;
+  };
+  const pairs: { a: number; b: number; r: number }[] = [], seen = new Set<number>();
+  for (const list of cells.values()) for (let u = 0; u < list.length; u++) for (let v = u + 1; v < list.length; v++) {
+    const a = Math.min(list[u], list[v]), b = Math.max(list[u], list[v]), key = a * 100000 + b;
+    if (seen.has(key)) continue; seen.add(key);
+    if (polyLength(lines[a].pts) < 20 || polyLength(lines[b].pts) < 20) continue;
+    const r1 = ratio(lines[a].pts, lines[b].pts), r2 = ratio(lines[b].pts, lines[a].pts);
+    if (r1 >= .8 && r2 >= .8) pairs.push({ a, b, r: r1 + r2 });
+  }
+  pairs.sort((p, q) => q.r - p.r);
+  const used = new Set<number>(), merged: NetLine[] = [], removed: number[][] = [];
+  for (const { a, b } of pairs) {
+    if (used.has(a) || used.has(b)) continue;
+    used.add(a); used.add(b);
+    const base = polyLength(lines[a].pts) >= polyLength(lines[b].pts) ? a : b, other = base === a ? b : a, pts: number[] = [];
+    for (let i = 0; i + 1 < lines[base].pts.length; i += 2) {
+      const x = lines[base].pts[i], z = lines[base].pts[i + 1], q = nearestOnPoly(lines[other].pts, x, z);
+      pts.push((x + q.x) / 2, (z + q.z) / 2);
+    }
+    merged.push({ cls: Math.min(lines[a].cls, lines[b].cls), pts });
+    removed.push(lines[a].pts, lines[b].pts);
+  }
+  // pontas das outras vias que tocavam uma das pistas passam a tocar a via única
+  const kept = lines.filter((_, i) => !used.has(i));
+  for (const l of kept) for (const end of [0, l.pts.length - 2]) {
+    const x = l.pts[end], z = l.pts[end + 1];
+    if (!removed.some((r) => nearestOnPoly(r, x, z).d < 4.5)) continue;
+    let best = { d: Infinity, x, z };
+    for (const m of merged) { const q = nearestOnPoly(m.pts, x, z); if (q.d < best.d) best = { d: q.d, x: q.x, z: q.z }; }
+    if (best.d < 40) { l.pts[end] = best.x; l.pts[end + 1] = best.z; }
+  }
+  lines = [...kept, ...merged];
+  // 2. cotos e vias de serviço que não levam a lugar nenhum
+  for (let pass = 0; pass < 3; pass++) {
+    const g = new Map<number, { l: number; i: number }[]>();
+    lines.forEach((l, li) => { for (let i = 0; i + 3 < l.pts.length; i += 2) { const gx0 = Math.floor(Math.min(l.pts[i], l.pts[i + 2]) / 32) - 1, gx1 = Math.floor(Math.max(l.pts[i], l.pts[i + 2]) / 32) + 1, gz0 = Math.floor(Math.min(l.pts[i + 1], l.pts[i + 3]) / 32) - 1, gz1 = Math.floor(Math.max(l.pts[i + 1], l.pts[i + 3]) / 32) + 1; for (let gx = gx0; gx <= gx1; gx++) for (let gz = gz0; gz <= gz1; gz++) { const k = hashKey(gx, gz); let a = g.get(k); if (!a) g.set(k, a = []); a.push({ l: li, i }); } } });
+    const free = (li: number, end: number) => {
+      const x = lines[li].pts[end], z = lines[li].pts[end + 1];
+      for (const { l, i } of g.get(hashKey(Math.floor(x / 32), Math.floor(z / 32))) ?? []) {
+        if (l === li) continue;
+        const p = lines[l].pts, dx = p[i + 2] - p[i], dz = p[i + 3] - p[i + 1], len2 = dx * dx + dz * dz, t = len2 ? Math.max(0, Math.min(1, ((x - p[i]) * dx + (z - p[i + 1]) * dz) / len2)) : 0;
+        if (Math.hypot(x - p[i] - dx * t, z - p[i + 1] - dz * t) < 4.5) return false;
+      }
+      return true;
+    };
+    const drop = new Set<number>();
+    lines.forEach((l, li) => { const len = polyLength(l.pts), f = (free(li, 0) ? 1 : 0) + (free(li, l.pts.length - 2) ? 1 : 0); if ((len < 25 && f >= 1) || (len < 45 && f === 2)) drop.add(li); });
+    if (!drop.size) break;
+    lines = lines.filter((_, li) => !drop.has(li));
+  }
+  return lines;
+}
+
 /** Vias reamostradas com spline (a cada ~8 m): fita, cotas, física, GPS, tráfego e bairros usam estas linhas. */
 const SMOOTH_STEP = 8;
-const VIAS = Object.fromEntries(ROAD_CLASSES.map((c) => [c, (jf.vias[c] as number[][]).map((w) => smoothLine(w, SMOOTH_STEP))])) as Record<RoadClass, number[][]>;
+const SIMPLE = simplifyNetwork(ROAD_CLASSES.flatMap((c, cls) => (jf.vias[c] as number[][]).map((pts) => ({ cls, pts }))));
+const VIAS = Object.fromEntries(ROAD_CLASSES.map((c, cls) => [c, SIMPLE.filter((l) => l.cls === cls).map((l) => smoothLine(l.pts, SMOOTH_STEP))])) as Record<RoadClass, number[][]>;
 const segmentGrid = new Map<number, Segment[]>();
 const segments: Segment[] = [];
 function addSegment(s: Segment) {
@@ -506,7 +593,7 @@ interface RingChain { pts: JPt[]; out: number[]; sw: number[]; nrm: [number, num
 interface RingSeg { first: boolean; last: boolean; x0: number; z0: number; h0: number; o0: number; w0: number; x1: number; z1: number; h1: number; o1: number; w1: number; nx: number; nz: number; cf: number }
 /** Cruzamento no estilo QuickRoad: cada rua é cortada num recuo e o miolo é um polígono com filetes de esquina (raio ~4,5 m). */
 interface Junction { x: number; z: number; r: number; hc: number; poly: JPt[]; chains: RingChain[]; /** remendo de reserva (disco por cima das fitas): desenhado PATCH_LIFT acima */ patch?: boolean }
-const PATCH_LIFT = .09;
+const PATCH_LIFT = .04;
 const FILLET = 3.2;
 /** Cruzamentos: pontos onde vias de mesma/diferente categoria se encontram (>= 3 braços), com um disco de asfalto único. */
 function findJunctions(ways: RoadWay[], grid: Map<number, RoadSegH[]>) {
@@ -695,6 +782,14 @@ function buildJunction(ways: RoadWay[], grid: Map<number, RoadSegH[]>, j: { x: n
       if (i + 1 < ch.pts.length) { const q = ch.pts[i + 1]; pts.push([(p.x + q.x) / 2, (p.z + q.z) / 2, (ch.nrm[i][0] + ch.nrm[i + 1][0]) / 2, (ch.nrm[i][1] + ch.nrm[i + 1][1]) / 2]); }
     });
     mouth.forEach((m) => { const x = (m.m.x + m.p.x) / 2, z = (m.m.z + m.p.z) / 2; pts.push([x, z, x - j.x, z - j.z]); });
+    // o leque nunca pode afundar no terreno nem formar degrau interno (>= terreno + 10 cm e suave em 1,5 m)
+    for (let gx = -junction.r; gx <= junction.r; gx += 1.5) for (let gz = -junction.r; gz <= junction.r; gz += 1.5) {
+      const x = j.x + gx, z = j.z + gz, h = fanAt(junction, x, z);
+      if (h === undefined) continue;
+      if (h < terrainHeight(x, z) + .1) return null;
+      const h2 = fanAt(junction, x + 1.5, z);
+      if (h2 !== undefined && Math.abs(h2 - h) > .6) return null;
+    }
     for (const [x, z, nx, nz] of pts) {
       const l = Math.hypot(nx, nz) || 1, ux = nx / l, uz = nz / l;
       const hIn = fanAt(junction, x - ux * .25, z - uz * .25);
@@ -779,7 +874,8 @@ function roadNet() {
     }
   };
   for (const d of junctions) {
-    put(discGrid, d, d.x - d.r, d.x + d.r, d.z - d.r, d.z + d.r);
+    // o disco de reserva é só visual: a física dele seria um segundo degrau; o carro continua pisando nas fitas
+    if (!d.patch) put(discGrid, d, d.x - d.r, d.x + d.r, d.z - d.r, d.z + d.r);
     for (const seg of ringSegsOf(d)) {
       const reach = Math.max(seg.w0, seg.w1) + MAX_BEVEL;
       put(ringGrid, seg, Math.min(seg.x0, seg.x1) - reach, Math.max(seg.x0, seg.x1) + reach, Math.min(seg.z0, seg.z1) - reach, Math.max(seg.z0, seg.z1) + reach);
@@ -1030,7 +1126,7 @@ function buildCity() {
   const helipad = { x: (tower.x0 + tower.x1) / 2, z: (tower.z0 + tower.z1) / 2, y: tower.top };
 
   const RESERVED = [
-    { x: UNI_LOT.x, z: UNI_LOT.z, r: 62 }, { x: WORKSHOP_SPOT.x, z: WORKSHOP_SPOT.z, r: 26 }, { x: CRISTO.x, z: CRISTO.z, r: 34 },
+    { x: UNI_LOT.x, z: UNI_LOT.z, r: 62 }, { x: WORKSHOP_SPOT.x, z: WORKSHOP_SPOT.z, r: 26 }, { x: CRISTO.x, z: CRISTO.z, r: 120 }, { x: TOWER_SPOT.x, z: TOWER_SPOT.z, r: 46 }, // rampa da torre do heliponto
   ];
   const ramps = rampSites().map((q) => ({ x0: Math.min(q.x0, q.x1) - 10, x1: Math.max(q.x0, q.x1) + 10, z0: Math.min(q.z0, q.z1) - 10, z1: Math.max(q.z0, q.z1) + 10 }));
   let houses = 0;
@@ -1190,27 +1286,78 @@ export function airportData(helipad = cityData().helipad, roof: Box = cityData()
   rectangle('Heliponto', x, y + .01, z, 24, 24, [60,70,75]);
   for (const dx of [-5, 5]) rectangle('H', x + dx, y + .03, z, 1.5, 14, [245,230,110]);
   rectangle('H', x, y + .03, z, 10, 1.5, [245,230,110]);
-  // Rampa externa em zigue-zague: rota contínua a pé da rua até a laje.
-  const ground0 = terrainHeight(roof.x1 + 2, roof.z1 + 2);
-  const access = [{ x: roof.x1 + 2, y: ground0, z: roof.z1 + 2 }];
-  const corners = [[roof.x1 + 2, roof.z0 - 2], [roof.x0 - 2, roof.z0 - 2], [roof.x0 - 2, roof.z1 + 2], [roof.x1 + 2, roof.z1 + 2]];
-  function rampTo(x: number, z: number, y: number) {
-    const a = access[access.length - 1], dx = x - a.x, dz = z - a.z, length = Math.hypot(dx, dz);
-    const px = dz / length * 1.2, pz = -dx / length * 1.2;
-    parts.push({ name: 'Acesso ao heliponto', mesh: geometry([a.x+px,a.y,a.z+pz,a.x-px,a.y,a.z-pz,x-px,y,z-pz,x+px,y,z+pz],
-      [0,1,2,0,2,3], Array.from({ length: 4 }, () => [155,160,165,255]).flat()) });
-    boxes.push({ x0: Math.min(a.x,x) - Math.abs(px), x1: Math.max(a.x,x) + Math.abs(px),
-      z0: Math.min(a.z,z) - Math.abs(pz), z1: Math.max(a.z,z) + Math.abs(pz), top: y, bottom: a.y - .12,
-      ramp: { x0: a.x, z0: a.z, x1: x, z1: z, y0: a.y, y1: y } });
-    access.push({ x, y, z });
+  // Rampa externa contínua (espiral quadrada): 6 m de largura, inclinação 0,30, patamares planos nos cantos, guarda-corpo dos dois lados.
+  // Física = malha: cada trecho é uma caixa de rampa (altura interpolada) e cada patamar uma caixa plana.
+  const HALF_W = 3, OFF = 7, SLOPE = .3, RAIL_H = 1.1, RAIL_T = .15, CHUNK = 6;
+  const cxs = [roof.x1 + OFF, roof.x1 + OFF, roof.x0 - OFF, roof.x0 - OFF], czs = [roof.z1 + OFF, roof.z0 - OFF, roof.z0 - OFF, roof.z1 + OFF];
+  const deckColor = [155, 160, 165, 255];
+  const railPos: number[] = [], railIdx: number[] = [];
+  /** Guarda-corpo reto ao longo de um eixo, de (ax,az) a (bx,bz), acompanhando a altura do piso; vira caixa de colisão e prisma de 8 vértices. */
+  const rail = (ax: number, az: number, ay: number, bx: number, bz: number, by: number) => {
+    const len = Math.hypot(bx - ax, bz - az);
+    if (len < .2) return;
+    const dx = (bx - ax) / len, dz = (bz - az) / len, nx = dz * RAIL_T, nz = -dx * RAIL_T, base = railPos.length / 3;
+    for (const [x, z, ry] of [[ax, az, ay], [bx, bz, by]]) for (const s of [-1, 1]) for (const h of [0, RAIL_H]) railPos.push(x + nx * s, ry + h, z + nz * s);
+    const c = [(ax + bx) / 2, (Math.min(ay, by) + Math.max(ay, by) + RAIL_H) / 2, (az + bz) / 2];
+    for (const t of [[0, 1, 3], [0, 3, 2], [4, 6, 7], [4, 7, 5], [0, 4, 5], [0, 5, 1], [2, 3, 7], [2, 7, 6], [0, 2, 6], [0, 6, 4], [1, 5, 7], [1, 7, 3]]) {
+      const p = t.map((i) => [railPos[(base + i) * 3], railPos[(base + i) * 3 + 1], railPos[(base + i) * 3 + 2]]);
+      const u = [p[1][0] - p[0][0], p[1][1] - p[0][1], p[1][2] - p[0][2]], v = [p[2][0] - p[0][0], p[2][1] - p[0][1], p[2][2] - p[0][2]];
+      const n3 = [u[1] * v[2] - u[2] * v[1], u[2] * v[0] - u[0] * v[2], u[0] * v[1] - u[1] * v[0]];
+      const dot = n3[0] * ((p[0][0] + p[1][0] + p[2][0]) / 3 - c[0]) + n3[1] * ((p[0][1] + p[1][1] + p[2][1]) / 3 - c[1]) + n3[2] * ((p[0][2] + p[1][2] + p[2][2]) / 3 - c[2]);
+      railIdx.push(...(dot >= 0 ? [base + t[0], base + t[1], base + t[2]] : [base + t[0], base + t[2], base + t[1]]));
+    }
+    boxes.push({ x0: Math.min(ax, bx) - RAIL_T, x1: Math.max(ax, bx) + RAIL_T, z0: Math.min(az, bz) - RAIL_T, z1: Math.max(az, bz) + RAIL_T, top: Math.max(ay, by) + RAIL_H, bottom: Math.min(ay, by) - .05 });
+  };
+  const railAlong = (ax: number, az: number, ay: number, bx: number, bz: number, by: number) => {
+    const len = Math.hypot(bx - ax, bz - az), n = Math.max(1, Math.ceil(len / CHUNK));
+    for (let i = 0; i < n; i++) rail(ax + (bx - ax) * i / n, az + (bz - az) * i / n, ay + (by - ay) * i / n, ax + (bx - ax) * (i + 1) / n, az + (bz - az) * (i + 1) / n, ay + (by - ay) * (i + 1) / n);
+  };
+  const side = (from: number, to: number) => { const dx = Math.sign(cxs[to % 4] - cxs[from % 4]), dz = Math.sign(czs[to % 4] - czs[from % 4]); return dx > 0 ? 'E' : dx < 0 ? 'W' : dz > 0 ? 'S' : 'N'; };
+  const landingAt = (x: number, z: number, ry: number, open: string[]) => {
+    parts.push({ name: 'Patamar da rampa', mesh: geometry([x - HALF_W, ry, z + HALF_W, x + HALF_W, ry, z + HALF_W, x + HALF_W, ry, z - HALF_W, x - HALF_W, ry, z - HALF_W], [0, 1, 2, 0, 2, 3], Array.from({ length: 4 }, () => deckColor).flat()) });
+    // sem caixa própria: o piso do patamar vem do prolongamento plano das caixas de rampa vizinhas (sem degrau de parede para o carro)
+    const e = HALF_W - RAIL_T;
+    if (!open.includes('N')) rail(x - HALF_W, z - e, ry, x + HALF_W, z - e, ry);
+    if (!open.includes('S')) rail(x - HALF_W, z + e, ry, x + HALF_W, z + e, ry);
+    if (!open.includes('E')) rail(x + e, z - HALF_W, ry, x + e, z + HALF_W, ry);
+    if (!open.includes('W')) rail(x - e, z - HALF_W, ry, x - e, z + HALF_W, ry);
+  };
+  const landing = (k: number, ry: number, open: string[]) => landingAt(cxs[k % 4], czs[k % 4], ry, open);
+  const label = (dx: number, dz: number) => (dx > 0 ? 'E' : dx < 0 ? 'W' : dz > 0 ? 'S' : 'N');
+  const opposite = (l: string) => ({ N: 'S', S: 'N', E: 'W', W: 'E' } as Record<string, string>)[l];
+  const access = [{ x: cxs[0], y: terrainHeight(cxs[0], czs[0]) + .05, z: czs[0] }];
+  let ry = access[0].y, k = 0;
+  landing(0, ry, ['N', 'S', 'E', 'W']); // patamar de entrada no nível do chão: aberto (sem guarda-corpo), a entrada vale por qualquer lado
+  for (let guard = 0; guard < 12 && ry < helipad.y - .001; guard++, k++) {
+    const x0 = cxs[k % 4], z0 = czs[k % 4], x1 = cxs[(k + 1) % 4], z1 = czs[(k + 1) % 4], dx = Math.sign(x1 - x0), dz = Math.sign(z1 - z0);
+    const full = Math.hypot(x1 - x0, z1 - z0) - 2 * HALF_W, needed = (helipad.y - ry) / SLOPE, run = Math.min(full, needed), y1 = ry + run * SLOPE;
+    const sx = x0 + dx * HALF_W, sz = z0 + dz * HALF_W, ex = sx + dx * run, ez = sz + dz * run, px = dz * HALF_W, pz = -dx * HALF_W;
+    parts.push({ name: 'Rampa do heliponto', mesh: geometry([sx + px, ry, sz + pz, sx - px, ry, sz - pz, ex - px, y1, ez - pz, ex + px, y1, ez + pz], [0, 1, 2, 0, 2, 3], Array.from({ length: 4 }, () => deckColor).flat()) });
+    // a caixa do trecho se prolonga 6 m (um patamar) além do fim, e 6 m antes do início no primeiro trecho: topo plano ali (t preso em 0 ou 1)
+    const bx0 = sx - dx * (k === 0 ? 2 * HALF_W : 0), bz0 = sz - dz * (k === 0 ? 2 * HALF_W : 0), bx1 = ex + dx * 2 * HALF_W, bz1 = ez + dz * 2 * HALF_W;
+    boxes.push({ x0: Math.min(bx0, bx1) - Math.abs(px), x1: Math.max(bx0, bx1) + Math.abs(px), z0: Math.min(bz0, bz1) - Math.abs(pz), z1: Math.max(bz0, bz1) + Math.abs(pz), top: y1, bottom: ry - .12, ramp: { x0: sx, z0: sz, x1: ex, z1: ez, y0: ry, y1 } });
+    const arrived = needed <= full + 1e-6, e = HALF_W - RAIL_T, nx = dz * e, nz = -dx * e;
+    // lado de fora sempre fechado; lado do prédio (dentro) fechado, exceto onde a ponte para a laje sai da rampa
+    for (const s of [-1, 1]) railAlong(sx + s * nx, sz + s * nz, ry, ex + s * nx, ez + s * nz, y1);
+    access.push({ x: arrived ? ex : x1, y: y1, z: arrived ? ez : z1 });
+    if (arrived) {
+      // patamar plano de chegada logo após o fim do trecho e ponte plana dele até dentro da laje (3 m além da parede)
+      const tx = Math.sign((roof.x0 + roof.x1) / 2 - ex) * (Math.abs(dz) > 0 ? 1 : 0), tz = Math.sign((roof.z0 + roof.z1) / 2 - ez) * (Math.abs(dx) > 0 ? 1 : 0), reach = OFF + 3;
+      const lx = ex + dx * HALF_W, lz = ez + dz * HALF_W;
+      landingAt(lx, lz, y1, [opposite(label(dx, dz)), label(tx, tz)]);
+      const bx0 = lx + tx * HALF_W, bz0 = lz + tz * HALF_W, bx = ex + tx * reach, bz = ez + tz * reach, qx = tz * HALF_W, qz = -tx * HALF_W;
+      parts.push({ name: 'Ponte do heliponto', mesh: geometry([bx0 + qx, y1, bz0 + qz, bx0 - qx, y1, bz0 - qz, bx - qx, y1, bz - qz, bx + qx, y1, bz + qz], [0, 1, 2, 0, 2, 3], Array.from({ length: 4 }, () => deckColor).flat()) });
+      boxes.push({ x0: Math.min(bx0, bx) - Math.abs(qx), x1: Math.max(bx0, bx) + Math.abs(qx), z0: Math.min(bz0, bz) - Math.abs(qz), z1: Math.max(bz0, bz) + Math.abs(qz), top: y1, bottom: y1 - .12, ramp: { x0: bx0, z0: bz0, x1: bx, z1: bz, y0: y1, y1 } });
+      const ce = HALF_W - RAIL_T, cnx = tz * ce, cnz = -tx * ce;
+      for (const s of [-1, 1]) railAlong(bx0 + s * cnx, bz0 + s * cnz, y1, bx + s * cnx, bz + s * cnz, y1);
+      access.push({ x: lx, y: y1, z: lz }, { x: ex + tx * (OFF + 2), y: helipad.y, z: ez + tz * (OFF + 2) });
+      ry = y1;
+      break;
+    }
+    ry = y1;
+    landing(k + 1, ry, [side(k + 1, k), side(k + 1, k + 2)]);
   }
-  for (let i = 0; access[access.length - 1].y < helipad.y - .001; i++) {
-    const a = access[access.length - 1], [cx, cz] = corners[i % 4], length = Math.hypot(cx - a.x, cz - a.z);
-    const ratio = Math.min(1, (helipad.y - a.y) / (.25 * length));
-    rampTo(a.x + (cx - a.x) * ratio, a.z + (cz - a.z) * ratio, a.y + length * ratio * .25);
-  }
-  const end = access[access.length - 1];
-  rampTo(Math.max(roof.x0 + 1, Math.min(roof.x1 - 1, end.x)), Math.max(roof.z0 + 1, Math.min(roof.z1 - 1, end.z)), helipad.y);
+  if (railIdx.length) parts.push({ name: 'Guarda-corpo da rampa', mesh: geometry(railPos, railIdx, Array.from({ length: railPos.length / 3 }, () => [205, 210, 215, 255]).flat()) });
   return { parts, boxes, helipad, access };
 }
 
@@ -1400,14 +1547,16 @@ export function cityLayout() {
   };
 }
 
-/** Textura da faixa da via: calçadas nas bordas (14%), faixas laterais e eixo tracejado. */
+/** Textura da faixa da via: calçadas nas bordas (14%), linhas brancas laterais e uma seta de sentido (via de mão única). */
 export function cityStreetImages() {
   const road = image(64, 64);
   road.rectangles.push({ color: '#a3a6aa', x: 0, y: 0, width: 64, height: 64 });
   road.rectangles.push({ color: '#555560', x: 9, y: 0, width: 46, height: 64 });
   road.rectangles.push({ color: '#d6d3c4', x: 8, y: 0, width: 1, height: 64 }, { color: '#d6d3c4', x: 55, y: 0, width: 1, height: 64 });
   for (const x of [12, 51]) road.rectangles.push({ color: '#eee9d5', x, y: 0, width: 1, height: 64 });
-  for (const y of [0, 32]) road.rectangles.push({ color: '#e9bd43', x: 31, y, width: 2, height: 16 });
+  // seta de sentido no meio da faixa (aponta para a frente da via = v crescente = y crescente na imagem); sem tracejado central
+  road.rectangles.push({ color: '#eee9d5', x: 30, y: 12, width: 4, height: 26 });
+  for (let k = 0; k < 7; k++) road.rectangles.push({ color: '#eee9d5', x: 32 - (14 - k * 2) / 2, y: 38 + k * 2, width: 14 - k * 2, height: 2 });
   return { road };
 }
 
@@ -1514,7 +1663,7 @@ export function cityDetails(city = cityData()) {
     fill(p, () => [83, 139, 65], .1);
     const step = 26;
     for (let x = p.x0 + step / 2; x < p.x1; x += step) for (let z = p.z0 + step / 2; z < p.z1; z += step) {
-      const tx = x + (r() - .5) * 8, tz = z + (r() - .5) * 8; if (!inside(p, tx, tz) || r() > .7) continue;
+      const tx = x + (r() - .5) * 8, tz = z + (r() - .5) * 8; if (!inside(p, tx, tz) || r() > .7 || gapToRoads(tx, tz) < 2.5 || net.junctions.some((j) => Math.hypot(tx - j.x, tz - j.z) < j.r + 2)) continue; // árvore fora das ruas e cruzamentos
       const y = terrainHeight(tx, tz);
       cone(tx, y, tz, .45, 3, [109, 76, 48]); cone(tx, y + 2, tz, 3, 6, [62, 117, 65], 5); cylinder(tx, tz, .4, y, y + 3);
     }
@@ -1525,6 +1674,7 @@ export function cityDetails(city = cityData()) {
   }
   for (const p of universityPolys) fill(p, (x, z) => ((Math.floor(x / CELL) + Math.floor(z / CELL)) % 7 === 0 ? [176, 168, 150] : [112, 162, 92]), .1);
 
+  const stops = protectedSpots();
   // Postes: nas vias de categoria secundária ou maior, alternando os lados a cada ~55 m
   net.ways.filter((w) => w.cls <= 3).forEach((w, wi) => {
     let side = wi % 2 ? 1 : -1, next = 20;
@@ -1533,9 +1683,9 @@ export function cityDetails(city = cityData()) {
       if (p.s < next) continue;
       next = p.s + 55; side *= -1;
       const a = w.st[Math.max(0, k - 1)], b = w.st[Math.min(w.st.length - 1, k + 1)];
-      const len = Math.hypot(b.x - a.x, b.z - a.z) || 1, off = w.half + .9;
+      const len = Math.hypot(b.x - a.x, b.z - a.z) || 1, off = w.half + 1.4;
       const px = p.x - (b.z - a.z) / len * off * side, pz = p.z + (b.x - a.x) / len * off * side;
-      if (dcCentro(px, pz) > 2300 || gapToRoads(px, pz) < .2) continue;
+      if (dcCentro(px, pz) > 2300 || gapToRoads(px, pz) < .2 || net.junctions.some((j) => Math.hypot(px - j.x, pz - j.z) < j.r + 1.5) || stops.some((q) => Math.hypot(px - q.x, pz - q.z) < q.r + 3)) continue; // nem dentro do cruzamento nem nas paradas de entrega
       const y = Math.max(terrainHeight(px, pz), roadHeightAt(px, pz));
       cone(px, y, pz, .18, 7, [65, 72, 79]); cylinder(px, pz, .18, y, y + 7.15);
       shape('lamps', [px, y + 7.15, pz, px + 1.3, y + 7.15, pz + .32, px + 1.3, y + 7.15, pz - .32], [0, 1, 2], [255, 255, 255]);

@@ -414,8 +414,8 @@ function buildBairros(): { mesh: MeshData; lots: BairroLot[]; blocks: UrbanBlock
   const reservedCircles = [
     { x: UNIACADEMIA.x, z: UNIACADEMIA.z, r: Math.max(64, UNIACADEMIA.radius + 24) },
     { x: WORKSHOP.x, z: WORKSHOP.z, r: 28 },
-    { x: CRISTO_IMPERADOR.x, z: CRISTO_IMPERADOR.z, r: 38 },
-    { x: layout.helipad.x, z: layout.helipad.z, r: 28 },
+    { x: CRISTO_IMPERADOR.x, z: CRISTO_IMPERADOR.z, r: 120 }, // topo do morro do Cristo: só a cruz (e a entrega do heli)
+    { x: layout.helipad.x, z: layout.helipad.z, r: 42 }, // torre + rampa externa de 6 m (até ~23 m do centro) + folga
     // entregas no chão, carros estacionados e oficina: nenhuma casa nasce em cima (nem encosta)
     ...protectedSpots().map((q) => ({ x: q.x, z: q.z, r: q.r + 4 })),
   ];

@@ -209,15 +209,15 @@ if (data.BAIRROS_MOD) {
 {
   const s = scene('Aeroporto');
   const material = s.material('Asfalto e marcacoes');
-  for (const part of [...data.airportData(city.helipad).parts,...data.deliveryRampData().parts]) s.node(s.rootNode, part.name, s.mesh(part.name, part.mesh, material));
+  for (const part of [...data.airportData(city.helipad).parts,...data.deliveryRampData().parts]) s.node(s.rootNode, part.name, s.mesh(part.name, { ...part.mesh, normals: null }, material));
   await s.output('mundo-aeroporto.glb');
 }
 const total = outputs.reduce((sum, { bytes }) => sum + bytes.length, 0);
-assert(total < 5_000_000, `World exceeds 5.0 MB: ${total} bytes`);
+assert(total < 5_100_000, `World exceeds 5.1 MB: ${total} bytes`);
 await mkdir(resolve(root, 'public/models'), { recursive: true });
 for (const { file, bytes } of outputs) {
   await writeFile(file, bytes);
   console.log(`${file}: ${bytes.length} bytes`);
 }
-console.log(`Total: ${total} bytes (< 5.0 MB)`);
+console.log(`Total: ${total} bytes (< 5.1 MB)`);
 

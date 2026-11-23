@@ -1,7 +1,8 @@
 import { afterEach, expect, it, vi } from 'vitest';
 import { calculateNormals, Entity } from 'playcanvas';
-import { AIRPORT, CITY, CITY_CREDITS, HANGAR, ROAD_CLASSES, UNIACADEMIA, WORKSHOP, airportData, cityData, cityDetails, cityLayout, cityStreetImages, buildingColliders, createWorldPhysics, deliveryRampData, landmarkBoxes, MARCOS, protectedSpots, roadHeightAt, roadJunctions, nearestRoad, terrainData, terrainHeight } from './world-data';
+import { AIRPORT, CITY, CITY_CREDITS, HANGAR, ROAD_CLASSES, UNIACADEMIA, WORKSHOP, airportData, cityData, cityDetails, cityLayout, cityStreetImages, CRISTO_IMPERADOR, buildingColliders, createWorldPhysics, deliveryRampData, landmarkBoxes, MARCOS, protectedSpots, roadHeightAt, roadJunctions, nearestRoad, terrainData, terrainHeight } from './world-data';
 import { buildWorld } from './world';
+import { CarDynamics } from './car';
 import { deliveryPoints } from './mission';
 import jfRaw from './jf-mundo.json';
 import type { FlightContext } from './types';
@@ -80,7 +81,8 @@ it('keeps the workshop, helipad access and hangar doorway open',()=>{
   expect(world.obstacleAt(WORKSHOP.x,WORKSHOP.z,WORKSHOP.y,2.7,1.5)).toBeUndefined();
   expect(world.obstacleAt(access.x,access.z,access.y+.15,.35,1.8)).toBeUndefined();
   expect(world.obstacleAt((HANGAR.x0+HANGAR.x1)/2,HANGAR.z1-1,AIRPORT.y,2.7,1.5)).toBeUndefined();
-  const images=cityStreetImages();expect(images.road.rectangles.some(r=>r.color==='#e9bd43')).toBe(true);
+  const images=cityStreetImages();expect(images.road.rectangles.some(r=>r.color==='#e9bd43')).toBe(false); // sem tracejado amarelo
+  expect(images.road.rectangles.some(r=>r.color==='#eee9d5'&&r.height>20)).toBe(true); // linhas brancas e seta de sentido
 });
 
 it('exposes the actual batched emissive street material without creating dynamic lights',()=>{
@@ -169,12 +171,14 @@ it('paints each junction as one smooth asphalt disc whose height meets the roads
 it('smooths OSM corners with a spline that keeps the line ends, and adds sidewalks with a drivable curb ramp downtown',()=>{
   const raw=(jfRaw as unknown as {vias:Record<string,number[][]>}).vias,lines=cityLayout().roadLines;
   const turns=(ls:number[][])=>{let sum=0,max=0;for(const l of ls)for(let i=2;i+3<l.length;i+=2){const ax=l[i]-l[i-2],az=l[i+1]-l[i-1],bx=l[i+2]-l[i],bz=l[i+3]-l[i+1],la=Math.hypot(ax,az),lb=Math.hypot(bx,bz);if(la<1e-6||lb<1e-6)continue;const t=Math.acos(Math.max(-1,Math.min(1,(ax*bx+az*bz)/la/lb)));sum+=t>.6?1:0;max=Math.max(max,t);}return {sum,max};};
+  // malha simplificada (mão única, sem pistas duplas/cotos): não cresce e continua suave (menos quinas por vértice que o OSM bruto)
+  const vertices=(ls:number[][])=>ls.reduce((n,l)=>n+l.length/2,0);
   for(const [k,cat] of lines.entries()) {
-    const name=cat.category,before=raw[name];
-    expect(cat.lines).toHaveLength(before.length);
-    cat.lines.forEach((l,i)=>{expect(l[0]).toBe(before[i][0]);expect(l[1]).toBe(before[i][1]);expect(l[l.length-2]).toBe(before[i][before[i].length-2]);expect(l[l.length-1]).toBe(before[i][before[i].length-1]);});
-    if(k>=2)expect(turns(cat.lines).sum,`quinas > 34° em ${name}`).toBeLessThan(turns(before).sum*.8);
+    const before=raw[cat.category];
+    expect(cat.lines.length).toBeLessThanOrEqual(before.length);expect(cat.lines.length).toBeGreaterThan(0);
+    if(k>=2)expect(turns(cat.lines).sum/vertices(cat.lines),`quinas > 34° por vértice em ${cat.category}`).toBeLessThan(turns(before).sum/vertices(before)*.8);
   }
+  expect(lines.every(c=>c.width===7)).toBe(true); // largura única
   // calçada: nas vias do Centro (inclusive em ladeira) o carro nunca encontra subida > maxSlope 0,55 por eixo e há meio-fio de verdade
   const world=createWorldPhysics(),c=MARCOS.centro;
   let steep=0,curbs=0,samples=0;
@@ -213,4 +217,29 @@ it('builds QuickRoad-style junctions: streets cut at a setback, filleted polygon
   }
   steps.sort((x,y)=>x-y);expect(steps.length).toBeGreaterThan(300);
   expect(steps[Math.floor(steps.length*.95)],'95% das bordas do miolo').toBeLessThan(.2);
+});
+
+it('lets a car climb the wide helipad tower ramp (slope <= 0.35, flush deck and bridge) at about 40 km/h up to the roof',()=>{
+  const air=airportData(),world=createWorldPhysics(),car=new CarDynamics(world);
+  // inclinação máxima de cada trecho de rampa e patamares planos entre eles
+  for(const b of air.boxes.filter(b=>b.ramp&&Math.abs(b.ramp.y1-b.ramp.y0)>.01)) {
+    const r=b.ramp!,slope=Math.abs(r.y1-r.y0)/Math.hypot(r.x1-r.x0,r.z1-r.z0);expect(slope).toBeLessThanOrEqual(.35);
+    expect(Math.min(b.x1-b.x0,b.z1-b.z0)).toBeGreaterThanOrEqual(6);
+  }
+  expect(air.parts.some(p=>p.name==='Guarda-corpo da rampa')).toBe(true);
+  const start=air.access[0];car.reset(start.x,start.y,start.z+3,0);
+  let topSpeed=0,t=0;const dt=1/120;
+  for(const target of air.access.slice(1)) {
+    for(let i=0;i<60/dt&&Math.hypot(target.x-car.x,target.z-car.z)>3;i++,t+=dt) {
+      const want=Math.atan2(target.x-car.x,-(target.z-car.z))*180/Math.PI,err=((want-car.heading+540)%360)-180;
+      car.step({drive:car.speed<11?1:0,steer:Math.max(-1,Math.min(1,err/25)),handbrake:false},dt);topSpeed=Math.max(topSpeed,car.speed);
+    }
+    expect(Math.hypot(target.x-car.x,target.z-car.z),`carro travou antes de ${JSON.stringify(target)} em (${car.x.toFixed(1)},${car.z.toFixed(1)},y ${car.y.toFixed(1)})`).toBeLessThanOrEqual(3.5);
+  }
+  expect(car.y).toBeGreaterThan(air.helipad.y-1.5);expect(topSpeed).toBeGreaterThan(9);
+});
+
+it('keeps the Cristo hilltop free of buildings (only the cross and the heli delivery)',()=>{
+  const boxes=[...cityData().boxes,...buildingColliders()],c=CRISTO_IMPERADOR;
+  for(const b of boxes) expect(Math.hypot((b.x0+b.x1)/2-c.x,(b.z0+b.z1)/2-c.z),'prédio no topo do morro').toBeGreaterThan(110);
 });

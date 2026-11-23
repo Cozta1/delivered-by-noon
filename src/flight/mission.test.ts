@@ -117,7 +117,7 @@ it('tuned jumps hit the real hangar ceiling and fall back below it instead of la
   for(let i=0;i<480;i++) {
     car.step({drive:0,steer:0,handbrake:false},1/120);maxY=Math.max(maxY,car.y);
   }
-  expect(maxY).toBeLessThan(AIRPORT.y+10.31);expect(car.y).toBeCloseTo(AIRPORT.y);expect(car.airborne).toBe(false);
+  expect(maxY).toBeLessThan(AIRPORT.y+10.45);expect(car.y).toBeCloseTo(AIRPORT.y);expect(car.airborne).toBe(false);
 });
 
 

@@ -49,7 +49,7 @@ function draw(mesh, colorOf, bias = 0, mapper = null) {
 }
 // Estrada: asfalto/calçada pela coordenada u da textura
 const roadColor = (i, uv) => [uv[i * 2], uv[i * 2 + 1], 0];
-const roadMap = (u, v) => (u < .14 || u > .86 ? [163, 166, 170] : (Math.abs(u - .19) < .012 || Math.abs(u - .8) < .012) ? [238, 233, 213] : Math.abs(u - .5) < .02 && (v % 1) < .5 ? [233, 189, 67] : [70, 70, 80]);
+const roadMap = (u, v) => (u < .14 || u > .86 ? [163, 166, 170] : (Math.abs(u - .19) < .012 || Math.abs(u - .8) < .012) ? [238, 233, 213] : Math.abs(u - .5) < .03 && (v % 1) > .37 && (v % 1) < .8 ? [238, 233, 213] : [70, 70, 80]);
 const city = data.cityData(), details = data.cityDetails(city);
 draw(data.terrainData(), null);
 draw(details.meshes.ground, null, 0);
