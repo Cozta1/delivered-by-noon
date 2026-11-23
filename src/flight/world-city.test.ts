@@ -196,3 +196,21 @@ it('smooths OSM corners with a spline that keeps the line ends, and adds sidewal
   // só restam pontos isolados nas bordas dos discos de cruzamento (já existiam antes da calçada: eram 9 no HEAD)
   expect(steep,'amostras com subida > 0,55 por eixo').toBeLessThanOrEqual(12);
 });
+
+it('builds QuickRoad-style junctions: streets cut at a setback, filleted polygon around the centre, no step at its edge',()=>{
+  const all=roadJunctions(),qr=all.filter(j=>!j.fallback);
+  expect(qr.length).toBeGreaterThan(80);expect(all.length-qr.length).toBeGreaterThan(0);
+  const inside=(j:typeof qr[number],x:number,z:number)=>{let c=false;for(let i=0,k=j.poly.length-1;i<j.poly.length;k=i++){const a=j.poly[i],b=j.poly[k];if((a.z>z)!==(b.z>z)&&x<(b.x-a.x)*(z-a.z)/(b.z-a.z)+a.x)c=!c;}return c;};
+  const steps:number[]=[];
+  for(const j of qr) {
+    expect(j.poly.length).toBeGreaterThanOrEqual(6);expect(j.r).toBeLessThan(40);expect(inside(j,j.x,j.z),`centro dentro do polígono (${j.x.toFixed(0)},${j.z.toFixed(0)})`).toBe(true);
+    for(let i=0;i<j.poly.length;i++) {
+      const a=j.poly[i],b=j.poly[(i+1)%j.poly.length],mx=(a.x+b.x)/2,mz=(a.z+b.z)/2,l=Math.hypot(mx-j.x,mz-j.z)||1,ux=(mx-j.x)/l,uz=(mz-j.z)/l;
+      if(inside(j,mx+ux*.25,mz+uz*.25)||!inside(j,mx-ux*.25,mz-uz*.25))continue;
+      const hi=roadHeightAt(mx-ux*.25,mz-uz*.25),ho=Math.max(terrainHeight(mx+ux*.25,mz+uz*.25),roadHeightAt(mx+ux*.25,mz+uz*.25));
+      if(hi>-Infinity)steps.push(Math.abs(hi-ho));
+    }
+  }
+  steps.sort((x,y)=>x-y);expect(steps.length).toBeGreaterThan(300);
+  expect(steps[Math.floor(steps.length*.95)],'95% das bordas do miolo').toBeLessThan(.2);
+});
