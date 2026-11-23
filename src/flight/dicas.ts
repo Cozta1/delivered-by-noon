@@ -36,7 +36,7 @@ interface ActiveTip {
 
 const VEHICLE_NAMES: Record<Stage, string> = {
   car: 'Hatch',
-  tuned: 'Coupé Tunado',
+  tuned: 'SUV Esportivo',
   heli: 'helicóptero',
   a29: 'A-29',
 };
@@ -313,7 +313,7 @@ export function createDicas(ctx: FlightContext, uiRoot?: HTMLElement | null): Fl
               1.2,
             );
           }
-          // 4) Coupé Tunado: Shift = nitro e depois Espaço = freio de mão
+          // 4) SUV Esportivo: Shift = nitro e depois Espaço = freio de mão
           else if (state.vehicle === 'tuned' && !shown.has('tuned-nitro')) {
             showTip(
               'tuned-nitro',

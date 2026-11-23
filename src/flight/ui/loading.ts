@@ -14,7 +14,7 @@ export interface LoadingScreenHandle {
 
 const LOADING_TIPS: ReadonlyArray<string> = [
   'Dica: aperte E perto de qualquer veículo para entrar ou sair a pé.',
-  'Dica: no Coupé Tunado, segure Shift para acionar o nitro nas avenidas.',
+  'Dica: no SUV Esportivo, segure Shift para acionar o nitro nas avenidas.',
   'Dica: siga as colunas luminosas e o minimapa de Juiz de Fora até cada entrega.',
   'Dica: no A-29, aperte Espaço para soltar a carga aérea e F para ligar a fumaça.',
   'Dica: aperte C ou V para alternar entre câmera de perseguição, topo e cabine.',
@@ -34,7 +34,7 @@ function friendlyAssetLabel(rawName: string, type?: string): string {
   if (lower.includes('mundo-nuvens') || lower.includes('mundo-ceu')) return 'Carregando céu e nuvens…';
   if (lower.includes('a29')) return 'Carregando avião A-29 Super Tucano…';
   if (lower.includes('helicoptero') || lower.includes('heli')) return 'Carregando helicóptero MD 500…';
-  if (lower.includes('carro-tunado') || lower.includes('tunado')) return 'Carregando Coupé Tunado…';
+  if (lower.includes('carro-tunado') || lower.includes('tunado')) return 'Carregando SUV Esportivo…';
   if (lower.includes('carro')) return 'Carregando veículos urbanos…';
   if (lower.includes('personagem')) return 'Carregando personagem entregador…';
   if (type === 'texture' || /\.(png|jpe?g|webp|dds|ktx2?)$/i.test(lower)) return 'Carregando texturas do cenário…';

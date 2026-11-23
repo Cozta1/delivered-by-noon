@@ -63,7 +63,7 @@ const STAGE_UNLOCK_COPY: Record<Stage, { title: string; subtitle: string; accent
     perk: 'Tração dianteira ágil nas ruas do Centro',
   },
   tuned: {
-    title: 'Coupé Tunado liberado!',
+    title: 'SUV Esportivo liberado!',
     subtitle: 'Recado de Michael De Santa, o patrão: mete o Shift no nitro e parte para as entregas malucas!',
     accent: 'tuned',
     badge: 'ETAPA 2 · COUPÉ TUNADO',
@@ -87,15 +87,15 @@ const STAGE_UNLOCK_COPY: Record<Stage, { title: string; subtitle: string; accent
 
 const STAGE_LABEL: Record<Stage, string> = {
   car: '1/4 · Hatch',
-  tuned: '2/4 · Coupé Tunado',
+  tuned: '2/4 · SUV Esportivo',
   heli: '3/4 · Helicóptero',
   a29: '4/4 · Avião A-29',
 };
 
 const CONTROLS_LIST: ReadonlyArray<[readonly string[], string]> = [
-  [['E'], 'Entrar ou sair do veículo próximo (Hatch, Coupé Tunado, helicóptero ou A-29)'],
+  [['E'], 'Entrar ou sair do veículo próximo (Hatch, SUV Esportivo, helicóptero ou A-29)'],
   [['W', 'A', 'S', 'D'], 'Andar (a pé), dirigir (carros) ou pilotar (helicóptero e A-29)'],
-  [['Shift'], 'Nitro no Coupé Tunado · acelerador / coletivo (+) em aeronaves'],
+  [['Shift'], 'Nitro no SUV Esportivo · acelerador / coletivo (+) em aeronaves'],
   [['Ctrl'], 'Reduzir acelerador / coletivo (−) em aeronaves'],
   [['Espaço'], 'Freio de mão (carros), pular (a pé) ou soltar carga aérea (A-29)'],
   [['Mouse'], 'Gira a câmera (a pé, carros e helicóptero) ou move a mira de voo (A-29)'],
@@ -195,7 +195,7 @@ export function createGameMenus(
   const stageBannerEyebrow = node('div', 'stage-banner-eyebrow', 'GOPOSTAL · GARAGEM LIBERADA');
   const stageBannerBody = node('div', 'stage-banner-body');
   const stageBannerBadge = node('div', 'stage-banner-badge', 'ETAPA 2 · COUPÉ TUNADO');
-  const stageBannerTitle = node('div', 'stage-banner-title', 'Coupé Tunado liberado!');
+  const stageBannerTitle = node('div', 'stage-banner-title', 'SUV Esportivo liberado!');
   const stageBannerSub = node('div', 'stage-banner-sub', '');
   const stageBannerPerk = node('div', 'stage-banner-perk', '');
   stageBannerBody.append(stageBannerBadge, stageBannerTitle, stageBannerSub, stageBannerPerk);
@@ -276,7 +276,7 @@ export function createGameMenus(
   const storyLadder = node('div', 'menu-story-ladder');
   for (const [num, label] of [
     ['1', 'Hatch'],
-    ['2', 'Coupé Tunado'],
+    ['2', 'SUV Esportivo'],
     ['3', 'Helicóptero'],
     ['4', 'Avião A-29'],
   ] as const) {
@@ -325,7 +325,7 @@ export function createGameMenus(
   const stageBtns = new Map<Stage, HTMLButtonElement>();
   for (const [st, label] of [
     ['car', 'Carro'],
-    ['tuned', 'Tunado'],
+    ['tuned', 'SUV'],
     ['heli', 'Heli'],
     ['a29', 'A-29'],
   ] as const) {
@@ -375,7 +375,7 @@ export function createGameMenus(
   const presNote = node(
     'p',
     'menu-story-tip',
-    'Atalhos ativos só neste modo: F1 Carro · F2 Tunado · F3 Heli · F4 A-29 · F5 Entrega final · F6 +1h no relógio.',
+    'Atalhos ativos só neste modo: F1 Carro · F2 SUV · F3 Heli · F4 A-29 · F5 Entrega final · F6 +1h no relógio.',
   );
 
   presForm.append(stageRow, durRow, finalToggleRow, presNote);
@@ -680,7 +680,7 @@ export function createGameMenus(
     ['Mapa e relevo (Juiz de Fora)', CITY_CREDITS],
     ['Física de voo', 'Física baseada no JSBSim (LGPL-2.1)'],
     ['Motor gráfico', 'PlayCanvas'],
-    ['Modelos 3D', 'Modelos feitos no Blender (A-29, helicóptero, Hatch, Coupé Tunado, carros, UniAcademia e personagem)'],
+    ['Modelos 3D', 'Modelos gerados no Meshy e ajustados no Blender pelo grupo (hatch, SUV esportivo, carros do trânsito, helicóptero) e feitos no Blender (A-29, UniAcademia, personagem)'],
     ['Homenagens (texto)', 'GoPostal, Michael De Santa (o patrão) e entregas com nomes em homenagem a clássicos dos games'],
     ['Áudio e interface', 'Trilha dinâmica, motor procedural (Engine Sim MIT), iluminação da manhã e HUD em Web Audio API'],
   ];
