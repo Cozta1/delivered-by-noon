@@ -1,4 +1,4 @@
-import {
+﻿import {
   ADDRESS_CLAMP_TO_EDGE,
   type AppBase,
   CULLFACE_FRONT,
@@ -23,6 +23,7 @@ import { createHud, isTunedNitroActive } from './hud';
 import { createMarkers } from './markers';
 import { createMissionSystem, startMission } from './mission';
 import { applySave, clearSave, describeSave, loadSave, writeSave } from './save';
+import { createDevMode } from './devmode';
 import { enableFrustumCulling } from './models/glb';
 import { clearSmoke, createSmoke } from './smoke';
 import { createGpsRoute } from './rota';
@@ -1011,6 +1012,23 @@ export function startFlightSim(
   });
   menus.setHiddenByLoading(true);
   refreshSaveInfo();
+
+  // Modo dev (F8): câmera livre noclip; T traz o veículo para baixo da câmera
+  const devMode = createDevMode({
+    app,
+    camera,
+    uiRoot,
+    canvas,
+    teleport(x, z, headingDeg) {
+      const kind = state.vehicle;
+      if (kind === 'foot' || typeof flightModule.enterStageVehicle !== 'function') return 'A pé: entre num veículo para teleportar.';
+      const ground = world.groundAt(x, z);
+      const air = kind === 'heli' || kind === 'a29';
+      const y = air ? Math.max(camera.getPosition().y, ground + 40) : ground + 0.5;
+      flightModule.enterStageVehicle(kind, { x, y, z, heading: headingDeg, speed: kind === 'a29' ? 60 : 0 });
+      return `Veículo trazido para x ${x.toFixed(0)} z ${z.toFixed(0)}`;
+    },
+  });
   const onPageHide = () => persistProgress();
   if (typeof window !== 'undefined') window.addEventListener('pagehide', onPageHide);
 
@@ -1084,6 +1102,13 @@ export function startFlightSim(
     if (destroyed || isLoading) return;
     audio.unlock();
     if (e.repeat) return;
+
+    if (e.code === 'F8' && mode === 'playing') {
+      e.preventDefault();
+      const on = devMode.toggle(camera);
+      if (!on) requestCameraSnap(state);
+      return;
+    }
 
     // Atalhos exclusivos do Modo Apresentação (fora dele, F1–F6 não fazem nada)
     if (presentationActive && mode === 'playing') {
@@ -1248,6 +1273,9 @@ export function startFlightSim(
 
     if (mode === 'title') {
       updateTitleCamera(dt);
+    } else if (mode === 'playing' && devMode.active) {
+      devMode.update(dt);
+      world.sky.setPosition(camera.getPosition());
     } else if (mode === 'playing') {
       flightModule.update(dt);
       trafficModule.update(dt);
@@ -1423,6 +1451,7 @@ export function startFlightSim(
         window.removeEventListener('pointerdown', onPointerDown);
         window.removeEventListener('keydown', onKeyDown);
         window.removeEventListener('pagehide', onPageHide);
+        devMode.destroy();
       }
       if (typeof document !== 'undefined') {
         document.removeEventListener('pointerlockchange', onPointerLockChange);

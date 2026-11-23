@@ -1,4 +1,4 @@
-import { calculateNormals } from 'playcanvas';
+﻿import { calculateNormals } from 'playcanvas';
 import { clamp01, fbm, rng, smoothstep } from './noise';
 import jf from './jf-mundo.json';
 
@@ -1444,9 +1444,9 @@ export const WORKSHOP = { x: WORKSHOP_SPOT.x, y: WORKSHOP_Y, z: WORKSHOP_SPOT.z 
 
 /** Lote livre e plano da UniAcademia (Academia de Comércio, Centro): o modelo do Gemini fica aqui, frente para -Z local. */
 export const UNIACADEMIA = (() => {
-  const toward = Math.atan2(UNI_ROAD.x - UNI_LOT.x, -(UNI_ROAD.z - UNI_LOT.z)) * 180 / Math.PI;
-  const heading = (Math.round(toward / 90) * 90 + 360) % 360;
-  return { x: UNI_LOT.x, y: terrainHeight(UNI_LOT.x, UNI_LOT.z), z: UNI_LOT.z, heading, width: 48, depth: 35, radius: 38 };
+  // Fachada real (fotos + OSM way 348735716): olha para ENE, paralela à Rua Halfeld, de frente para o Parque Halfeld
+  const heading = 71;
+  return { x: UNI_LOT.x, y: terrainHeight(UNI_LOT.x, UNI_LOT.z), z: UNI_LOT.z, heading, width: 47, depth: 42, radius: 38 };
 })();
 
 /** Cristo do Imperador, no topo do Morro do Imperador. */
@@ -1454,12 +1454,13 @@ export const CRISTO_IMPERADOR = { x: CRISTO.x, y: terrainHeight(CRISTO.x, CRISTO
 
 export function landmarkBoxes(): Box[] {
   const c = CRISTO_IMPERADOR, u = UNIACADEMIA;
-  const turned = u.heading % 180 === 90;
-  const hw = (turned ? u.depth : u.width) / 2, hd = (turned ? u.width : u.depth) / 2;
+  // caixa orientada pelo heading do prédio (o modelo gira com setLocalEulerAngles(0, -heading, 0))
+  const ha = u.heading * Math.PI / 180, rx = Math.cos(ha), rz = Math.sin(ha), hw = u.width / 2, hd = u.depth / 2;
+  const ex = Math.abs(rx) * hw + Math.abs(rz) * hd, ez = Math.abs(rz) * hw + Math.abs(rx) * hd;
   return [
     { x0: c.x - 3.5, x1: c.x + 3.5, z0: c.z - 3.5, z1: c.z + 3.5, top: c.y + 6, bottom: c.y - 1 },
     { x0: c.x - 1.4, x1: c.x + 1.4, z0: c.z - 1.4, z1: c.z + 1.4, top: c.y + 15, bottom: c.y + 5 },
-    { x0: u.x - hw, x1: u.x + hw, z0: u.z - hd, z1: u.z + hd, top: u.y + 17, bottom: u.y - 1 },
+    { x0: u.x - ex, x1: u.x + ex, z0: u.z - ez, z1: u.z + ez, top: u.y + 17, bottom: u.y - 1, obb: { cx: u.x, cz: u.z, hw, hd, rx, rz } },
   ];
 }
 
