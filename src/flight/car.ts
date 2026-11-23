@@ -173,7 +173,14 @@ export class CarDynamics {
     const back=this.world.surfaceAt(this.x-Math.sin(h)*2,this.z+Math.cos(h)*2,this.y+.8);
     this.pitch=clamp(Math.atan2(front-back,4)/radians,-25,25);
     if(this.airborne)this.pitch=clamp(Math.atan2(this.verticalSpeed,Math.max(1,this.movementSpeed))/radians,-25,25);
-    this.roll=CAR_ASSISTS.uprightRoll;
+    // inclinação lateral pela rua/terreno (lado direito mais alto = roll positivo), suavizada
+    if(this.airborne)this.roll=CAR_ASSISTS.uprightRoll;
+    else {
+      const rx=Math.cos(h)*.85,rz=Math.sin(h)*.85;
+      const right=this.world.surfaceAt(this.x+rx,this.z+rz,this.y+.8),left=this.world.surfaceAt(this.x-rx,this.z-rz,this.y+.8);
+      const target=clamp(Math.atan2(right-left,1.7)/radians,-20,20);
+      this.roll+=(target-this.roll)*Math.min(1,dt*10);
+    }
   }
 }
 
@@ -191,7 +198,7 @@ export function createCarController(
   const footprint: HitboxFootprint = { halfWidth: 0, halfLength: 0, height: 0, centerX: 0, centerZ: 0 };
   body.reset(state.x,state.y,state.z,state.heading);
   let accumulator=0, wheelAngle=0, visualSteer=0;
-  const spinQuat=new Quat(), steerQuat=new Quat();
+  const spinQuat=new Quat(), steerQuat=new Quat(), yawQ=new Quat(), pitchQ=new Quat(), rollQ=new Quat(), poseQ=new Quat();
   return { update(dt) {
     if(!Number.isFinite(dt)||dt<=0)return;
     const fp = extractHitboxFootprint(plane.hitbox, footprint);
@@ -206,7 +213,7 @@ export function createCarController(
     const steer=Number(!!k?.isPressed(KEY_D))-Number(!!k?.isPressed(KEY_A));
     accumulator+=Math.min(dt,.25);
     while(accumulator>=1/120){body.step({drive,steer,handbrake:!!k?.isPressed(KEY_SPACE),nitro:!!k?.isPressed(KEY_SHIFT)},1/120);accumulator-=1/120;}
-    wheelAngle=(wheelAngle+body.speed*Math.min(dt,.25)/.35/radians)%360;
+    wheelAngle=(wheelAngle-body.speed*Math.min(dt,.25)/.35/radians)%360; // frente = -Z: rodar no sentido negativo de X faz o topo da roda ir para a frente
     // rodas da frente esterçam com o volante (menos em alta velocidade), as de trás só giram
     const steerTarget=-steer*30/(1+Math.abs(body.speed)/25);
     visualSteer+=(steerTarget-visualSteer)*Math.min(1,dt*10);
@@ -219,6 +226,9 @@ export function createCarController(
     state.speed=Math.hypot(body.movementSpeed,body.verticalSpeed);
     (state as NitroState).nitro=body.nitro;
     state.throttle=Math.max(0,drive);
-    plane.root.setPosition(body.x,body.y,body.z);plane.root.setLocalEulerAngles(body.pitch,-body.heading,0);
+    plane.root.setPosition(body.x,body.y,body.z);
+    // guinada no mundo, depois arfagem e rolamento no eixo do próprio carro (acompanha subida e inclinação lateral da rua)
+    yawQ.setFromEulerAngles(0,-body.heading,0);pitchQ.setFromEulerAngles(body.pitch,0,0);rollQ.setFromEulerAngles(0,0,body.roll);
+    plane.root.setLocalRotation(poseQ.copy(yawQ).mul(pitchQ).mul(rollQ));
   },destroy(){delete (state as NitroState).nitro;}};
 }

@@ -57,7 +57,7 @@ import {
 } from './ui/settings';
 import { createVehicleSystem } from './vehicles';
 import { SKY_HORIZON, buildWorld, type World } from './world';
-import { UNIACADEMIA, createWorldPhysics } from './world-data';
+import { UNIACADEMIA, createWorldPhysics, nearestRoad } from './world-data';
 
 export type DifficultyLevel = 'facil' | 'normal' | 'dificil';
 
@@ -1015,6 +1015,47 @@ export function startFlightSim(
   menus.setHiddenByLoading(true);
   refreshSaveInfo();
 
+  // Desatolar (G ou botão): leva o veículo para a rua mais próxima, parado e alinhado com a via
+  function desatolar() {
+    if (mode !== 'playing') return;
+    const kind = state.vehicle;
+    if (kind === 'foot' || typeof flightModule.enterStageVehicle !== 'function') {
+      mission.message = 'A pé dá para andar livre: entre num veículo (E).';
+      mission.messageTimer = 3;
+      return;
+    }
+    const air = kind === 'heli' || kind === 'a29';
+    const p = nearestRoad(state.x, state.z, 4, 0) ?? { x: state.x, z: state.z, heading: state.heading };
+    const ground = world.groundAt(p.x, p.z);
+    flightModule.enterStageVehicle(kind, {
+      x: p.x,
+      y: air ? Math.max(state.y, ground + (kind === 'a29' ? 80 : 6)) : ground + 0.5,
+      z: p.z,
+      heading: p.heading,
+      speed: kind === 'a29' ? 60 : 0,
+    });
+    clearSmoke(state);
+    requestCameraSnap(state);
+    mission.message = 'Desatolado! De volta à rua.';
+    mission.messageTimer = 3;
+  }
+  let desatolarBtn: HTMLButtonElement | null = null;
+  if (typeof document !== 'undefined') {
+    desatolarBtn = document.createElement('button');
+    desatolarBtn.type = 'button';
+    desatolarBtn.className = 'desatolar-btn';
+    desatolarBtn.textContent = 'Desatolar (G)';
+    desatolarBtn.style.cssText =
+      'position:fixed;right:24px;bottom:200px;z-index:120;pointer-events:auto;padding:8px 14px;border:2px solid #1b1b1b;' +
+      'background:#f2c21a;color:#1b1b1b;font:700 13px/1 system-ui,sans-serif;letter-spacing:.04em;text-transform:uppercase;' +
+      'box-shadow:3px 3px 0 #1b1b1b;cursor:pointer;';
+    desatolarBtn.addEventListener('click', (ev) => {
+      ev.preventDefault();
+      desatolar();
+    });
+    uiRoot.appendChild(desatolarBtn);
+  }
+
   // Modo dev (F8): câmera livre noclip; T traz o veículo para baixo da câmera
   const devMode = createDevMode({
     app,
@@ -1104,6 +1145,12 @@ export function startFlightSim(
     if (destroyed || isLoading) return;
     audio.unlock();
     if (e.repeat) return;
+
+    if (e.code === 'KeyG' && mode === 'playing' && !devMode.active) {
+      e.preventDefault();
+      desatolar();
+      return;
+    }
 
     if (e.code === 'F8' && mode === 'playing') {
       e.preventDefault();
@@ -1272,6 +1319,8 @@ export function startFlightSim(
       }
     }
     const dt = Math.min(rawDt, 0.05);
+    const hideDesatolar = mode !== 'playing' || devMode.active;
+    if (desatolarBtn && desatolarBtn.hidden !== hideDesatolar) desatolarBtn.hidden = hideDesatolar;
 
     if (mode === 'title') {
       updateTitleCamera(dt);
@@ -1455,6 +1504,7 @@ export function startFlightSim(
         window.removeEventListener('keydown', onKeyDown);
         window.removeEventListener('pagehide', onPageHide);
         devMode.destroy();
+        desatolarBtn?.remove();
       }
       if (typeof document !== 'undefined') {
         document.removeEventListener('pointerlockchange', onPointerLockChange);

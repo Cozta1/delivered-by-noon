@@ -404,7 +404,7 @@ export function getRoadGraph(): RoadGraph {
   cachedGraph = buildRoadGraph(cityLayout().roadLines, {
     filter: (cat) => MAIN_ROAD_CATEGORIES.has(cat),
     snap: 7.5,
-    oneWay: true,
+    oneWay: false, // mão dupla: cada sentido na faixa da direita (como no Brasil)
   });
   return cachedGraph;
 }

@@ -1752,7 +1752,8 @@ export function cityStreetImages() {
   road.rectangles.push({ color: '#555560', x: 9, y: 0, width: 46, height: 64 });
   road.rectangles.push({ color: '#d6d3c4', x: 8, y: 0, width: 1, height: 64 }, { color: '#d6d3c4', x: 55, y: 0, width: 1, height: 64 });
   for (const x of [12, 51]) road.rectangles.push({ color: '#eee9d5', x, y: 0, width: 1, height: 64 });
-  // sem seta de sentido nem tracejado central: só as bordas brancas (e as faixas de pedestre nos cruzamentos)
+  // mão dupla (vai pela direita, volta pela esquerda): tracejado central amarelo dividindo os sentidos; sem setas
+  road.rectangles.push({ color: '#e3b52a', x: 31, y: 0, width: 2, height: 32 });
   return { road };
 }
 
