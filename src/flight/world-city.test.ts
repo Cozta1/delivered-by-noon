@@ -63,7 +63,7 @@ it('places buildings off the roads and keeps the lots of the university and work
     expect(Math.hypot((b.x0+b.x1)/2-UNIACADEMIA.x,(b.z0+b.z1)/2-UNIACADEMIA.z)).toBeGreaterThan(UNIACADEMIA.radius);
     expect(Math.hypot((b.x0+b.x1)/2-WORKSHOP.x,(b.z0+b.z1)/2-WORKSHOP.z)).toBeGreaterThan(14);
   }
-  const road=nearestRoad(UNIACADEMIA.x,UNIACADEMIA.z,4)!;expect(road.distance).toBeGreaterThan(40);
+  const road=nearestRoad(UNIACADEMIA.x,UNIACADEMIA.z,4)!;expect(road.distance).toBeGreaterThan(UNIACADEMIA.depth/2-2);expect(road.distance).toBeLessThan(UNIACADEMIA.depth/2+8); // entrada de frente para a rua, sem invadir a pista
   expect(landmarkBoxes()).toHaveLength(3);
 });
 
