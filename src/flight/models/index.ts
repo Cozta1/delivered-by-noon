@@ -338,8 +338,8 @@ function buildTunedCar(app: AppBase, parent: Entity): VehicleModel {
     return e;
   };
 
-  const w = 1.78;
-  const h = 1.31;
+  const w = 1.91; // SUV Esportivo (Fastback do Meshy): medidas da carroceria do GLB
+  const h = 1.6;
   const l = 4.43;
   const r = 0.32;
   const wheelX = 0.7;
