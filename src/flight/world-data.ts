@@ -1404,6 +1404,27 @@ export function airportData(helipad = cityData().helipad, roof: Box = cityData()
   const cxs = [roof.x1 + OFF, roof.x1 + OFF, roof.x0 - OFF, roof.x0 - OFF], czs = [roof.z1 + OFF, roof.z0 - OFF, roof.z0 - OFF, roof.z1 + OFF];
   const deckColor = [155, 160, 165, 255];
   const railPos: number[] = [], railIdx: number[] = [];
+  // Estrutura de concreto sob o piso: laje de 40 cm (laterais e face inferior fechadas, todas voltadas para fora) e pilares quadrados até o chão a cada ~8 m
+  const SLAB = .4, PILLAR = .9, structPos: number[] = [], structIdx: number[] = [];
+  const solid = (top: [number, number, number][], bottom: [number, number, number][]) => {
+    const base = structPos.length / 3, all = [...top, ...bottom];
+    for (const q of all) structPos.push(...q);
+    const c = [0, 1, 2].map((a) => all.reduce((t, q) => t + q[a], 0) / 8);
+    // faces sem o topo (o piso já existe): 4 laterais e a de baixo
+    for (const quad of [[0, 1, 5, 4], [1, 2, 6, 5], [2, 3, 7, 6], [3, 0, 4, 7], [4, 5, 6, 7]]) for (const t of [[0, 1, 2], [0, 2, 3]]) {
+      const [i0, i1, i2] = t.map((i) => quad[i]), a = all[i0], b = all[i1], d = all[i2];
+      const u = [b[0] - a[0], b[1] - a[1], b[2] - a[2]], v = [d[0] - a[0], d[1] - a[1], d[2] - a[2]], n = [u[1] * v[2] - u[2] * v[1], u[2] * v[0] - u[0] * v[2], u[0] * v[1] - u[1] * v[0]];
+      const out = n[0] * ((a[0] + b[0] + d[0]) / 3 - c[0]) + n[1] * ((a[1] + b[1] + d[1]) / 3 - c[1]) + n[2] * ((a[2] + b[2] + d[2]) / 3 - c[2]);
+      structIdx.push(base + i0, ...(out >= 0 ? [base + i1, base + i2] : [base + i2, base + i1]));
+    }
+  };
+  /** laje sob um quadrilátero de piso [x, y, z] x4 (mesma ordem do piso) */
+  const slab = (q: [number, number, number][]) => solid(q, q.map(([x, y, z]) => [x, y - SLAB, z] as [number, number, number]));
+  const pillar = (x: number, z: number, deckY: number) => {
+    const g = terrainHeight(x, z) - .5, h = PILLAR / 2, y = deckY - SLAB;
+    if (y - g < 1) return;
+    solid([[x - h, y, z - h], [x + h, y, z - h], [x + h, y, z + h], [x - h, y, z + h]], [[x - h, g, z - h], [x + h, g, z - h], [x + h, g, z + h], [x - h, g, z + h]]);
+  };
   /** Guarda-corpo reto ao longo de um eixo, de (ax,az) a (bx,bz), acompanhando a altura do piso; vira caixa de colisão e prisma de 8 vértices. */
   const rail = (ax: number, az: number, ay: number, bx: number, bz: number, by: number) => {
     const len = Math.hypot(bx - ax, bz - az);
@@ -1427,6 +1448,8 @@ export function airportData(helipad = cityData().helipad, roof: Box = cityData()
   const side = (from: number, to: number) => { const dx = Math.sign(cxs[to % 4] - cxs[from % 4]), dz = Math.sign(czs[to % 4] - czs[from % 4]); return dx > 0 ? 'E' : dx < 0 ? 'W' : dz > 0 ? 'S' : 'N'; };
   const landingAt = (x: number, z: number, ry: number, open: string[]) => {
     parts.push({ name: 'Patamar da rampa', mesh: geometry([x - HALF_W, ry, z + HALF_W, x + HALF_W, ry, z + HALF_W, x + HALF_W, ry, z - HALF_W, x - HALF_W, ry, z - HALF_W], [0, 1, 2, 0, 2, 3], Array.from({ length: 4 }, () => deckColor).flat()) });
+    slab([[x - HALF_W, ry, z + HALF_W], [x + HALF_W, ry, z + HALF_W], [x + HALF_W, ry, z - HALF_W], [x - HALF_W, ry, z - HALF_W]]);
+    pillar(x, z, ry);
     // sem caixa própria: o piso do patamar vem do prolongamento plano das caixas de rampa vizinhas (sem degrau de parede para o carro)
     const e = HALF_W - RAIL_T;
     if (!open.includes('N')) rail(x - HALF_W, z - e, ry, x + HALF_W, z - e, ry);
@@ -1445,6 +1468,8 @@ export function airportData(helipad = cityData().helipad, roof: Box = cityData()
     const full = Math.hypot(x1 - x0, z1 - z0) - 2 * HALF_W, needed = (helipad.y - ry) / SLOPE, run = Math.min(full, needed), y1 = ry + run * SLOPE;
     const sx = x0 + dx * HALF_W, sz = z0 + dz * HALF_W, ex = sx + dx * run, ez = sz + dz * run, px = dz * HALF_W, pz = -dx * HALF_W;
     parts.push({ name: 'Rampa do heliponto', mesh: geometry([sx + px, ry, sz + pz, sx - px, ry, sz - pz, ex - px, y1, ez - pz, ex + px, y1, ez + pz], [0, 1, 2, 0, 2, 3], Array.from({ length: 4 }, () => deckColor).flat()) });
+    slab([[sx + px, ry, sz + pz], [sx - px, ry, sz - pz], [ex - px, y1, ez - pz], [ex + px, y1, ez + pz]]);
+    for (let d = 4; d < run - 2; d += 8) for (const s of [-1, 1]) pillar(sx + dx * d + s * px * .7, sz + dz * d + s * pz * .7, ry + d * SLOPE);
     // a caixa do trecho se prolonga 6 m (um patamar) além do fim, e 6 m antes do início no primeiro trecho: topo plano ali (t preso em 0 ou 1)
     const bx0 = sx - dx * (k === 0 ? 2 * HALF_W : 0), bz0 = sz - dz * (k === 0 ? 2 * HALF_W : 0), bx1 = ex + dx * 2 * HALF_W, bz1 = ez + dz * 2 * HALF_W;
     boxes.push({ x0: Math.min(bx0, bx1) - Math.abs(px), x1: Math.max(bx0, bx1) + Math.abs(px), z0: Math.min(bz0, bz1) - Math.abs(pz), z1: Math.max(bz0, bz1) + Math.abs(pz), top: y1, bottom: ry - .12, ramp: { x0: sx, z0: sz, x1: ex, z1: ez, y0: ry, y1 } });
@@ -1459,6 +1484,7 @@ export function airportData(helipad = cityData().helipad, roof: Box = cityData()
       landingAt(lx, lz, y1, [opposite(label(dx, dz)), label(tx, tz)]);
       const bx0 = lx + tx * HALF_W, bz0 = lz + tz * HALF_W, bx = ex + tx * reach, bz = ez + tz * reach, qx = tz * HALF_W, qz = -tx * HALF_W;
       parts.push({ name: 'Ponte do heliponto', mesh: geometry([bx0 + qx, y1, bz0 + qz, bx0 - qx, y1, bz0 - qz, bx - qx, y1, bz - qz, bx + qx, y1, bz + qz], [0, 1, 2, 0, 2, 3], Array.from({ length: 4 }, () => deckColor).flat()) });
+      slab([[bx0 + qx, y1, bz0 + qz], [bx0 - qx, y1, bz0 - qz], [bx - qx, y1, bz - qz], [bx + qx, y1, bz + qz]]);
       boxes.push({ x0: Math.min(bx0, bx) - Math.abs(qx), x1: Math.max(bx0, bx) + Math.abs(qx), z0: Math.min(bz0, bz) - Math.abs(qz), z1: Math.max(bz0, bz) + Math.abs(qz), top: y1, bottom: y1 - .12, ramp: { x0: bx0, z0: bz0, x1: bx, z1: bz, y0: y1, y1 } });
       const ce = HALF_W - RAIL_T, cnx = tz * ce, cnz = -tx * ce;
       for (const s of [-1, 1]) railAlong(bx0 + s * cnx, bz0 + s * cnz, y1, bx + s * cnx, bz + s * cnz, y1);
@@ -1469,6 +1495,7 @@ export function airportData(helipad = cityData().helipad, roof: Box = cityData()
     ry = y1;
     landing(k + 1, ry, [side(k + 1, k), side(k + 1, k + 2)]);
   }
+  if (structIdx.length) parts.push({ name: 'Estrutura da rampa', mesh: geometry(structPos, structIdx, Array.from({ length: structPos.length / 3 }, () => deckColor).flat()) });
   if (railIdx.length) parts.push({ name: 'Guarda-corpo da rampa', mesh: geometry(railPos, railIdx, Array.from({ length: railPos.length / 3 }, () => [205, 210, 215, 255]).flat()) });
   return { parts, boxes, helipad, access };
 }
@@ -1556,9 +1583,15 @@ export const WORKSHOP = { x: WORKSHOP_SPOT.x, y: WORKSHOP_Y, z: WORKSHOP_SPOT.z 
 
 /** Lote livre e plano da UniAcademia (Academia de Comércio, Centro): o modelo do Gemini fica aqui, frente para -Z local. */
 export const UNIACADEMIA = (() => {
-  // Fachada real (fotos + OSM way 348735716): olha para ENE, paralela à Rua Halfeld, de frente para o Parque Halfeld
-  const heading = 71;
-  return { x: UNI_LOT.x, y: terrainHeight(UNI_LOT.x, UNI_LOT.z), z: UNI_LOT.z, heading, width: 47, depth: 42, radius: 38 };
+  // Como nas fotos: a entrada (pórtico + praça + calçada do modelo) dá de frente para a rua mais próxima.
+  // A fachada olha para o ponto da via perpendicular ao lote e o prédio recua até a praça encostar na calçada.
+  const width = 47, depth = 42;
+  const dx = UNI_ROAD.x - UNI_LOT.x, dz = UNI_ROAD.z - UNI_LOT.z, dist = Math.hypot(dx, dz) || 1;
+  const ux = dx / dist, uz = dz / dist;
+  const heading = (Math.atan2(ux, -uz) * 180 / Math.PI + 360) % 360;
+  const back = depth / 2 + 1; // a faixa de rua do próprio modelo (na frente da praça) encosta na pista real
+  const x = UNI_ROAD.x - ux * back, z = UNI_ROAD.z - uz * back;
+  return { x, y: terrainHeight(x, z), z, heading, width, depth, radius: 38 };
 })();
 
 /** Cristo do Imperador, no topo do Morro do Imperador. */
