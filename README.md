@@ -2,6 +2,8 @@
 
 **Entregue tudo antes do meio-dia — ou perca seu horário de almoço.**
 
+**▶ Jogar agora no navegador:** https://playcanv.as/p/TDvKBc0x/
+
 ---
 
 ## Descrição geral
@@ -99,7 +101,7 @@ npm test           # roda testes (vitest)
 
 ## Versão jogável
 
-- **Link jogável (PlayCanvas):** em publicação no PlayCanvas (o link `playcanv.as` será adicionado aqui)
+- **Link jogável (PlayCanvas):** https://playcanv.as/p/TDvKBc0x/
 - **Projeto no PlayCanvas Editor:** https://playcanvas.com/editor/project/1606932
 - **Rodar localmente:** `npm install` e `npm run dev`, depois abra http://localhost:5173 (ou `npm run build` + `npm run preview`).
 
