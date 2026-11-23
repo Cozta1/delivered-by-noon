@@ -6,7 +6,7 @@
 
 ## Descrição geral
 
-**Enredo:** Você é um entregador da GoPostal em Juiz de Fora que começa o turno às **06:00** e tem até o horário de almoço (**12:00**) para completar as **16 entregas** da manhã. A progressão é de veículos cada vez mais rápidos: Hatch → Coupé Tunado → Helicóptero MD 500 → avião A-29 Super Tucano. Cada veículo já traz suas encomendas ao entrar nele; a última entrega de cada estágio leva o jogador ao próximo veículo, fechando na fachada histórica da **UniAcademia**.
+**Enredo:** Você é um entregador da GoPostal em Juiz de Fora que começa o turno às **06:00** e tem até o horário de almoço (**12:00**) para completar as **16 entregas** da manhã. A progressão é de veículos cada vez mais rápidos: Hatch → Esportivo → Helicóptero → avião A-29 Super Tucano (com lançamento aéreo das encomendas). Cada veículo já traz suas encomendas ao entrar nele; a última entrega de cada estágio leva o jogador ao próximo veículo, fechando na fachada histórica da **UniAcademia**.
 
 **Objetivos:** Entregar todas as 16 encomendas antes das **12:00**. O relógio no HUD avança de **06:00 a 12:00** (30 minutos reais por padrão, ajustável no atributo `dayDurationMinutes`), sempre de dia enquanto o sol da manhã sobe sobre Juiz de Fora. **Vitória:** todas as entregas concluídas antes do meio-dia (com bônus de tempo e placar de recordes). **Derrota:** relógio chega a 12:00 com encomendas pendentes.
 
@@ -16,13 +16,15 @@
 
 - **PlayCanvas** (Editor online + engine 2.x)
 - **TypeScript** + **Vite** para build local e script ESM único
-- Modelos 3D feitos no **Blender** (exportados GLB)
+- **Blender** (headless, scripts em Python) para adaptar e otimizar os modelos 3D (GLB)
+- **Meshy** (geração de modelos 3D por IA, recomendada pelo professor) para os carros do trânsito
+- Mapa real de **Juiz de Fora** (OpenStreetMap + relevo AWS Terrain Tiles)
 
 ---
 
 ## Instalação e execução
 
-**Requisitos:** Node 20+
+**Requisitos:** Node.js 20 ou mais novo (testado no 24) e um navegador com WebGL 2 (Chrome, Edge ou Firefox atuais). Dependências instaladas pelo `npm install`: `playcanvas` (engine) e, para desenvolvimento, `typescript`, `vite`, `vitest` e `@gltf-transform/core`.
 
 ```bash
 npm install
@@ -46,6 +48,8 @@ npm test           # roda testes (vitest)
 | **C** / **V** | Alternar câmera (atrás / de cima / cabine) |
 | **M** | Alternar Mouse / Teclado (aeronaves) |
 | **Esc** / **P** | Pausar / menu de pausa |
+| **G** | Desatolar (volta o veículo para a rua mais próxima) |
+| **F8** | Modo dev: câmera livre para explorar o mapa (T traz o veículo) |
 
 ### A pé
 | Tecla | Ação |
@@ -55,11 +59,11 @@ npm test           # roda testes (vitest)
 | **Mouse** | Girar câmera |
 | **Clique esquerdo** | Travar/soltar ponteiro |
 
-### Carro / Carro tunado
+### Carro / Esportivo
 | Tecla | Ação |
 |-------|------|
 | **W / A / S / D** | Dirigir |
-| **Shift** | Nitro (Coupé Tunado) |
+| **Shift** | Nitro (Esportivo) |
 | **Espaço** | Freio de mão / drift |
 | **Mouse** | Girar câmera |
 
@@ -84,21 +88,20 @@ npm test           # roda testes (vitest)
 
 ---
 
-## Capturas de tela e GIFs
+## Capturas de tela
 
-*Imagens serão adicionadas após a entrega.*
-
-![Tela inicial](docs/imagens/tela-inicial.png)
-![Jogabilidade — carro](docs/imagens/jogabilidade-carro.png)
-![Jogabilidade — helicóptero](docs/imagens/jogabilidade-helicoptero.png)
-![Jogabilidade — A-29](docs/imagens/jogabilidade-a29.png)
-![HUD e missão](docs/imagens/hud-missao.png)
+| | |
+|---|---|
+| ![Menu inicial](docs/screenshots/01-menu.png) | ![Entrega de carro com o GPS no chão](docs/screenshots/02-entrega-de-carro.png) |
+| ![Juiz de Fora vista de cima](docs/screenshots/03-cidade.png) | ![UniAcademia, a entrega final](docs/screenshots/04-uniacademia.png) |
 
 ---
 
 ## Versão jogável
 
-**Link jogável:** (será adicionado)
+- **Link jogável (PlayCanvas):** em publicação no PlayCanvas (o link `playcanv.as` será adicionado aqui)
+- **Projeto no PlayCanvas Editor:** https://playcanvas.com/editor/project/1606932
+- **Rodar localmente:** `npm install` e `npm run dev`, depois abra http://localhost:5173 (ou `npm run build` + `npm run preview`).
 
 ---
 
@@ -154,7 +157,15 @@ npm test           # roda testes (vitest)
 A física de voo (FDM) foi portada e adaptada do **JSBSim** (LGPL-2.1, *JSBSim-Team*). Os arquivos derivados estão em `src/flight/fdm/` e a licença original em `src/flight/fdm/LICENSE-JSBSim.txt`. Nenhum código do FlightGear foi utilizado; é um subconjunto educacional com assistência arcade, não o motor JSBSim completo nem uma simulação validada do A-29.
 
 - **PlayCanvas** — Engine 3D web
-- **Blender** — Modelagem 3D
+- **Blender** — Modelagem e adaptação 3D
+
+### Modelos 3D de terceiros (adaptados pelo grupo: escala real, rodas/rotores separados, sem interior e sem logos)
+- **2014 Ford Fiesta ST** — *Ddiaz Design* (Sketchfab), licença **CC BY-NC-SA 4.0**; versão modificada distribuída sob a mesma licença (`public/models/carro.glb`). Rodas de 5 raios geradas no Meshy.
+- **Porsche 911 GT3** — Sketchfab (`public/models/carro-tunado.glb`). Autor e licença conforme a página do modelo no Sketchfab (link a adicionar).
+- **Animated Civilian Helicopter** — Sketchfab (`public/models/helicoptero.glb`). Autor e licença conforme a página do modelo no Sketchfab (link a adicionar).
+- **EMB-314 Super Tucano A-29B** — Sketchfab (`public/models/a29.glb`). Autor e licença conforme a página do modelo no Sketchfab (link a adicionar).
+- **Carros do trânsito** (hatch, picape, sedan) — gerados pelo grupo no **Meshy** e ajustados no Blender.
+- **UniAcademia, personagem e cenário** — modelados pelo grupo (Blender e geração procedural).
 
 - **QuickRoad (ideia dos cruzamentos)** — plugin do Roblox de *stravant* (GeomTools), licença **MIT** (https://devforum.roblox.com/t/new-geomtools-plugin-quickroad-is-finally-here/2024127). Usamos só a ideia (cortar cada rua num recuo calculado pelo ângulo e pela largura das vizinhas, miolo poligonal com filetes de esquina, meio-fio contornando a esquina); nenhum código do plugin foi copiado. Implementação própria em `src/flight/world-data.ts`.
 - **carphysics2d** — Mike Linkovich (spacejack), baseado em *Car Physics for Games* de Marco Monster; licença **MIT** confirmada no repositório. Port SI com pneus por ângulo de deriva, transferência de peso e FWD/RWD: `src/flight/carphys/model.ts`; licença preservada em `src/flight/carphys/LICENSE-carphysics2d.txt`. Fonte: https://github.com/spacejack/carphysics2d/tree/1266b154fb79320db19d14874d6bdf0825687d44 . Assistências e parâmetros arcade não representam ensaio de automóvel real.
